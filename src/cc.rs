@@ -1,21 +1,57 @@
 #![allow(unused)]
 use std::{iter::zip, rc::Rc};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Kind {
     Ty,
     Pi(Box<Fam>, Box<Kind>),
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Fam {
     Pi(Box<Fam>, Box<Fam>),
     Abs(Box<Fam>),
     Neutral(usize, Vec<Obj>),
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Obj {
     Abs(Box<Obj>),
     Neutral(usize, Vec<Obj>),
+}
+
+mod lazy {
+    #[derive(Debug, Clone)]
+    pub(super) struct Lazy<T> {
+        pub env: Vec<Lazy<super::Obj>>,
+        pub term: Box<T>,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub(super) enum Kind {
+        Ty,
+        Pi(Lazy<super::Fam>, Lazy<super::Kind>),
+    }
+    #[derive(Debug, Clone, PartialEq)]
+    pub(super) enum Fam {
+        Pi(Lazy<super::Fam>, Lazy<super::Fam>),
+        Abs(Lazy<super::Fam>),
+        Neutral(usize, Vec<Lazy<super::Obj>>),
+    }
+    #[derive(Debug, Clone, PartialEq)]
+    pub(super) enum Obj {
+        Abs(Lazy<super::Obj>),
+        Neutral(usize, Vec<Lazy<super::Obj>>),
+    }
+}
+
+use lazy::Lazy;
+
+impl<T> From<T> for Lazy<T> {
+    fn from(value: T) -> Self {
+        Self {
+            env: vec![],
+            term: Box::new(value),
+        }
+    }
 }
 
 impl Kind {
@@ -23,103 +59,185 @@ impl Kind {
         match self {
             Kind::Ty => {}
             Kind::Pi(arg_ty, ret_ty) => {
-                arg_ty.check(env, &Kind::Ty);
+                arg_ty.check(env, &Kind::Ty.into());
                 ret_ty.check(env);
             }
         }
     }
+}
 
-    fn subst(&self, idx: usize, val: &Obj) -> Box<Self> {
-        let res = match self {
-            Kind::Ty => Kind::Ty,
-            Kind::Pi(arg_ty, ret_ty) => {
-                Kind::Pi(arg_ty.subst(idx, val), ret_ty.subst(idx + 1, val))
-            }
-        };
-        Box::new(res)
+impl Lazy<Kind> {
+    fn whnf(&self) -> lazy::Kind {
+        match *self.term.clone() {
+            Kind::Ty => lazy::Kind::Ty,
+            Kind::Pi(arg_ty, ret_ty) => lazy::Kind::Pi(
+                Lazy {
+                    env: self.env.clone(),
+                    term: arg_ty,
+                },
+                Self {
+                    env: self.env.clone(),
+                    term: ret_ty,
+                },
+            ),
+        }
+    }
+}
+
+impl PartialEq for Lazy<Kind> {
+    fn eq(&self, other: &Self) -> bool {
+        self.env == other.env && self.term == other.term
     }
 }
 
 impl Fam {
-    fn check(&self, env: &Env<'_>, ty: &Kind) {
+    fn check(&self, env: &Env<'_>, ty: &Lazy<Kind>) {
         match self {
             Fam::Pi(arg_ty, ret_ty) => {
-                let Kind::Ty = ty else { panic!() };
-                arg_ty.check(env, &Kind::Ty);
-                ret_ty.check(env, &Kind::Ty);
+                let lazy::Kind::Ty = ty.whnf() else {panic!()};
+                arg_ty.check(env, &Kind::Ty.into());
+                ret_ty.check(env, &Kind::Ty.into());
             }
             Fam::Abs(body) => {
-                let Kind::Pi(arg_ty, ret_ty) = ty else { panic!() };
-                let env = env.push(arg_ty);
-                body.check(&env, ret_ty);
+                let lazy::Kind::Pi(arg_ty, ret_ty) = ty.whnf() else {panic!()};
+                let env = env.push(&arg_ty);
+                body.check(&env, &ret_ty);
             }
             Fam::Neutral(idx, args) => {
                 let mut res = env.get_kind(*idx).clone();
                 for arg in args {
-                    let Kind::Pi(arg_ty, ret_ty) = res else { panic!() };
+                    let lazy::Kind::Pi(arg_ty, ret_ty) = ty.whnf() else {panic!()};
                     arg.check(env, &arg_ty);
-                    res = *ret_ty;
+
+                    res = ret_ty;
+                    res.env.insert(0, arg.clone().into())
                 }
+                assert_eq!(&res, ty)
             }
         }
     }
+}
 
-    fn subst(&self, idx: usize, val: &Obj) -> Box<Self> {
-        let res = match self {
-            Fam::Pi(arg_ty, ret_ty) => Fam::Pi(arg_ty.subst(idx, val), ret_ty.subst(idx + 1, val)),
-            Fam::Abs(body) => Fam::Abs(body.subst(idx + 1, val)),
-            Fam::Neutral(i, args) => {
-                Fam::Neutral(*i, args.iter().map(|x| *x.subst(idx, val)).collect())
+impl Lazy<Fam> {
+    fn whnf(&self) -> lazy::Fam {
+        match *self.term.clone() {
+            Fam::Pi(arg_ty, ret_ty) => lazy::Fam::Pi(
+                Lazy {
+                    env: self.env.clone(),
+                    term: arg_ty,
+                },
+                Self {
+                    // i should put an additional arg here
+                    env: self.env.clone(),
+                    term: ret_ty,
+                },
+            ),
+            Fam::Abs(body) => lazy::Fam::Abs(Lazy {
+                env: self.env.clone(),
+                term: body,
+            }),
+            Fam::Neutral(var, args) => {
+                let args = args.iter().map(|arg| Lazy {
+                    env: self.env.clone(),
+                    term: Box::new(arg.clone()),
+                });
+                lazy::Fam::Neutral(var, args.collect())
             }
-        };
-        Box::new(res)
+        }
+    }
+}
+
+impl PartialEq for Lazy<Fam> {
+    fn eq(&self, other: &Self) -> bool {
+        self.env == other.env && self.term == other.term
     }
 }
 
 impl Obj {
-    fn check(&self, env: &Env<'_>, ty: &Fam) {
+    fn check(&self, env: &Env<'_>, ty: &Lazy<Fam>) {
         match self {
             Obj::Abs(body) => {
-                let Fam::Pi(arg_ty, ret_ty) = ty else { panic!() };
-                let env = env.push(arg_ty);
-                body.check(&env, ret_ty);
+                let lazy::Fam::Pi(arg_ty, ret_ty) = ty.whnf() else {panic!()};
+                let env = env.push(&arg_ty);
+                body.check(&env, &ret_ty);
             }
             Obj::Neutral(idx, args) => {
                 let mut res = env.get_fam(*idx).clone();
                 for arg in args {
-                    let Fam::Pi(arg_ty, ret_ty) = res else { panic!() };
+                    let lazy::Fam::Pi(arg_ty, ret_ty) = res.whnf() else {panic!()};
                     arg.check(env, &arg_ty);
-                    res = *ret_ty;
+
+                    res = ret_ty;
+                    res.env.insert(0, arg.clone().into())
                 }
+                assert_eq!(&res, ty)
             }
         }
     }
+}
 
-    fn subst(&self, idx: usize, val: &Obj) -> Box<Self> {
-        let res = match self {
-            Obj::Abs(body) => *body.subst(idx + 1, val),
-            Obj::Neutral(i, args) => {
-                if *i != idx {
-                    return Obj::Neutral(*i, args);
-                }
-                todo!()
+impl lazy::Obj {
+    fn add_arg(self, arg: Lazy<Obj>) -> Self {
+        match self {
+            lazy::Obj::Abs(mut body) => {
+                body.env.insert(0, arg);
+                body.whnf()
             }
-        };
-        Box::new(res)
+            lazy::Obj::Neutral(var, mut args) => {
+                args.push(arg);
+                lazy::Obj::Neutral(var, args)
+            }
+        }
+    }
+}
+
+impl Lazy<Obj> {
+    fn whnf(&self) -> lazy::Obj {
+        match *self.term.clone() {
+            Obj::Abs(body) => lazy::Obj::Abs(Lazy {
+                env: self.env.clone(),
+                term: body,
+            }),
+            Obj::Neutral(var, args) => {
+                let args = args.iter().map(|arg| Lazy {
+                    env: self.env.clone(),
+                    term: Box::new(arg.clone()),
+                });
+
+                let Some(mut res) = self.env.get(var) else {
+                    return lazy::Obj::Neutral(var, args.collect())
+                };
+
+                let mut res = res.whnf();
+                for arg in args {
+                    res = res.add_arg(arg);
+                }
+                res
+            }
+        }
+    }
+}
+
+impl PartialEq for Lazy<Obj> {
+    fn eq(&self, other: &Self) -> bool {
+        self.whnf() == other.whnf()
     }
 }
 
 enum Env<'a> {
     Empty,
-    Cons { ty: &'a Fam, prev: &'a Env<'a> },
+    Cons {
+        ty: &'a Lazy<Fam>,
+        prev: &'a Env<'a>,
+    },
 }
 
 impl<'a> Env<'a> {
-    fn get_kind(&self, idx: usize) -> &Kind {
+    fn get_kind(&self, idx: usize) -> &Lazy<Kind> {
         todo!()
     }
 
-    fn get_fam(&self, idx: usize) -> &Fam {
+    fn get_fam(&self, idx: usize) -> &Lazy<Fam> {
         match self {
             Env::Empty => panic!(),
             Env::Cons { ty, prev } => match idx.checked_sub(1) {
@@ -129,7 +247,7 @@ impl<'a> Env<'a> {
         }
     }
 
-    fn push<'x>(&'x self, ty: &'x Fam) -> Env<'x> {
+    fn push<'x>(&'x self, ty: &'x Lazy<Fam>) -> Env<'x> {
         Env::Cons { ty, prev: self }
     }
 }
