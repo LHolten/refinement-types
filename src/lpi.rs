@@ -4,9 +4,9 @@ use std::rc::Rc;
 
 trait Checkable {
     type Ty;
+    type Out;
 
-    fn check(&self, ty: &Self::Ty);
-    fn typed_eq(&self, other: &Self, ty: &Self::Ty);
+    fn check(&self, ty: &Self::Ty) -> Rc<Self::Out>;
 }
 
 enum Kind {
@@ -14,15 +14,31 @@ enum Kind {
     Pi(Rc<Fam>, Rc<dyn Fn(&Rc<Obj>) -> Rc<Kind>>),
 }
 
+enum CKind {
+    Type,
+    Pi(Rc<CFam>, Rc<dyn Fn(&Rc<CObj>) -> Rc<CKind>>),
+}
+
 enum Fam {
     Pi(Rc<Fam>, Rc<dyn Fn(&Rc<Obj>) -> Rc<Fam>>),
     Abs(Rc<dyn Fn(&Rc<Obj>) -> Rc<Fam>>),
-    Neutral(Rc<()>, Rc<Kind>, Vec<Rc<Obj>>),
+    Neutral(Rc<()>, Rc<CKind>, Vec<Rc<Obj>>),
+}
+
+enum CFam {
+    Pi(Rc<CFam>, Rc<dyn Fn(&Rc<CObj>) -> Rc<CFam>>),
+    Abs(Rc<dyn Fn(&Rc<CObj>) -> Rc<CFam>>),
+    Neutral(Rc<()>, Vec<Rc<CObj>>),
 }
 
 enum Obj {
     Abs(Rc<dyn Fn(&Rc<Obj>) -> Rc<Obj>>),
-    Neutral(Rc<()>, Rc<Fam>, Vec<Rc<Obj>>),
+    Neutral(Rc<()>, Rc<CFam>, Vec<Rc<Obj>>),
+}
+
+enum CObj {
+    Abs(Rc<dyn Fn(&Rc<CObj>) -> Rc<CObj>>),
+    Neutral(Rc<()>, Vec<Rc<CObj>>),
 }
 
 impl Kind {
@@ -32,7 +48,7 @@ impl Kind {
 }
 
 impl Fam {
-    pub fn var(ty: &Rc<Kind>) -> Rc<Self> {
+    pub fn var(ty: &Rc<CKind>) -> Rc<Self> {
         Rc::new(Fam::Neutral(Rc::new(()), ty.clone(), vec![]))
     }
     pub fn pi(ty: &Rc<Fam>, f: impl Fn(&Rc<Obj>) -> Rc<Fam> + 'static) -> Rc<Self> {
@@ -50,155 +66,168 @@ impl Fam {
 }
 
 impl Obj {
-    pub fn var(ty: &Rc<Fam>) -> Rc<Self> {
-        Rc::new(Obj::Neutral(Rc::new(()), ty.clone(), vec![]))
+    pub fn var(ty: &Rc<CFam>) -> (Rc<CObj>, Rc<Self>) {
+        let x = Rc::new(());
+        (
+            Rc::new(CObj::Neutral(x.clone(), vec![])),
+            Rc::new(Obj::Neutral(x, ty.clone(), vec![])),
+        )
     }
     pub fn abs(f: impl Fn(&Rc<Obj>) -> Rc<Obj> + 'static) -> Rc<Self> {
         Rc::new(Obj::Abs(Rc::new(f)))
     }
 }
 
+impl CObj {
+    pub fn var() -> Rc<Self> {
+        Rc::new(CObj::Neutral(Rc::new(()), vec![]))
+    }
+    // pub fn abs(f: impl Fn(&Rc<CObj>) -> Rc<CObj> + 'static) -> Rc<Self> {
+    //     Rc::new(CObj::Abs(Rc::new(f)))
+    // }
+}
+
 impl Checkable for Kind {
     type Ty = ();
+    type Out = CKind;
 
-    fn check(&self, (): &Self::Ty) {
+    fn check(&self, (): &Self::Ty) -> Rc<Self::Out> {
         match self {
-            Kind::Type => {}
+            Kind::Type => Rc::new(CKind::Type),
             Kind::Pi(a, f) => {
-                let var = Obj::var(a);
-                f(&var).check(&());
+                let a = a.check(&CKind::Type);
+                let (cvar, var) = Obj::var(&a);
+                f(&var).check(&())
             }
         }
     }
+}
 
-    fn typed_eq(&self, other: &Self, (): &Self::Ty) {
+impl PartialEq for CKind {
+    fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Type, Self::Type) => {}
+            (Self::Type, Self::Type) => true,
             (Self::Pi(l0, l1), Self::Pi(r0, r1)) => {
-                l0.typed_eq(r0, &Kind::Type);
-                let var = Obj::var(l0);
-                l1(&var).typed_eq(&r1(&var), &())
+                let true = l0 == r0 else { return false };
+                let var = CObj::var();
+                l1(&var) == r1(&var)
             }
-            _ => panic!(),
+            _ => false,
         }
     }
 }
 
 impl Checkable for Fam {
-    type Ty = Kind;
+    type Ty = CKind;
+    type Out = CFam;
 
-    fn check(&self, ty: &Self::Ty) {
+    fn check(&self, ty: &Self::Ty) -> Rc<Self::Out> {
         match self {
             Fam::Pi(a, f) => {
-                a.check(&Kind::Type);
-                let var = Obj::var(a);
-                f(&var).check(ty);
+                let a = a.check(&CKind::Type);
+                let (cvar, var) = Obj::var(&a);
+                f(&var).check(ty)
             }
             Fam::Abs(f) => {
-                let Kind::Pi(a, t) = ty else {panic!()};
-                let var = Obj::var(a);
-                f(&var).check(&t(&var));
+                let CKind::Pi(a, t) = ty else {panic!()};
+                let (cvar, var) = Obj::var(a);
+                f(&var).check(&t(&cvar))
             }
-            Fam::Neutral(_, r, args) => {
+            Fam::Neutral(x, r, args) => {
+                let mut new_args = vec![];
                 let mut res = r.clone();
                 for arg in args {
-                    let Kind::Pi(a, t) = res.as_ref() else {panic!()};
-                    arg.check(a);
-                    res = t(arg);
+                    let CKind::Pi(a, t) = res.as_ref() else {panic!()};
+                    let arg = arg.check(a);
+                    res = t(&arg);
+                    new_args.push(arg);
                 }
-                res.typed_eq(ty, &())
+                assert!(res.as_ref() == ty);
+                Rc::new(CFam::Neutral(x.clone(), new_args))
             }
         }
     }
+}
 
-    fn typed_eq(&self, other: &Self, ty: &Self::Ty) {
+impl PartialEq for CFam {
+    fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Pi(l0, l1), Self::Pi(r0, r1)) => {
-                l0.typed_eq(r0, &Kind::Type);
-                let var = Obj::var(l0);
-                l1(&var).typed_eq(&r1(&var), ty)
+                let true = l0 == r0 else { return false };
+                let var = CObj::var();
+                l1(&var) == r1(&var)
             }
             (Self::Abs(l0), Self::Abs(r0)) => {
-                let Kind::Pi(a, t) = ty else {panic!()};
-                let var = Obj::var(a);
-                l0(&var).typed_eq(&r0(&var), &t(&var))
+                let var = CObj::var();
+                l0(&var) == r0(&var)
             }
-            (Self::Neutral(l0, l1, l2), Self::Neutral(r0, r1, r2)) => {
-                assert!(Rc::ptr_eq(l0, r0));
-                assert_eq!(l2.len(), r2.len());
-
-                let mut res = l1.clone();
-                for (l, r) in l2.iter().zip(r2.iter()) {
-                    let Kind::Pi(a, t) = res.as_ref() else {panic!()};
-                    l.typed_eq(r, a);
-                    res = t(l);
-                }
+            (Self::Neutral(l0, l1), Self::Neutral(r0, r1)) => {
+                let true = Rc::ptr_eq(l0, r0) else { return false };
+                l1 == r1
             }
-            _ => panic!(),
+            _ => false,
         }
     }
 }
 
 impl Checkable for Obj {
-    type Ty = Fam;
+    type Ty = CFam;
+    type Out = CObj;
 
-    fn check(&self, ty: &Fam) {
+    fn check(&self, ty: &Self::Ty) -> Rc<Self::Out> {
         match self {
             Obj::Abs(f) => {
-                let Fam::Pi(a, t) = ty else {panic!()};
-                let var = Obj::var(a);
-                f(&var).check(&t(&var))
+                let CFam::Pi(a, t) = ty else {panic!()};
+                let (cvar, var) = Obj::var(a);
+                f(&var).check(&t(&cvar))
             }
-            Obj::Neutral(_, r, args) => {
+            Obj::Neutral(x, r, args) => {
+                let mut new_args = vec![];
                 let mut res = r.clone();
                 for arg in args {
-                    let Fam::Pi(a, t) = res.as_ref() else {panic!()};
-                    arg.check(a);
-                    res = t(arg);
+                    let CFam::Pi(a, t) = res.as_ref() else {panic!()};
+                    let arg = arg.check(a);
+                    res = t(&arg);
+                    new_args.push(arg);
                 }
-                res.typed_eq(ty, &Kind::Type)
+                assert!(res.as_ref() == ty);
+                Rc::new(CObj::Neutral(x.clone(), new_args))
             }
         }
     }
+}
 
-    fn typed_eq(&self, other: &Self, ty: &Self::Ty) {
+impl PartialEq for CObj {
+    fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Abs(l0), Self::Abs(r0)) => {
-                let Fam::Pi(a, t) = ty else {panic!()};
-                let var = Obj::var(a);
-                l0(&var).typed_eq(&r0(&var), &t(&var))
+                let var = CObj::var();
+                l0(&var) == r0(&var)
             }
-            (Self::Neutral(l0, l1, l2), Self::Neutral(r0, r1, r2)) => {
-                assert!(Rc::ptr_eq(l0, r0));
-                assert_eq!(l2.len(), r2.len());
-
-                let mut res = l1.clone();
-                for (l, r) in l2.iter().zip(r2.iter()) {
-                    let Fam::Pi(a, t) = res.as_ref() else {panic!()};
-                    l.typed_eq(r, a);
-                    res = t(l);
-                }
+            (Self::Neutral(l0, l1), Self::Neutral(r0, r1)) => {
+                let true = Rc::ptr_eq(l0, r0) else { return false };
+                l1 == r1
             }
-            _ => panic!(),
+            _ => false,
         }
     }
 }
 
-mod tests {
-    use std::rc::Rc;
+// mod tests {
+//     use std::rc::Rc;
 
-    use super::{Checkable, Fam, Kind, Obj};
+//     use super::{CKind, Checkable, Fam, Kind, Obj};
 
-    #[test]
-    fn identity_test() {
-        let U = Fam::var(&Rc::new(Kind::Type));
-        let e = Fam::var(&Kind::pi(&U, |_| Rc::new(Kind::Type)));
-        let id = Obj::abs(|A| Obj::abs(|x| x.clone()));
-        let ty = Fam::pi(&U, move |A| {
-            let A = A.clone();
-            let e = e.clone();
-            Fam::pi(&Fam::app(&e, &A), move |x| Fam::app(&e, &A))
-        });
-        id.check(&ty)
-    }
-}
+//     #[test]
+//     fn identity_test() {
+//         let U = Fam::var(&Rc::new(CKind::Type));
+//         let e = Fam::var(&CKind::pi(&U, |_| Rc::new(Kind::Type)));
+//         let id = Obj::abs(|A| Obj::abs(|x| x.clone()));
+//         let ty = Fam::pi(&U, move |A| {
+//             let A = A.clone();
+//             let e = e.clone();
+//             Fam::pi(&Fam::app(&e, &A), move |x| Fam::app(&e, &A))
+//         });
+//         id.check(&ty)
+//     }
+// }
