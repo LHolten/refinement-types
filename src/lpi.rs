@@ -9,40 +9,48 @@ trait Checkable {
     fn check(&self, ty: &Self::Ty) -> Rc<Self::Out>;
 }
 
+trait Map<T>
+where
+    T: Checkable,
+{
+    fn map(&self, obj: &Rc<Obj>) -> Rc<T>;
+    fn cmap(&self, obj: &Rc<CObj>) -> Rc<T::Out>;
+}
+
 enum Kind {
     Type,
-    Pi(Rc<Fam>, Rc<dyn Fn(&Rc<Obj>) -> Rc<Kind>>),
+    Pi(Rc<Fam>, Rc<dyn Map<Kind>>),
 }
 
 enum CKind {
     Type,
-    Pi(Rc<CFam>, Rc<dyn Fn(&Rc<CObj>) -> Rc<CKind>>),
+    Pi(Rc<CFam>, Rc<dyn Map<Kind>>),
 }
 
 enum Fam {
-    Pi(Rc<Fam>, Rc<dyn Fn(&Rc<Obj>) -> Rc<Fam>>),
-    Abs(Rc<dyn Fn(&Rc<Obj>) -> Rc<Fam>>),
+    Pi(Rc<Fam>, Rc<dyn Map<Fam>>),
+    Abs(Rc<dyn Map<Fam>>),
     Neutral(Rc<()>, Rc<CKind>, Vec<Rc<Obj>>),
 }
 
 enum CFam {
-    Pi(Rc<CFam>, Rc<dyn Fn(&Rc<CObj>) -> Rc<CFam>>),
-    Abs(Rc<dyn Fn(&Rc<CObj>) -> Rc<CFam>>),
+    Pi(Rc<CFam>, Rc<dyn Map<Fam>>),
+    Abs(Rc<dyn Map<Fam>>),
     Neutral(Rc<()>, Vec<Rc<CObj>>),
 }
 
 enum Obj {
-    Abs(Rc<dyn Fn(&Rc<Obj>) -> Rc<Obj>>),
+    Abs(Rc<dyn Map<Obj>>),
     Neutral(Rc<()>, Rc<CFam>, Vec<Rc<Obj>>),
 }
 
 enum CObj {
-    Abs(Rc<dyn Fn(&Rc<CObj>) -> Rc<CObj>>),
+    Abs(Rc<dyn Map<Obj>>),
     Neutral(Rc<()>, Vec<Rc<CObj>>),
 }
 
 impl Kind {
-    pub fn pi(ty: &Rc<Fam>, f: impl Fn(&Rc<Obj>) -> Rc<Kind> + 'static) -> Rc<Self> {
+    pub fn pi(ty: &Rc<Fam>, f: impl Map<Kind> + 'static) -> Rc<Self> {
         Rc::new(Kind::Pi(ty.clone(), Rc::new(f)))
     }
 }
@@ -51,10 +59,10 @@ impl Fam {
     pub fn var(ty: &Rc<CKind>) -> Rc<Self> {
         Rc::new(Fam::Neutral(Rc::new(()), ty.clone(), vec![]))
     }
-    pub fn pi(ty: &Rc<Fam>, f: impl Fn(&Rc<Obj>) -> Rc<Fam> + 'static) -> Rc<Self> {
+    pub fn pi(ty: &Rc<Fam>, f: impl Map<Fam> + 'static) -> Rc<Self> {
         Rc::new(Fam::Pi(ty.clone(), Rc::new(f)))
     }
-    pub fn abs(f: impl Fn(&Rc<Obj>) -> Rc<Fam> + 'static) -> Rc<Self> {
+    pub fn abs(f: impl Map<Fam> + 'static) -> Rc<Self> {
         Rc::new(Fam::Abs(Rc::new(f)))
     }
     pub fn app(val: &Rc<Self>, arg: &Rc<Obj>) -> Rc<Self> {
@@ -73,7 +81,7 @@ impl Obj {
             Rc::new(Obj::Neutral(x, ty.clone(), vec![])),
         )
     }
-    pub fn abs(f: impl Fn(&Rc<Obj>) -> Rc<Obj> + 'static) -> Rc<Self> {
+    pub fn abs(f: impl Map<Obj> + 'static) -> Rc<Self> {
         Rc::new(Obj::Abs(Rc::new(f)))
     }
 }
@@ -81,6 +89,9 @@ impl Obj {
 impl CObj {
     pub fn var() -> Rc<Self> {
         Rc::new(CObj::Neutral(Rc::new(()), vec![]))
+    }
+    pub fn expand(&self) -> Rc<Obj> {
+        todo!()
     }
     // pub fn abs(f: impl Fn(&Rc<CObj>) -> Rc<CObj> + 'static) -> Rc<Self> {
     //     Rc::new(CObj::Abs(Rc::new(f)))
@@ -97,7 +108,8 @@ impl Checkable for Kind {
             Kind::Pi(a, f) => {
                 let a = a.check(&CKind::Type);
                 let (cvar, var) = Obj::var(&a);
-                f(&var).check(&())
+                let _ = f.map(&var).check(&());
+                Rc::new(CKind::Pi(a, f.clone()))
             }
         }
     }
@@ -110,7 +122,7 @@ impl PartialEq for CKind {
             (Self::Pi(l0, l1), Self::Pi(r0, r1)) => {
                 let true = l0 == r0 else { return false };
                 let var = CObj::var();
-                l1(&var) == r1(&var)
+                l1.cmap(&var) == r1.cmap(&var)
             }
             _ => false,
         }
@@ -126,12 +138,14 @@ impl Checkable for Fam {
             Fam::Pi(a, f) => {
                 let a = a.check(&CKind::Type);
                 let (cvar, var) = Obj::var(&a);
-                f(&var).check(ty)
+                let _ = f.map(&var).check(&CKind::Type);
+                Rc::new(CFam::Pi(a, f.clone()))
             }
             Fam::Abs(f) => {
                 let CKind::Pi(a, t) = ty else {panic!()};
                 let (cvar, var) = Obj::var(a);
-                f(&var).check(&t(&cvar))
+                let _ = f.map(&var).check(&t.cmap(&cvar));
+                Rc::new(CFam::Abs(f.clone()))
             }
             Fam::Neutral(x, r, args) => {
                 let mut new_args = vec![];
@@ -139,7 +153,7 @@ impl Checkable for Fam {
                 for arg in args {
                     let CKind::Pi(a, t) = res.as_ref() else {panic!()};
                     let arg = arg.check(a);
-                    res = t(&arg);
+                    res = t.cmap(&arg);
                     new_args.push(arg);
                 }
                 assert!(res.as_ref() == ty);
@@ -155,11 +169,11 @@ impl PartialEq for CFam {
             (Self::Pi(l0, l1), Self::Pi(r0, r1)) => {
                 let true = l0 == r0 else { return false };
                 let var = CObj::var();
-                l1(&var) == r1(&var)
+                l1.cmap(&var) == r1.cmap(&var)
             }
             (Self::Abs(l0), Self::Abs(r0)) => {
                 let var = CObj::var();
-                l0(&var) == r0(&var)
+                l0.cmap(&var) == r0.cmap(&var)
             }
             (Self::Neutral(l0, l1), Self::Neutral(r0, r1)) => {
                 let true = Rc::ptr_eq(l0, r0) else { return false };
@@ -179,7 +193,8 @@ impl Checkable for Obj {
             Obj::Abs(f) => {
                 let CFam::Pi(a, t) = ty else {panic!()};
                 let (cvar, var) = Obj::var(a);
-                f(&var).check(&t(&cvar))
+                let _ = f.map(&var).check(&t.cmap(&cvar));
+                Rc::new(CObj::Abs(f.clone()))
             }
             Obj::Neutral(x, r, args) => {
                 let mut new_args = vec![];
@@ -187,7 +202,7 @@ impl Checkable for Obj {
                 for arg in args {
                     let CFam::Pi(a, t) = res.as_ref() else {panic!()};
                     let arg = arg.check(a);
-                    res = t(&arg);
+                    res = t.cmap(&arg);
                     new_args.push(arg);
                 }
                 assert!(res.as_ref() == ty);
@@ -202,7 +217,7 @@ impl PartialEq for CObj {
         match (self, other) {
             (Self::Abs(l0), Self::Abs(r0)) => {
                 let var = CObj::var();
-                l0(&var) == r0(&var)
+                l0.cmap(&var) == r0.cmap(&var)
             }
             (Self::Neutral(l0, l1), Self::Neutral(r0, r1)) => {
                 let true = Rc::ptr_eq(l0, r0) else { return false };
