@@ -1,6 +1,10 @@
+#![allow(unused)]
+
 use std::{cell::Cell, rc::Rc};
 
 mod subtyp;
+mod typing;
+mod verify;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Sort;
@@ -8,6 +12,11 @@ struct Sort;
 #[derive(PartialEq, Eq)]
 enum Term {
     Var(usize),
+}
+
+enum ContextPart {
+    Assume(Rc<Prop>),
+    Free(Sort),
 }
 
 enum Context<'a> {
@@ -25,6 +34,9 @@ enum Constraint {
     Prop(Rc<Prop>),
     PropEq(Rc<Prop>, Rc<Prop>),
     Forall(Sort, Rc<Constraint>),
+    Implies(Rc<Prop>, Rc<Constraint>),
+    // I added this one to do lazy substitution
+    Exists(Sort, Rc<Term>, Rc<Constraint>),
     EqNegTyp(Rc<NegTyp>, Rc<NegTyp>),
     EqPosTyp(Rc<PosTyp>, Rc<PosTyp>),
     SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
@@ -33,7 +45,7 @@ enum Constraint {
 
 #[derive(PartialEq, Eq)]
 enum Prop {
-    Eq(Rc<Term>, Rc<Term>)
+    Eq(Rc<Term>, Rc<Term>),
 }
 
 #[derive(PartialEq, Eq)]
@@ -91,4 +103,41 @@ enum BasePattern {
 #[derive(PartialEq, Eq)]
 struct Algebra {
     pats: Vec<(SumPattern, Term)>,
+}
+
+struct Pattern;
+
+enum Value {
+    Var(usize),
+    Pair(Rc<Value>, Rc<Value>),
+    Thunk(Rc<Expr>),
+}
+
+enum Expr {
+    Return(Rc<Value>),
+    Let(Rc<BoundExpr>, Rc<Expr>),
+    Match(Rc<Head>, Vec<(Pattern, Expr)>),
+    Lambda(Rc<Expr>),
+}
+
+enum Head {
+    Var(usize),
+    Anno(Rc<Value>, Rc<PosTyp>),
+}
+
+enum BoundExpr {
+    App(Rc<Head>, Vec<Value>),
+    Anno(Rc<Expr>, Rc<PosTyp>),
+}
+
+enum TConstraint {
+    Cons(Rc<Constraint>),
+    And(Rc<TConstraint>, Rc<TConstraint>),
+    Check(Rc<Expr>, Rc<NegTyp>),
+}
+
+impl TConstraint {
+    pub fn apply(&self, t: &Term) -> Self {
+        todo!()
+    }
 }
