@@ -13,6 +13,7 @@ impl<'a> Context<'a> {
         todo!()
     }
 
+    // This resolves existential values from the context in `p`
     pub fn check_value(&'a self, v: &Value, p: &PosTyp) -> Rc<TConstraint> {
         let res = match p {
             PosTyp::Refined(p, phi) => {
@@ -48,6 +49,7 @@ impl<'a> Context<'a> {
         Rc::new(res)
     }
 
+    // This resolves existential values from the context in `n`
     pub fn spine(&self, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, Rc<TConstraint>) {
         let (p, xi) = match n {
             NegTyp::Force(p) => {

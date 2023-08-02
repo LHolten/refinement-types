@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::refinement::ContextPart;
+
 use super::{Constraint, Context, Prop, TConstraint, Term};
 
 impl<'a> Context<'a> {
@@ -29,12 +31,7 @@ impl<'a> Context<'a> {
             Constraint::PropEq(phi, psi) => self.equal_prop(phi, psi),
             Constraint::Forall(tau, w) => self.forall(tau).verify(w),
             Constraint::Implies(phi, w) => {
-                todo!()
-            }
-            Constraint::Exists(tau, t, w) => {
-                // TODO: remove this branch
-                let extended = self.exists(tau);
-                extended.inst(&Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
+                let extended = self.extend(vec![ContextPart::Assume(phi.clone())]);
                 extended.verify(w);
             }
             Constraint::EqNegTyp(n, m) => {

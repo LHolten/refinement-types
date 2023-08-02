@@ -32,6 +32,7 @@ impl Context<'_> {
         todo!()
     }
 
+    // `phi` is ground
     pub fn inst_eq(&self, phi: &Prop, psi: &Prop) {
         todo!()
     }
@@ -41,7 +42,7 @@ impl Context<'_> {
     }
 
     pub fn forall(&self, tau: &Sort) -> Self {
-        todo!()
+        self.extend(vec![ContextPart::Free(*tau)])
     }
 
     pub fn get_exists(&self, var: usize) -> &Option<Rc<Term>> {
@@ -120,6 +121,7 @@ impl Context<'_> {
         res
     }
 
+    // `p` is ground
     pub fn equal_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
         let res = match (p, q) {
             (PosTyp::Prod(p1, p2), PosTyp::Prod(q1, q2)) => {
@@ -155,8 +157,11 @@ impl Context<'_> {
         Rc::new(res)
     }
 
-    // `p` is ground
+    // `p` is ground, solves all "value determined" indices in `q`
+    // also solves indices that are the result of unrolling...
+    // TODO: return a list of solved indices
     pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
+        // TODO: extract here instead of on all call sites :D
         let res = match (p, q) {
             (PosTyp::Prod(p1, p2), PosTyp::Prod(q1, q2)) => {
                 let w1 = self.sub_pos_typ(p1, q1);
@@ -170,6 +175,7 @@ impl Context<'_> {
             }
             (p, PosTyp::Refined(q, phi)) => {
                 let w = self.sub_pos_typ(p, q);
+                // this might be the result of unrolling, so we try to solve indices here
                 self.inst(phi);
                 return w.and_prop(phi);
             }
@@ -177,7 +183,8 @@ impl Context<'_> {
                 let extended = self.exists(tau);
                 let w = extended.sub_pos_typ(p, q);
                 let Some(t) = extended.get_exists(0) else { panic!() };
-                Constraint::Exists(*tau, t.clone(), w)
+                let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
+                Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
                 let (m, theta) = self.extract_neg(m);
@@ -219,6 +226,7 @@ impl Context<'_> {
     }
 
     // `m` is ground
+    // ground means that there are no existential variables
     pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> Rc<Constraint> {
         let res = match (n, m) {
             (NegTyp::Force(p), NegTyp::Force(q)) => {
@@ -234,7 +242,8 @@ impl Context<'_> {
                 let extended = self.exists(tau);
                 let w = extended.sub_neg_type(n, m);
                 let Some(t) = extended.get_exists(0) else { panic!() };
-                Constraint::Exists(*tau, t.clone(), w)
+                let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
+                Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
                 // arguments are swapped! (fun is contravariant in the argument)

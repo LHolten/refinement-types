@@ -1,17 +1,24 @@
-#![allow(unused)]
+#![allow(dead_code)]
 
 use std::{cell::Cell, rc::Rc};
 
+mod determined;
 mod subtyp;
 mod typing;
+mod unroll;
 mod verify;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Sort;
+enum Sort {
+    Bool,
+    Nat,
+}
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq)]
 enum Term {
     Var(usize),
+    Prop(Rc<Prop>),
 }
 
 enum ContextPart {
@@ -35,8 +42,6 @@ enum Constraint {
     PropEq(Rc<Prop>, Rc<Prop>),
     Forall(Sort, Rc<Constraint>),
     Implies(Rc<Prop>, Rc<Constraint>),
-    // I added this one to do lazy substitution
-    Exists(Sort, Rc<Term>, Rc<Constraint>),
     EqNegTyp(Rc<NegTyp>, Rc<NegTyp>),
     EqPosTyp(Rc<PosTyp>, Rc<PosTyp>),
     SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
