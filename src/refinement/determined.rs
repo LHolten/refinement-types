@@ -37,11 +37,6 @@ impl Context<'_> {
                 }
                 r
             }
-            PosTyp::Sum(p1, p2) => {
-                let r1 = self.value_determined_pos(p1);
-                let r2 = self.value_determined_pos(p2);
-                zip(r1, r2).map(|(x, y)| x & y).collect()
-            }
             PosTyp::Refined(p, phi) => {
                 let Sort::Bool = self.infer_prop(phi) else { panic!() };
                 self.value_determined_pos(p)

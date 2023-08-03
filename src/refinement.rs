@@ -56,7 +56,6 @@ enum Prop {
 #[derive(PartialEq, Eq)]
 enum PosTyp {
     Prod(Vec<Rc<PosTyp>>),
-    Sum(Rc<PosTyp>, Rc<PosTyp>),
     Refined(Rc<PosTyp>, Rc<Prop>),
     Exists(Sort, Rc<PosTyp>),
     Thunk(Rc<NegTyp>),
@@ -105,7 +104,8 @@ struct Pattern;
 enum Value {
     // second argument is projections
     Var(usize, Vec<usize>),
-    Pair(Vec<Rc<Value>>),
+    Inj(usize, Rc<Value>),
+    Tuple(Vec<Rc<Value>>),
     Thunk(Rc<Expr>),
 }
 

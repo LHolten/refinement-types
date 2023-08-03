@@ -126,11 +126,6 @@ impl Context<'_> {
                 let iter = zip(p, q).map(|(p, q)| self.equal_pos_typ(p, q));
                 and(iter)
             }
-            (PosTyp::Sum(p1, p2), PosTyp::Sum(q1, q2)) => {
-                let w1 = self.equal_pos_typ(p1, q1);
-                let w2 = self.equal_pos_typ(p2, q2);
-                Constraint::And(w1, w2)
-            }
             (PosTyp::Refined(p, phi), PosTyp::Refined(q, psi)) => {
                 let w = self.equal_pos_typ(p, q);
                 self.inst_eq(phi, psi);
@@ -167,11 +162,6 @@ impl Context<'_> {
             (PosTyp::Prod(p), PosTyp::Prod(q)) => {
                 let iter = zip(p, q).map(|(p, q)| self.sub_pos_typ(p, q));
                 and(iter)
-            }
-            (PosTyp::Sum(p1, p2), PosTyp::Sum(q1, q2)) => {
-                let w1 = self.equal_pos_typ(p1, q1);
-                let w2 = self.equal_pos_typ(p2, q2);
-                Constraint::And(w1, w2)
             }
             (p, PosTyp::Refined(q, phi)) => {
                 let w = self.sub_pos_typ(p, q);

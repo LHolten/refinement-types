@@ -46,7 +46,7 @@ impl<'a> Context<'a> {
                     let w = self.sub_pos_typ(q, p);
                     TConstraint::Cons(w)
                 }
-                Value::Pair(v) => {
+                Value::Tuple(v) => {
                     let PosTyp::Prod(p) = p else { panic!()};
                     let iter = zip(v, p).map(|(v, p)| self.check_value(v, p));
                     t_and(iter)
@@ -54,6 +54,16 @@ impl<'a> Context<'a> {
                 Value::Thunk(e) => {
                     let PosTyp::Thunk(n) = p else { panic!() };
                     TConstraint::Check(e.clone(), n.clone())
+                }
+                Value::Inj(i, v) => {
+                    let PosTyp::Measured(f_alpha, t) = p else { panic!() };
+                    let id = Id {
+                        f_alpha: f_alpha.clone(),
+                        tau: self.infer_term(t),
+                    };
+                    let (g, beta) = &f_alpha[*i];
+                    let p = self.unroll_prod(&id, g, beta, t);
+                    return self.check_value(v, &p);
                 }
             },
         };
