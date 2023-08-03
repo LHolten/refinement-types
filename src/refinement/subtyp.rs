@@ -1,9 +1,14 @@
-use std::{iter::zip, rc::Rc};
+use std::{collections::VecDeque, iter::zip, rc::Rc};
 
 use super::{
     BaseFunctor, Constraint, Context, ContextPart, NegTyp, PosTyp, ProdFunctor, Prop, Sort,
     SumFunctor, Term,
 };
+
+pub fn and(iter: impl Iterator<Item = Rc<Constraint>>) -> Constraint {
+    let xi = Constraint::True;
+    iter.fold(xi, |xi, xi_n| Constraint::And(Rc::new(xi), xi_n))
+}
 
 impl Constraint {
     pub fn and(self: &Rc<Self>, rhs: Rc<Constraint>) -> Rc<Self> {
@@ -83,11 +88,15 @@ impl Context<'_> {
                 theta.push(ContextPart::Free(*tau));
                 (p, theta)
             }
-            PosTyp::Prod(p1, p2) => {
-                let (p1, mut theta1) = self.extract_pos(p1);
-                let (p2, theta2) = self.extract_pos(p2);
-                theta1.extend(theta2);
-                (Rc::new(PosTyp::Prod(p1, p2)), theta1)
+            PosTyp::Prod(p) => {
+                let mut theta1 = vec![];
+                let mut p1 = vec![];
+                for p2 in p {
+                    let (p2, theta2) = self.extract_pos(p2);
+                    p1.push(p2);
+                    theta1.extend(theta2);
+                }
+                (Rc::new(PosTyp::Prod(p1)), theta1)
             }
             _ => (p.clone(), vec![]),
         }
@@ -124,10 +133,9 @@ impl Context<'_> {
     // `p` is ground
     pub fn equal_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
         let res = match (p, q) {
-            (PosTyp::Prod(p1, p2), PosTyp::Prod(q1, q2)) => {
-                let w1 = self.equal_pos_typ(p1, q1);
-                let w2 = self.equal_pos_typ(p2, q2);
-                Constraint::And(w1, w2)
+            (PosTyp::Prod(p), PosTyp::Prod(q)) => {
+                let iter = zip(p, q).map(|(p, q)| self.equal_pos_typ(p, q));
+                and(iter)
             }
             (PosTyp::Sum(p1, p2), PosTyp::Sum(q1, q2)) => {
                 let w1 = self.equal_pos_typ(p1, q1);
@@ -163,10 +171,9 @@ impl Context<'_> {
     pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
         // TODO: extract here instead of on all call sites :D
         let res = match (p, q) {
-            (PosTyp::Prod(p1, p2), PosTyp::Prod(q1, q2)) => {
-                let w1 = self.sub_pos_typ(p1, q1);
-                let w2 = self.sub_pos_typ(p2, q2);
-                Constraint::And(w1, w2)
+            (PosTyp::Prod(p), PosTyp::Prod(q)) => {
+                let iter = zip(p, q).map(|(p, q)| self.sub_pos_typ(p, q));
+                and(iter)
             }
             (PosTyp::Sum(p1, p2), PosTyp::Sum(q1, q2)) => {
                 let w1 = self.equal_pos_typ(p1, q1);

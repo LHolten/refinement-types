@@ -1,15 +1,25 @@
-use std::rc::Rc;
+use std::{iter::zip, rc::Rc};
 
 use super::{
     BoundExpr, Constraint, Context, ContextPart, Expr, Head, NegTyp, PosTyp, TConstraint, Value,
 };
+
+pub fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint {
+    let xi = TConstraint::Cons(Rc::new(Constraint::True));
+    iter.fold(xi, |xi, xi_n| TConstraint::And(Rc::new(xi), xi_n))
+}
 
 impl<'a> Context<'a> {
     pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
         todo!()
     }
 
-    pub fn get_pos(&self, x: &usize) -> Option<&Rc<PosTyp>> {
+    pub fn get_pos(&self, x: &usize, proj: &[usize]) -> Option<&Rc<PosTyp>> {
+        // for proj in proj {
+        //     let PosTyp::Prod(a, b) = p.as_ref() else { panic!() };
+        //     p = [a, b][*proj];
+        // }
+        // p.clone()
         todo!()
     }
 
@@ -29,16 +39,15 @@ impl<'a> Context<'a> {
                 xi.apply(t)
             }
             _ => match v {
-                Value::Var(x) => {
-                    let Some(q) = self.get_pos(x) else { panic!() };
+                Value::Var(x, proj) => {
+                    let Some(q) = self.get_pos(x, proj) else { panic!() };
                     let w = self.sub_pos_typ(q, p);
                     TConstraint::Cons(w)
                 }
-                Value::Pair(v1, v2) => {
-                    let PosTyp::Prod(p1, p2)= p else { panic!()};
-                    let xi1 = self.check_value(v1, p1);
-                    let xi2 = self.check_value(v2, p2);
-                    TConstraint::And(xi1, xi2)
+                Value::Pair(v) => {
+                    let PosTyp::Prod(p) = p else { panic!()};
+                    let iter = zip(v, p).map(|(v, p)| self.check_value(v, p));
+                    t_and(iter)
                 }
                 Value::Thunk(e) => {
                     let PosTyp::Thunk(n) = p else { panic!() };
@@ -80,8 +89,8 @@ impl<'a> Context<'a> {
 
     pub fn infer_head(&self, h: &Head) -> Rc<PosTyp> {
         match h {
-            Head::Var(x) => {
-                let Some(p) = self.get_pos(x) else { panic!() };
+            Head::Var(x, proj) => {
+                let Some(p) = self.get_pos(x, proj) else { panic!() };
                 p.clone()
             }
             Head::Anno(v, p) => {

@@ -55,12 +55,12 @@ enum Prop {
 
 #[derive(PartialEq, Eq)]
 enum PosTyp {
-    Prod(Rc<PosTyp>, Rc<PosTyp>),
+    Prod(Vec<Rc<PosTyp>>),
     Sum(Rc<PosTyp>, Rc<PosTyp>),
     Refined(Rc<PosTyp>, Rc<Prop>),
     Exists(Sort, Rc<PosTyp>),
     Thunk(Rc<NegTyp>),
-    Measured(Rc<SumFunctor>, Algebra, Rc<Term>),
+    Measured(Rc<SumFunctor>, Rc<Algebra>, Rc<Term>),
 }
 
 #[derive(PartialEq, Eq)]
@@ -87,11 +87,11 @@ enum BaseFunctor {
     Id,
 }
 
-#[derive(PartialEq, Eq)]
-struct SumPattern {
-    idx: usize,
-    pat: Rc<ProdPattern>,
-}
+// #[derive(PartialEq, Eq)]
+// struct SumPattern {
+//     idx: usize,
+//     pat: Rc<ProdPattern>,
+// }
 
 #[derive(PartialEq, Eq)]
 struct ProdPattern {
@@ -101,20 +101,21 @@ struct ProdPattern {
 #[derive(PartialEq, Eq)]
 enum BasePattern {
     Ignore,
-    Var,
+    Var(usize),
     Pack,
 }
 
 #[derive(PartialEq, Eq)]
 struct Algebra {
-    pats: Vec<(SumPattern, Term)>,
+    pats: Vec<(ProdPattern, Rc<Term>)>,
 }
 
 struct Pattern;
 
 enum Value {
-    Var(usize),
-    Pair(Rc<Value>, Rc<Value>),
+    // second argument is projections
+    Var(usize, Vec<usize>),
+    Pair(Vec<Rc<Value>>),
     Thunk(Rc<Expr>),
 }
 
@@ -126,7 +127,8 @@ enum Expr {
 }
 
 enum Head {
-    Var(usize),
+    // second argument is projections
+    Var(usize, Vec<usize>),
     Anno(Rc<Value>, Rc<PosTyp>),
 }
 
@@ -146,3 +148,8 @@ impl TConstraint {
         todo!()
     }
 }
+
+// - Make Prod type any length and povide projections
+// - Remove the Sum type
+// - Functors should not deal with products?
+//      maybe they just have Id in scope?

@@ -30,10 +30,12 @@ impl Context<'_> {
     // for now the variable index is the VecDeque index
     pub fn value_determined_pos(&self, p: &PosTyp) -> VecDeque<bool> {
         match p {
-            PosTyp::Prod(p1, p2) => {
-                let r1 = self.value_determined_pos(p1);
-                let r2 = self.value_determined_pos(p2);
-                or(r1, r2)
+            PosTyp::Prod(p) => {
+                let mut r = VecDeque::new();
+                for p in p {
+                    r = or(r, self.value_determined_pos(p))
+                }
+                r
             }
             PosTyp::Sum(p1, p2) => {
                 let r1 = self.value_determined_pos(p1);
