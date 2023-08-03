@@ -60,7 +60,7 @@ enum PosTyp {
     Refined(Rc<PosTyp>, Rc<Prop>),
     Exists(Sort, Rc<PosTyp>),
     Thunk(Rc<NegTyp>),
-    Measured(Rc<SumFunctor>, Rc<Algebra>, Rc<Term>),
+    Measured(Vec<(Rc<ProdFunctor>, Rc<Term>)>, Rc<Term>),
 }
 
 #[derive(PartialEq, Eq)]
@@ -69,11 +69,6 @@ enum NegTyp {
     Implies(Rc<Prop>, Rc<NegTyp>),
     Forall(Sort, Rc<NegTyp>),
     Fun(Rc<PosTyp>, Rc<NegTyp>),
-}
-
-#[derive(PartialEq, Eq)]
-struct SumFunctor {
-    sum: Vec<ProdFunctor>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -105,11 +100,6 @@ enum BasePattern {
     Pack,
 }
 
-#[derive(PartialEq, Eq)]
-struct Algebra {
-    pats: Vec<(ProdPattern, Rc<Term>)>,
-}
-
 struct Pattern;
 
 enum Value {
@@ -122,7 +112,7 @@ enum Value {
 enum Expr {
     Return(Rc<Value>),
     Let(Rc<BoundExpr>, Rc<Expr>),
-    Match(Rc<Head>, Vec<(Pattern, Expr)>),
+    Match(Rc<Head>, Vec<Expr>),
     Lambda(Rc<Expr>),
 }
 

@@ -1,11 +1,10 @@
-use std::{collections::VecDeque, iter::zip, rc::Rc};
+use std::{iter::zip, rc::Rc};
 
 use super::{
-    BaseFunctor, Constraint, Context, ContextPart, NegTyp, PosTyp, ProdFunctor, Prop, Sort,
-    SumFunctor, Term,
+    BaseFunctor, Constraint, Context, ContextPart, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term,
 };
 
-pub fn and(iter: impl Iterator<Item = Rc<Constraint>>) -> Constraint {
+pub(super) fn and(iter: impl Iterator<Item = Rc<Constraint>>) -> Constraint {
     let xi = Constraint::True;
     iter.fold(xi, |xi, xi_n| Constraint::And(Rc::new(xi), xi_n))
 }
@@ -120,16 +119,6 @@ impl Context<'_> {
         res
     }
 
-    pub fn equal_functor(&self, f: &SumFunctor, g: &SumFunctor) -> Rc<Constraint> {
-        let mut res = Rc::new(Constraint::True);
-        assert_eq!(f.sum.len(), g.sum.len());
-        for (x, y) in zip(&f.sum, &g.sum) {
-            let w = self.equal_prod_functor(x, y);
-            res = res.and(w);
-        }
-        res
-    }
-
     // `p` is ground
     pub fn equal_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
         let res = match (p, q) {
@@ -153,9 +142,13 @@ impl Context<'_> {
                 Constraint::Forall(*tau, w)
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => Constraint::EqNegTyp(n.clone(), m.clone()),
-            (PosTyp::Measured(f, alpha, t), PosTyp::Measured(g, alpha_, t_)) => {
-                assert!(alpha == alpha_);
-                let w = self.equal_functor(f, g);
+            (PosTyp::Measured(f_alpha, t), PosTyp::Measured(g_alpha, t_)) => {
+                assert_eq!(f_alpha.len(), g_alpha.len());
+                let iter = zip(f_alpha, g_alpha).map(|(f_alpha, g_alpha)| {
+                    assert!(f_alpha.1 == g_alpha.1);
+                    self.equal_prod_functor(&f_alpha.0, &g_alpha.0)
+                });
+                let w = Rc::new(and(iter));
                 let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
                 self.inst(&prop);
                 return w.and_prop(&prop);
@@ -198,9 +191,13 @@ impl Context<'_> {
                 let w = Rc::new(Constraint::SubNegTyp(n.clone(), m));
                 return w.extend(&theta);
             }
-            (PosTyp::Measured(f, alpha, t), PosTyp::Measured(g, alpha_, t_)) => {
-                assert!(alpha == alpha_);
-                let w = self.equal_functor(f, g);
+            (PosTyp::Measured(f_alpha, t), PosTyp::Measured(g_alpha, t_)) => {
+                assert_eq!(f_alpha.len(), g_alpha.len());
+                let iter = zip(f_alpha, g_alpha).map(|(f_alpha, g_alpha)| {
+                    assert!(f_alpha.1 == g_alpha.1);
+                    self.equal_prod_functor(&f_alpha.0, &g_alpha.0)
+                });
+                let w = Rc::new(and(iter));
                 let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
                 self.inst(&prop);
                 return w.and_prop(&prop);

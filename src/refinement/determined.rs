@@ -1,6 +1,6 @@
-use std::{cmp::max, collections::VecDeque, iter::zip};
+use std::{cmp::max, collections::VecDeque, iter::zip, rc::Rc};
 
-use super::{Context, NegTyp, PosTyp, Prop, Sort, SumFunctor, Term};
+use super::{Context, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
 
 pub fn or(mut r1: VecDeque<bool>, mut r2: VecDeque<bool>) -> VecDeque<bool> {
     let total_len = max(r1.len(), r2.len());
@@ -55,8 +55,8 @@ impl Context<'_> {
                 let _ = self.value_determined_neg(n);
                 VecDeque::new()
             }
-            PosTyp::Measured(f, alpha, t) => {
-                let mut r = self.value_determined_functor(f);
+            PosTyp::Measured(f_alpha, t) => {
+                let mut r = self.value_determined_functor(f_alpha);
                 if let Term::Var(b) = t.as_ref() {
                     // if the term is just a variable, then it is value determined!
                     r.resize(b + 1, false);
@@ -92,7 +92,7 @@ impl Context<'_> {
         }
     }
 
-    pub fn value_determined_functor(&self, f: &SumFunctor) -> VecDeque<bool> {
+    pub fn value_determined_functor(&self, f: &Vec<(Rc<ProdFunctor>, Rc<Term>)>) -> VecDeque<bool> {
         todo!()
     }
 }

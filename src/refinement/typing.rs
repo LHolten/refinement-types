@@ -1,10 +1,12 @@
 use std::{iter::zip, rc::Rc};
 
+use crate::refinement::unroll::Id;
+
 use super::{
     BoundExpr, Constraint, Context, ContextPart, Expr, Head, NegTyp, PosTyp, TConstraint, Value,
 };
 
-pub fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint {
+pub(super) fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint {
     let xi = TConstraint::Cons(Rc::new(Constraint::True));
     iter.fold(xi, |xi, xi_n| TConstraint::And(Rc::new(xi), xi_n))
 }
@@ -134,7 +136,22 @@ impl<'a> Context<'a> {
                 let this = this.add_pos(&p);
                 this.check_expr(e, &n)
             }
-            Expr::Match(_, _) => todo!(),
+            Expr::Match(h, pats) => {
+                let p = self.infer_head(h);
+                let PosTyp::Measured(f_alpha, t) = p.as_ref() else { panic!() };
+                let tau = self.infer_term(t);
+                let id = Id {
+                    f_alpha: f_alpha.clone(),
+                    tau,
+                };
+                assert_eq!(pats.len(), id.f_alpha.len());
+                for ((g, beta), e) in zip(&id.f_alpha, pats) {
+                    let p = self.unroll_prod(&id, g, beta, t);
+                    let (p, theta) = self.extract_pos(&p);
+                    let this = self.extend(theta).add_pos(&p);
+                    this.check_expr(e, &n);
+                }
+            }
             Expr::Lambda(e) => {
                 let NegTyp::Fun(p, n) = n.as_ref() else { panic!() };
                 let this = this.add_pos(p);
