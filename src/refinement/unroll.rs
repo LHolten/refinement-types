@@ -4,7 +4,7 @@ use crate::refinement::Prop;
 
 use super::{BaseFunctor, Context, PosTyp, ProdFunctor, Term};
 
-impl Context<'_> {
+impl Context {
     // Solve variables while unrolling?
     pub fn unroll_prod(
         &self,

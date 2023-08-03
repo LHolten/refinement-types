@@ -1,10 +1,8 @@
-use std::rc::Rc;
-
 use crate::refinement::ContextPart;
 
-use super::{Constraint, Context, Prop, TConstraint, Term};
+use super::{Constraint, Context, Prop, TConstraint};
 
-impl<'a> Context<'a> {
+impl Context {
     pub fn verify_prop(&self, phi: &Prop) {
         // This is where we need to use SMT
         todo!()

@@ -29,15 +29,11 @@ impl Constraint {
     }
 }
 
-impl Context<'_> {
-    // solve variables to grounded results
-    // this needs to instantiate vars before checking if the result is grounded
-    pub fn inst(&self, phi: &Prop) {
-        todo!()
-    }
-
-    // `phi` is ground
-    pub fn inst_eq(&self, phi: &Prop, psi: &Prop) {
+impl Context {
+    // Constraints, props and terms use de bruijn indices
+    // Only problem is that when we instantiate, we need to raise the solution correctly
+    pub fn inst(&self, t: &Rc<Term>, t_: &Rc<Term>) {
+        let Term::Var(x) = t.as_ref() else { panic!() };
         todo!()
     }
 
@@ -128,7 +124,6 @@ impl Context<'_> {
             }
             (PosTyp::Refined(p, phi), PosTyp::Refined(q, psi)) => {
                 let w = self.equal_pos_typ(p, q);
-                self.inst_eq(phi, psi);
                 return w.and_prop_eq(phi, psi);
             }
             (PosTyp::Exists(tau, p), PosTyp::Exists(tau_, q)) => {
@@ -144,8 +139,8 @@ impl Context<'_> {
                     self.equal_prod_functor(&f_alpha.0, &g_alpha.0)
                 });
                 let w = Rc::new(and(iter));
+                self.inst(t, t_);
                 let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
-                self.inst(&prop);
                 return w.and_prop(&prop);
             }
             _ => panic!(),
@@ -165,8 +160,6 @@ impl Context<'_> {
             }
             (p, PosTyp::Refined(q, phi)) => {
                 let w = self.sub_pos_typ(p, q);
-                // this might be the result of unrolling, so we try to solve indices here
-                self.inst(phi);
                 return w.and_prop(phi);
             }
             (p, PosTyp::Exists(tau, q)) => {
@@ -190,8 +183,8 @@ impl Context<'_> {
                     self.equal_prod_functor(&f_alpha.0, &g_alpha.0)
                 });
                 let w = Rc::new(and(iter));
+                self.inst(t, t_);
                 let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
-                self.inst(&prop);
                 return w.and_prop(&prop);
             }
             _ => panic!(),
@@ -261,6 +254,10 @@ impl Constraint {
             let res = match part {
                 ContextPart::Assume(phi) => Self::Implies(phi.clone(), self),
                 ContextPart::Free(tau) => Self::Forall(*tau, self),
+                ContextPart::Existential(tau, t) => {
+                    let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), Rc::new(t.take().unwrap())));
+                    Self::Forall(*tau, Rc::new(Self::Implies(prop, self)))
+                }
             };
             self = Rc::new(res)
         }

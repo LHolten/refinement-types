@@ -9,7 +9,7 @@ pub(super) fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint 
     iter.fold(xi, |xi, xi_n| TConstraint::And(Rc::new(xi), xi_n))
 }
 
-impl<'a> Context<'a> {
+impl Context {
     pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
         todo!()
     }
@@ -24,11 +24,10 @@ impl<'a> Context<'a> {
     }
 
     // This resolves existential values from the context in `p`
-    pub fn check_value(&'a self, v: &Value, p: &PosTyp) -> Rc<TConstraint> {
+    pub fn check_value(&self, v: &Value, p: &PosTyp) -> Rc<TConstraint> {
         let res = match p {
             PosTyp::Refined(p, phi) => {
                 let xi2 = self.check_value(v, p);
-                self.inst(phi);
                 let xi1 = Rc::new(TConstraint::Cons(Rc::new(Constraint::Prop(phi.clone()))));
                 TConstraint::And(xi1, xi2)
             }

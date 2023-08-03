@@ -22,16 +22,17 @@ enum Term {
 }
 
 enum ContextPart {
+    // existential is free + assume
+    Existential(Sort, Cell<Option<Term>>),
     Assume(Rc<Prop>),
     Free(Sort),
 }
 
-enum Context<'a> {
+enum Context {
     Empty,
     Cons {
-        sort: Sort,
-        term: Cell<Option<Term>>,
-        next: &'a Context<'a>,
+        part: ContextPart,
+        next: Rc<Context>,
     },
 }
 
@@ -80,12 +81,6 @@ enum BaseFunctor {
     Pos(Rc<PosTyp>),
     Id,
 }
-
-// #[derive(PartialEq, Eq)]
-// struct SumPattern {
-//     idx: usize,
-//     pat: Rc<ProdPattern>,
-// }
 
 #[derive(PartialEq, Eq)]
 struct ProdPattern {

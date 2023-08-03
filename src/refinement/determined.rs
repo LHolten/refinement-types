@@ -11,7 +11,7 @@ pub fn or(mut r1: VecDeque<bool>, mut r2: VecDeque<bool>) -> VecDeque<bool> {
     zip(r1, r2).map(|(x, y)| x | y).collect()
 }
 
-impl Context<'_> {
+impl Context {
     pub fn infer_prop(&self, phi: &Prop) -> Sort {
         todo!()
     }
