@@ -1,7 +1,5 @@
 use std::{iter::zip, rc::Rc};
 
-use crate::refinement::unroll::Id;
-
 use super::{
     BoundExpr, Constraint, Context, ContextPart, Expr, Head, NegTyp, PosTyp, TConstraint, Value,
 };
@@ -37,17 +35,21 @@ impl<'a> Context<'a> {
             PosTyp::Exists(tau, p) => {
                 let extended = self.exists(tau);
                 let xi = extended.check_value(v, p);
-                let Some(t) = extended.get_exists(0) else { panic!() };
+                let Some(t) = extended.get_exists(0) else {
+                    panic!()
+                };
                 xi.apply(t)
             }
             _ => match v {
                 Value::Var(x, proj) => {
-                    let Some(q) = self.get_pos(x, proj) else { panic!() };
+                    let Some(q) = self.get_pos(x, proj) else {
+                        panic!()
+                    };
                     let w = self.sub_pos_typ(q, p);
                     TConstraint::Cons(w)
                 }
                 Value::Tuple(v) => {
-                    let PosTyp::Prod(p) = p else { panic!()};
+                    let PosTyp::Prod(p) = p else { panic!() };
                     let iter = zip(v, p).map(|(v, p)| self.check_value(v, p));
                     t_and(iter)
                 }
@@ -56,13 +58,10 @@ impl<'a> Context<'a> {
                     TConstraint::Check(e.clone(), n.clone())
                 }
                 Value::Inj(i, v) => {
-                    let PosTyp::Measured(f_alpha, t) = p else { panic!() };
-                    let id = Id {
-                        f_alpha: f_alpha.clone(),
-                        tau: self.infer_term(t),
+                    let PosTyp::Measured(f_alpha, t) = p else {
+                        panic!()
                     };
-                    let (g, beta) = &f_alpha[*i];
-                    let p = self.unroll_prod(&id, g, beta, t);
+                    let p = self.unroll_prod(f_alpha, *i, t);
                     return self.check_value(v, &p);
                 }
             },
@@ -85,7 +84,9 @@ impl<'a> Context<'a> {
             NegTyp::Forall(tau, n) => {
                 let extended = self.exists(tau);
                 let (p, xi) = extended.spine(n, s);
-                let Some(t) = extended.get_exists(0) else { panic!() };
+                let Some(t) = extended.get_exists(0) else {
+                    panic!()
+                };
                 // TODO: somehow apply `t` to `p`??
                 (p, xi.apply(t))
             }
@@ -102,7 +103,9 @@ impl<'a> Context<'a> {
     pub fn infer_head(&self, h: &Head) -> Rc<PosTyp> {
         match h {
             Head::Var(x, proj) => {
-                let Some(p) = self.get_pos(x, proj) else { panic!() };
+                let Some(p) = self.get_pos(x, proj) else {
+                    panic!()
+                };
                 p.clone()
             }
             Head::Anno(v, p) => {
@@ -118,13 +121,15 @@ impl<'a> Context<'a> {
         match g {
             BoundExpr::App(h, s) => {
                 let temp = self.infer_head(h);
-                let PosTyp::Thunk(n) = temp.as_ref() else { panic!() };
+                let PosTyp::Thunk(n) = temp.as_ref() else {
+                    panic!()
+                };
                 let (p, xi) = self.spine(n, s);
                 self.verify_t(&xi);
                 p
             }
             BoundExpr::Anno(e, p) => {
-                // TODO check that `p` is a type
+                // TODO: check that `p` is a type
                 self.check_expr(e, &Rc::new(NegTyp::Force(p.clone())));
                 p.clone()
             }
@@ -136,7 +141,9 @@ impl<'a> Context<'a> {
         let this = self.extend(theta);
         match e {
             Expr::Return(v) => {
-                let NegTyp::Force(p) = n.as_ref() else { panic!() };
+                let NegTyp::Force(p) = n.as_ref() else {
+                    panic!()
+                };
                 this.check_value(v, p);
             }
             Expr::Let(g, e) => {
@@ -148,22 +155,21 @@ impl<'a> Context<'a> {
             }
             Expr::Match(h, pats) => {
                 let p = self.infer_head(h);
-                let PosTyp::Measured(f_alpha, t) = p.as_ref() else { panic!() };
-                let tau = self.infer_term(t);
-                let id = Id {
-                    f_alpha: f_alpha.clone(),
-                    tau,
+                let PosTyp::Measured(f_alpha, t) = p.as_ref() else {
+                    panic!()
                 };
-                assert_eq!(pats.len(), id.f_alpha.len());
-                for ((g, beta), e) in zip(&id.f_alpha, pats) {
-                    let p = self.unroll_prod(&id, g, beta, t);
+                assert_eq!(pats.len(), f_alpha.len());
+                for (i, e) in pats.iter().enumerate() {
+                    let p = self.unroll_prod(f_alpha, i, t);
                     let (p, theta) = self.extract_pos(&p);
                     let this = self.extend(theta).add_pos(&p);
                     this.check_expr(e, &n);
                 }
             }
             Expr::Lambda(e) => {
-                let NegTyp::Fun(p, n) = n.as_ref() else { panic!() };
+                let NegTyp::Fun(p, n) = n.as_ref() else {
+                    panic!()
+                };
                 let this = this.add_pos(p);
                 this.check_expr(e, n)
             }

@@ -172,7 +172,9 @@ impl Context<'_> {
             (p, PosTyp::Exists(tau, q)) => {
                 let extended = self.exists(tau);
                 let w = extended.sub_pos_typ(p, q);
-                let Some(t) = extended.get_exists(0) else { panic!() };
+                let Some(t) = extended.get_exists(0) else {
+                    panic!()
+                };
                 let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
                 Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
             }
@@ -235,7 +237,9 @@ impl Context<'_> {
             (NegTyp::Forall(tau, n), m) => {
                 let extended = self.exists(tau);
                 let w = extended.sub_neg_type(n, m);
-                let Some(t) = extended.get_exists(0) else { panic!() };
+                let Some(t) = extended.get_exists(0) else {
+                    panic!()
+                };
                 let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
                 Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
             }

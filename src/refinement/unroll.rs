@@ -2,29 +2,25 @@ use std::rc::Rc;
 
 use crate::refinement::Prop;
 
-use super::{BaseFunctor, Context, PosTyp, ProdFunctor, Sort, Term};
-
-pub(super) struct Id {
-    pub f_alpha: Vec<(Rc<ProdFunctor>, Rc<Term>)>,
-    pub tau: Sort,
-}
+use super::{BaseFunctor, Context, PosTyp, ProdFunctor, Term};
 
 impl Context<'_> {
     // Solve variables while unrolling?
     pub fn unroll_prod(
         &self,
-        id: &Id,
-        g: &ProdFunctor,
-        beta: &Rc<Term>,
+        f_alpha: &[(Rc<ProdFunctor>, Rc<Term>)],
+        i: usize,
         t: &Rc<Term>,
     ) -> Rc<PosTyp> {
+        let tau = self.infer_term(t);
+        let (g, beta) = &f_alpha[i];
         let mut parts = vec![];
         for g in &g.prod {
             let res = match g {
                 BaseFunctor::Pos(q) => q.clone(),
                 BaseFunctor::Id => {
-                    let m = PosTyp::Measured(id.f_alpha.clone(), Rc::new(Term::Var(0)));
-                    Rc::new(PosTyp::Exists(id.tau, Rc::new(m)))
+                    let m = PosTyp::Measured(f_alpha.to_owned(), Rc::new(Term::Var(0)));
+                    Rc::new(PosTyp::Exists(tau, Rc::new(m)))
                 }
             };
             parts.push(res);

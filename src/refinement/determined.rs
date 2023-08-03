@@ -1,4 +1,6 @@
-use std::{cmp::max, collections::VecDeque, iter::zip, rc::Rc};
+use std::{cmp::max, collections::VecDeque, iter::zip};
+
+use crate::refinement::BaseFunctor;
 
 use super::{Context, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
 
@@ -38,7 +40,9 @@ impl Context<'_> {
                 r
             }
             PosTyp::Refined(p, phi) => {
-                let Sort::Bool = self.infer_prop(phi) else { panic!() };
+                let Sort::Bool = self.infer_prop(phi) else {
+                    panic!()
+                };
                 self.value_determined_pos(p)
             }
             PosTyp::Exists(tau, p) => {
@@ -51,14 +55,27 @@ impl Context<'_> {
                 VecDeque::new()
             }
             PosTyp::Measured(f_alpha, t) => {
-                let mut r = self.value_determined_functor(f_alpha);
+                let tau = self.infer_term(t);
+                for (i, (_g, beta)) in f_alpha.iter().enumerate() {
+                    let p = self.unroll_prod(f_alpha, i, t);
+                    assert_eq!(tau, self.add_pos(&p).infer_term(beta))
+                }
+
+                // we will just assume that there is at least one variant
+                let Some(((f, _), f_alpha_)) = f_alpha.split_first() else {
+                    panic!()
+                };
+                let mut r = self.value_determined_functor(f);
+                for (f, _) in f_alpha_ {
+                    let v2 = self.value_determined_functor(f);
+                    r = zip(r, v2).map(|(x, y)| x & y).collect();
+                }
+
                 if let Term::Var(b) = t.as_ref() {
                     // if the term is just a variable, then it is value determined!
                     r.resize(b + 1, false);
                     r[*b] = true;
                 }
-                let tau = self.infer_term(t);
-                // TODO: check the algebra alpha has type f(tau) -> tau
                 r
             }
         }
@@ -71,7 +88,9 @@ impl Context<'_> {
                 VecDeque::new()
             }
             NegTyp::Implies(phi, n) => {
-                let Sort::Bool = self.infer_prop(phi) else { panic!() };
+                let Sort::Bool = self.infer_prop(phi) else {
+                    panic!()
+                };
                 self.value_determined_neg(n)
             }
             NegTyp::Forall(tau, n) => {
@@ -87,7 +106,16 @@ impl Context<'_> {
         }
     }
 
-    pub fn value_determined_functor(&self, f: &Vec<(Rc<ProdFunctor>, Rc<Term>)>) -> VecDeque<bool> {
-        todo!()
+    pub fn value_determined_functor(&self, f: &ProdFunctor) -> VecDeque<bool> {
+        let mut r = VecDeque::new();
+        for f in &f.prod {
+            match f {
+                BaseFunctor::Pos(p) => {
+                    r = or(r, self.value_determined_pos(p));
+                }
+                BaseFunctor::Id => {}
+            }
+        }
+        r
     }
 }
