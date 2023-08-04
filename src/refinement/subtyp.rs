@@ -1,42 +1,74 @@
-use std::{iter::zip, rc::Rc};
+use std::{cmp::max, collections::VecDeque, iter::zip, ops::BitAnd, rc::Rc};
 
 use super::{
-    BaseFunctor, Constraint, Context, ContextPart, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term,
+    BaseFunctor, Constraint, Context, ContextPart, ExtendedConstraint, NegTyp, PosTyp, ProdFunctor,
+    Prop, Sort, Term,
 };
 
-pub(super) fn and(iter: impl Iterator<Item = Rc<Constraint>>) -> Constraint {
-    let xi = Constraint::True;
-    iter.fold(xi, |xi, xi_n| Constraint::And(Rc::new(xi), xi_n))
+type TermSol = VecDeque<Option<Term>>;
+
+pub(super) fn and(iter: impl IntoIterator<Item = ExtendedConstraint>) -> ExtendedConstraint {
+    iter.into_iter()
+        .fold(ExtendedConstraint::default(), BitAnd::bitand)
 }
 
-impl Constraint {
-    pub fn and(self: &Rc<Self>, rhs: Rc<Constraint>) -> Rc<Self> {
-        Rc::new(Constraint::And(self.clone(), rhs))
+impl BitAnd for ExtendedConstraint {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let Self { w: w1, r: mut r1 } = self;
+        let Self { w: w2, r: r2 } = rhs;
+        let new_len = max(r1.len(), r2.len());
+        r1.resize_with(new_len, || None);
+        for (r1, r2) in zip(&mut r1, r2) {
+            *r1 = r1.take().or(r2)
+        }
+        Self {
+            w: Rc::new(Constraint::And(w1, w2)),
+            r: r1,
+        }
+    }
+}
+
+// impl ExtendedConstraint {
+//     // pub fn and(self, rhs: ExtendedConstraint)
+// }
+
+impl ExtendedConstraint {
+    pub fn and(mut self, rhs: Rc<Constraint>) -> Self {
+        self.w = Rc::new(Constraint::And(self.w, rhs));
+        self
     }
 
-    pub fn and_prop(self: &Rc<Self>, rhs: &Rc<Prop>) -> Rc<Self> {
-        Rc::new(Constraint::And(
-            self.clone(),
-            Rc::new(Constraint::Prop(rhs.clone())),
-        ))
+    pub fn and_prop(mut self, prop: &Rc<Prop>) -> Self {
+        let cons = Rc::new(Constraint::Prop(prop.clone()));
+        self.and(cons)
     }
 
-    pub fn and_prop_eq(self: &Rc<Self>, lhs: &Rc<Prop>, rhs: &Rc<Prop>) -> Rc<Self> {
-        Rc::new(Constraint::And(
-            self.clone(),
-            Rc::new(Constraint::PropEq(lhs.clone(), rhs.clone())),
-        ))
+    pub fn and_prop_eq(mut self, lhs: &Rc<Prop>, rhs: &Rc<Prop>) -> Self {
+        let cons = Rc::new(Constraint::PropEq(lhs.clone(), rhs.clone()));
+        self.and(cons)
+    }
+
+    // uses the found solution for the topmost variable
+    pub fn push_down(mut self, tau: &Sort) -> Self {
+        let Some(Some(t)) = self.r.pop_front() else {
+            panic!()
+        };
+        let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t));
+        let implies = Rc::new(Constraint::Implies(prop, self.w));
+        self.w = Rc::new(Constraint::Forall(*tau, implies));
+        self
+    }
+
+    pub fn inst(mut self, t: &Rc<Term>, t_: &Rc<Term>) -> Self {
+        let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
+        self = self.and_prop(&prop);
+        todo!()
     }
 }
 
 impl Context {
-    // Constraints, props and terms use de bruijn indices
-    // Only problem is that when we instantiate, we need to raise the solution correctly
-    pub fn inst(&self, t: &Rc<Term>, t_: &Rc<Term>) {
-        let Term::LVar(x) = t_.as_ref() else { panic!() };
-        todo!()
-    }
-
     pub fn exists(&self, tau: &Sort) -> Self {
         todo!()
     }
@@ -102,126 +134,61 @@ impl Context {
         }
     }
 
-    pub fn equal_base_functor(&self, f: &BaseFunctor, g: &BaseFunctor) -> Rc<Constraint> {
+    pub fn sub_base_functor(&self, f: &BaseFunctor, g: &BaseFunctor) -> ExtendedConstraint {
         match (f, g) {
-            (BaseFunctor::Pos(p), BaseFunctor::Pos(q)) => self.equal_pos_typ(p, q),
-            (BaseFunctor::Id, BaseFunctor::Id) => Rc::new(Constraint::True),
+            (BaseFunctor::Pos(p), BaseFunctor::Pos(q)) => self.sub_pos_typ(p, q),
+            (BaseFunctor::Id, BaseFunctor::Id) => ExtendedConstraint::default(),
             _ => panic!(),
         }
     }
 
-    pub fn equal_prod_functor(&self, f: &ProdFunctor, g: &ProdFunctor) -> Rc<Constraint> {
-        let mut res = Rc::new(Constraint::True);
+    pub fn sub_prod_functor(&self, f: &ProdFunctor, g: &ProdFunctor) -> ExtendedConstraint {
+        let mut res = ExtendedConstraint::default();
         assert_eq!(f.prod.len(), g.prod.len());
         for (x, y) in zip(&f.prod, &g.prod) {
-            let w = self.equal_base_functor(x, y);
-            res = res.and(w);
+            res = res & self.sub_base_functor(x, y)
         }
         res
     }
 
-    // `p` is ground
-    pub fn equal_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
-        let res = match (p, q) {
-            (PosTyp::Prod(p), PosTyp::Prod(q)) => {
-                let iter = zip(p, q).map(|(p, q)| self.equal_pos_typ(p, q));
-                and(iter)
-            }
-            (PosTyp::Refined(p, phi), PosTyp::Refined(q, psi)) => {
-                let w = self.equal_pos_typ(p, q);
-                return w.and_prop_eq(phi, psi);
-            }
-            (PosTyp::Exists(tau, p), PosTyp::Exists(tau_, q)) => {
-                assert_eq!(tau, tau_);
-                let w = self.forall(tau).equal_pos_typ(p, q);
-                Constraint::Forall(*tau, w)
-            }
-            (PosTyp::Thunk(n), PosTyp::Thunk(m)) => Constraint::EqNegTyp(n.clone(), m.clone()),
-            (PosTyp::Measured(f_alpha, t), PosTyp::Measured(g_alpha, t_)) => {
-                assert_eq!(f_alpha.len(), g_alpha.len());
-                let iter = zip(f_alpha, g_alpha).map(|(f_alpha, g_alpha)| {
-                    assert!(f_alpha.1 == g_alpha.1);
-                    self.equal_prod_functor(&f_alpha.0, &g_alpha.0)
-                });
-                let w = Rc::new(and(iter));
-                self.inst(t, t_);
-                let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
-                return w.and_prop(&prop);
-            }
-            _ => panic!(),
-        };
-        Rc::new(res)
-    }
-
     // `p` is ground, solves all "value determined" indices in `q`
     // `p` must also be position independent
-    // TODO: return a list of solved indices
-    pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
-        let res = match (p, q) {
+    pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> ExtendedConstraint {
+        match (p, q) {
             (PosTyp::Prod(p), PosTyp::Prod(q)) => {
                 let iter = zip(p, q).map(|(p, q)| self.sub_pos_typ(p, q));
                 and(iter)
             }
             (p, PosTyp::Refined(q, phi)) => {
                 let w = self.sub_pos_typ(p, q);
-                return w.and_prop(phi);
+                w.and_prop(phi)
             }
             (p, PosTyp::Exists(tau, q)) => {
-                let extended = self.exists(tau);
-                let w = extended.sub_pos_typ(p, q);
-                let Some(t) = extended.get_exists(0) else {
-                    panic!()
-                };
-                let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
-                Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
+                let w = self.forall(tau).sub_pos_typ(p, q);
+                w.push_down(tau)
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
                 let (m, theta) = self.extract_neg(m);
                 let w = Rc::new(Constraint::SubNegTyp(n.clone(), m));
-                return w.extend(&theta);
+                w.extend(&theta)
             }
             (PosTyp::Measured(f_alpha, t), PosTyp::Measured(g_alpha, t_)) => {
                 assert_eq!(f_alpha.len(), g_alpha.len());
                 let iter = zip(f_alpha, g_alpha).map(|(f_alpha, g_alpha)| {
                     assert!(f_alpha.1 == g_alpha.1);
-                    self.equal_prod_functor(&f_alpha.0, &g_alpha.0)
+                    self.sub_prod_functor(&f_alpha.0, &g_alpha.0)
                 });
-                let w = Rc::new(and(iter));
-                self.inst(t, t_);
-                let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
-                return w.and_prop(&prop);
+                let w = and(iter);
+                w.inst(t, t_)
             }
             _ => panic!(),
-        };
-        Rc::new(res)
-    }
-
-    pub fn equal_neg_type(&self, n: &NegTyp, m: &NegTyp) -> Rc<Constraint> {
-        let res = match (n, m) {
-            (NegTyp::Force(p), NegTyp::Force(q)) => Constraint::EqPosTyp(p.clone(), q.clone()),
-            (NegTyp::Implies(psi, n), NegTyp::Implies(phi, m)) => {
-                let w = self.equal_neg_type(n, m);
-                return w.and_prop_eq(psi, phi);
-            }
-            (NegTyp::Forall(tau, n), NegTyp::Forall(tau_, m)) => {
-                assert_eq!(tau, tau_);
-                let w = self.equal_neg_type(n, m);
-                Constraint::Forall(*tau, w)
-            }
-            (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
-                let w1 = self.equal_pos_typ(p, q);
-                let w2 = self.equal_neg_type(n, m);
-                Constraint::And(w1, w2)
-            }
-            _ => panic!(),
-        };
-        Rc::new(res)
+        }
     }
 
     // we must have that no LVar in `m` refers to the context
     // value determined instances in `n` are resolved
-    pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> Rc<Constraint> {
-        let res = match (n, m) {
+    pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
+        match (n, m) {
             (NegTyp::Force(p), NegTyp::Force(q)) => {
                 // `p` might have existential variables refering to our scope
                 // we remove a bunch of binders and add them in the constraint
@@ -231,35 +198,29 @@ impl Context {
                 // Luckily all vars start out as LVar, so this is fine!
                 let (p, theta) = self.extract_pos(p);
                 let w = Rc::new(Constraint::SubPosTyp(p, q.clone()));
-                return w.extend(&theta);
+                w.extend(&theta)
             }
             (NegTyp::Implies(phi, n), m) => {
                 let w = self.sub_neg_type(n, m);
-                return w.and_prop(phi);
+                w.and_prop(phi)
             }
             (NegTyp::Forall(tau, n), m) => {
-                let extended = self.exists(tau);
-                let w = extended.sub_neg_type(n, m);
-                let Some(t) = extended.get_exists(0) else {
-                    panic!()
-                };
-                let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
-                Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
+                let w = self.exists(tau).sub_neg_type(n, m);
+                w.push_down(tau)
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
                 // arguments are swapped! (fun is contravariant in the argument)
                 let w1 = self.sub_pos_typ(q, p);
                 let w2 = self.sub_neg_type(n, m);
-                Constraint::And(w1, w2)
+                w1 & w2
             }
             _ => panic!(),
-        };
-        Rc::new(res)
+        }
     }
 }
 
 impl Constraint {
-    pub fn extend(mut self: Rc<Self>, theta: &[ContextPart]) -> Rc<Self> {
+    pub fn extend(mut self: Rc<Self>, theta: &[ContextPart]) -> ExtendedConstraint {
         for part in theta {
             let res = match part {
                 ContextPart::Assume(phi) => Self::Implies(phi.clone(), self),
@@ -272,6 +233,9 @@ impl Constraint {
             };
             self = Rc::new(res)
         }
-        self
+        ExtendedConstraint {
+            w: self,
+            r: VecDeque::new(),
+        }
     }
 }

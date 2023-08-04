@@ -1,6 +1,6 @@
 use crate::refinement::ContextPart;
 
-use super::{Constraint, Context, FullContext, Prop, TConstraint};
+use super::{Constraint, Context, Prop};
 
 impl Context {
     pub fn verify_prop(&self, phi: &Prop) {
@@ -32,35 +32,15 @@ impl Context {
                 let extended = self.extend(vec![ContextPart::Assume(phi.clone())]);
                 extended.verify(w);
             }
-            Constraint::EqNegTyp(n, m) => {
-                let w = self.equal_neg_type(n, m);
-                self.verify(&w);
-            }
-            Constraint::EqPosTyp(p, q) => {
-                let w = self.equal_pos_typ(p, q);
-                self.verify(&w);
-            }
             Constraint::SubNegTyp(n, m) => {
                 let w = self.sub_neg_type(n, m);
-                self.verify(&w);
+                self.verify(&w.w);
             }
             Constraint::SubPosTyp(p, q) => {
                 let w = self.sub_pos_typ(p, q);
-                self.verify(&w);
+                self.verify(&w.w);
             }
-        }
-    }
-}
-
-impl Context {
-    pub fn verify_t(&self, xi: &TConstraint) {
-        match xi {
-            TConstraint::Cons(w) => self.verify(w),
-            TConstraint::And(xi1, xi2) => {
-                self.verify_t(xi1);
-                self.verify_t(xi2);
-            }
-            TConstraint::Check(e, n) => {
+            Constraint::Check(e, n) => {
                 self.check_expr(e, n);
             }
         }

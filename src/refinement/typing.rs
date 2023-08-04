@@ -1,14 +1,9 @@
 use std::{iter::zip, rc::Rc};
 
 use super::{
-    BoundExpr, Constraint, Context, ContextPart, Expr, FullContext, Head, NegTyp, PosTyp, Prop,
-    TConstraint, Term, Value,
+    subtyp::and, BoundExpr, Constraint, Context, Expr, ExtendedConstraint, Head, NegTyp, PosTyp,
+    Prop, Term, Value,
 };
-
-pub(super) fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint {
-    let xi = TConstraint::Cons(Rc::new(Constraint::True));
-    iter.fold(xi, |xi, xi_n| TConstraint::And(Rc::new(xi), xi_n))
-}
 
 // Value, Head, Expr and BoundExpr are always position independent
 // "position independent" only refers to sort indices
@@ -40,83 +35,74 @@ impl Context {
     }
 
     // This resolves value determined indices in `p`
-    pub fn check_value(&self, v: &Value, p: &PosTyp) -> Rc<TConstraint> {
-        let res = match p {
+    // value determined indices are always LVar?
+    pub fn check_value(&self, v: &Value, p: &PosTyp) -> ExtendedConstraint {
+        match p {
             PosTyp::Refined(p, phi) => {
-                let xi2 = self.check_value(v, p);
-                let xi1 = Rc::new(TConstraint::Cons(Rc::new(Constraint::Prop(phi.clone()))));
-                TConstraint::And(xi1, xi2)
+                let xi = self.check_value(v, p);
+                xi.and_prop(phi)
             }
             PosTyp::Exists(tau, p) => {
-                let extended = self.exists(tau);
+                let extended = self.forall(tau);
                 let xi = extended.check_value(v, p);
-                let Some(t) = extended.get_exists(0) else {
-                    panic!()
-                };
-                xi.apply(t)
+                xi.push_down(tau)
             }
             _ => match v {
                 Value::Var(x, proj) => {
                     let Some(q) = self.get_pos(x, proj) else {
                         panic!()
                     };
-                    let w = self.sub_pos_typ(q, p);
-                    TConstraint::Cons(w)
+                    self.sub_pos_typ(q, p)
                 }
                 Value::Tuple(v) => {
                     let PosTyp::Prod(p) = p else { panic!() };
                     let iter = zip(v, p).map(|(v, p)| self.check_value(v, p));
-                    t_and(iter)
+                    and(iter)
                 }
                 Value::Thunk(e) => {
                     let PosTyp::Thunk(n) = p else { panic!() };
-                    TConstraint::Check(e.clone(), n.clone())
+                    Rc::new(Constraint::Check(e.clone(), n.clone())).extend(&[])
                 }
                 Value::Inj(i, v) => {
                     let PosTyp::Measured(f_alpha, t) = p else {
                         panic!()
                     };
                     let p = self.unroll_prod(f_alpha, *i, t);
-                    return self.check_value(v, &p);
+                    self.check_value(v, &p)
                 }
             },
-        };
-        Rc::new(res)
+        }
     }
 
     // This resolves value determined indices in `n`
     // if `n` is position independent, then the output is also position independent
-    pub fn spine(&self, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, Rc<TConstraint>) {
-        let (p, xi) = match n {
+    pub fn spine(&self, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, ExtendedConstraint) {
+        match n {
             NegTyp::Force(p) => {
                 let [] = s else { panic!() };
-                (p.clone(), TConstraint::Cons(Rc::new(Constraint::True)))
+                (p.clone(), ExtendedConstraint::default())
             }
             NegTyp::Implies(phi, n) => {
-                let (p, xi2) = self.spine(n, s);
-                let xi1 = Rc::new(TConstraint::Cons(Rc::new(Constraint::Prop(phi.clone()))));
-                (p, TConstraint::And(xi1, xi2))
+                let (p, xi) = self.spine(n, s);
+                (p, xi.and_prop(phi))
             }
             NegTyp::Forall(tau, n) => {
                 let extended = self.exists(tau);
                 let (p, xi) = extended.spine(n, s);
-                let Some(t) = extended.get_exists(0) else {
-                    panic!()
-                };
                 // TODO: somehow apply `t` to `p`??
                 // is the following code correct?
+                let t = xi.r.front().unwrap().as_ref().unwrap();
                 let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
                 let p = PosTyp::Exists(*tau, Rc::new(PosTyp::Refined(p, prop)));
-                (Rc::new(p), xi.apply(t))
+                (Rc::new(p), xi.push_down(tau))
             }
             NegTyp::Fun(q, n) => {
                 let [v, s @ ..] = s else { panic!() };
                 let xi1 = self.check_value(v, q);
                 let (p, xi2) = self.spine(n, s);
-                (p, TConstraint::And(xi1, xi2))
+                (p, xi1 & xi2)
             }
-        };
-        (p, Rc::new(xi))
+        }
     }
 
     // the result of infer_head is position independent
@@ -131,7 +117,7 @@ impl Context {
             Head::Anno(v, p) => {
                 // TODO: check that `p` is a type
                 let xi = self.check_value(v, p);
-                self.verify_t(&xi);
+                self.verify(&xi.w);
                 p.clone()
             }
         }
@@ -146,7 +132,7 @@ impl Context {
                     panic!()
                 };
                 let (p, xi) = self.spine(n, s);
-                self.verify_t(&xi);
+                self.verify(&xi.w);
                 p
             }
             BoundExpr::Anno(e, p) => {

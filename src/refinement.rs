@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{cell::Cell, ops::Deref, rc::Rc};
+use std::{cell::Cell, collections::VecDeque, default, ops::Deref, rc::Rc};
 
 mod determined;
 mod subtyp;
@@ -57,17 +57,25 @@ impl Deref for FullContext {
     }
 }
 
+#[derive(Default)]
 enum Constraint {
+    #[default]
     True,
     And(Rc<Constraint>, Rc<Constraint>),
     Prop(Rc<Prop>),
     PropEq(Rc<Prop>, Rc<Prop>),
     Forall(Sort, Rc<Constraint>),
     Implies(Rc<Prop>, Rc<Constraint>),
-    EqNegTyp(Rc<NegTyp>, Rc<NegTyp>),
-    EqPosTyp(Rc<PosTyp>, Rc<PosTyp>),
     SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
     SubPosTyp(Rc<PosTyp>, Rc<PosTyp>),
+    Check(Rc<Expr>, Rc<NegTyp>),
+}
+
+// This is a constraint with additional substitutions
+#[derive(Default)]
+struct ExtendedConstraint {
+    w: Rc<Constraint>,
+    r: VecDeque<Option<Rc<Term>>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -129,18 +137,6 @@ enum Head {
 enum BoundExpr {
     App(Rc<Head>, Vec<Value>),
     Anno(Rc<Expr>, Rc<PosTyp>),
-}
-
-enum TConstraint {
-    Cons(Rc<Constraint>),
-    And(Rc<TConstraint>, Rc<TConstraint>),
-    Check(Rc<Expr>, Rc<NegTyp>),
-}
-
-impl TConstraint {
-    pub fn apply(&self, t: &Term) -> Self {
-        todo!()
-    }
 }
 
 // - Make Prod type any length and povide projections
