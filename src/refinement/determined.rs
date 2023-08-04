@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::VecDeque, iter::zip};
+use std::{cmp::max, collections::VecDeque, iter::zip, rc::Rc};
 
 use crate::refinement::BaseFunctor;
 
@@ -30,7 +30,7 @@ impl Context {
     // this needs to check that every index is used and other things
     // the returned value is a bitset indicating which variables were used
     // for now the variable index is the VecDeque index
-    pub fn value_determined_pos(&self, p: &PosTyp) -> VecDeque<bool> {
+    pub fn value_determined_pos(self: &Rc<Self>, p: &PosTyp) -> VecDeque<bool> {
         match p {
             PosTyp::Prod(p) => {
                 let mut r = VecDeque::new();
@@ -46,7 +46,7 @@ impl Context {
                 self.value_determined_pos(p)
             }
             PosTyp::Exists(tau, p) => {
-                let mut r = self.forall(tau).value_determined_pos(p);
+                let mut r = self.add(tau).value_determined_pos(p);
                 let Some(true) = r.pop_front() else { panic!() };
                 r
             }
@@ -81,7 +81,7 @@ impl Context {
         }
     }
 
-    pub fn value_determined_neg(&self, n: &NegTyp) -> VecDeque<bool> {
+    pub fn value_determined_neg(self: &Rc<Self>, n: &NegTyp) -> VecDeque<bool> {
         match n {
             NegTyp::Force(p) => {
                 let _ = self.value_determined_pos(p);
@@ -94,7 +94,7 @@ impl Context {
                 self.value_determined_neg(n)
             }
             NegTyp::Forall(tau, n) => {
-                let mut r = self.forall(tau).value_determined_neg(n);
+                let mut r = self.add(tau).value_determined_neg(n);
                 let Some(true) = r.pop_front() else { panic!() };
                 r
             }
@@ -106,7 +106,7 @@ impl Context {
         }
     }
 
-    pub fn value_determined_functor(&self, f: &ProdFunctor) -> VecDeque<bool> {
+    pub fn value_determined_functor(self: &Rc<Self>, f: &ProdFunctor) -> VecDeque<bool> {
         let mut r = VecDeque::new();
         for f in &f.prod {
             match f {

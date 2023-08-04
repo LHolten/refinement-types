@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::refinement::ContextPart;
 
 use super::{Constraint, Context, Prop};
@@ -18,7 +20,7 @@ impl Context {
     }
 
     // Θ |= 𝑊
-    pub fn verify(&self, w: &Constraint) {
+    pub fn verify(self: &Rc<Self>, w: &Constraint) {
         match w {
             Constraint::True => {}
             Constraint::And(w1, w2) => {
@@ -27,7 +29,7 @@ impl Context {
             }
             Constraint::Prop(phi) => self.verify_prop(phi),
             Constraint::PropEq(phi, psi) => self.equal_prop(phi, psi),
-            Constraint::Forall(tau, w) => self.forall(tau).verify(w),
+            Constraint::Forall(tau, w) => self.add(tau).verify(w),
             Constraint::Implies(phi, w) => {
                 let extended = self.extend(vec![ContextPart::Assume(phi.clone())]);
                 extended.verify(w);

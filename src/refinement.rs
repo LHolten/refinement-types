@@ -22,8 +22,6 @@ enum Term {
 }
 
 enum ContextPart {
-    // existential is free + assume
-    Existential(Sort, Cell<Option<Term>>),
     Assume(Rc<Prop>),
     Free(Sort),
 }

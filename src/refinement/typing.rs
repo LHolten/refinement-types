@@ -11,7 +11,7 @@ impl Context {
     // This should probably make LVars that refer to the context into GVars.
     // That is the only way to make it relocatable
     // I don't know if we can do this by wrapping..
-    pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
+    pub fn add_pos(self: &Rc<Self>, p: &Rc<PosTyp>) -> Rc<Self> {
         let (p, theta) = self.extract_pos(p);
         let this = self.extend(theta);
         todo!()
@@ -36,14 +36,14 @@ impl Context {
 
     // This resolves value determined indices in `p`
     // value determined indices are always LVar?
-    pub fn check_value(&self, v: &Value, p: &PosTyp) -> ExtendedConstraint {
+    pub fn check_value(self: &Rc<Self>, v: &Value, p: &PosTyp) -> ExtendedConstraint {
         match p {
             PosTyp::Refined(p, phi) => {
                 let xi = self.check_value(v, p);
                 xi.and_prop(phi)
             }
             PosTyp::Exists(tau, p) => {
-                let extended = self.forall(tau);
+                let extended = self.add(tau);
                 let xi = extended.check_value(v, p);
                 xi.push_down(tau)
             }
@@ -76,7 +76,7 @@ impl Context {
 
     // This resolves value determined indices in `n`
     // if `n` is position independent, then the output is also position independent
-    pub fn spine(&self, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, ExtendedConstraint) {
+    pub fn spine(self: &Rc<Self>, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, ExtendedConstraint) {
         match n {
             NegTyp::Force(p) => {
                 let [] = s else { panic!() };
@@ -87,7 +87,7 @@ impl Context {
                 (p, xi.and_prop(phi))
             }
             NegTyp::Forall(tau, n) => {
-                let extended = self.exists(tau);
+                let extended = self.add(tau);
                 let (p, xi) = extended.spine(n, s);
                 // TODO: somehow apply `t` to `p`??
                 // is the following code correct?
@@ -106,7 +106,7 @@ impl Context {
     }
 
     // the result of infer_head is position independent
-    pub fn infer_head(&self, h: &Head) -> Rc<PosTyp> {
+    pub fn infer_head(self: &Rc<Self>, h: &Head) -> Rc<PosTyp> {
         match h {
             Head::Var(x, proj) => {
                 let Some(p) = self.get_pos(x, proj) else {
@@ -124,7 +124,7 @@ impl Context {
     }
 
     // the result is position independent
-    pub fn infer_bound_expr(&self, g: &BoundExpr) -> Rc<PosTyp> {
+    pub fn infer_bound_expr(self: &Rc<Self>, g: &BoundExpr) -> Rc<PosTyp> {
         match g {
             BoundExpr::App(h, s) => {
                 let temp = self.infer_head(h);
@@ -144,7 +144,7 @@ impl Context {
     }
 
     // can we make sure than `n` is always position independent????
-    pub fn check_expr(&self, e: &Expr, n: &Rc<NegTyp>) {
+    pub fn check_expr(self: &Rc<Self>, e: &Expr, n: &Rc<NegTyp>) {
         let (n, theta) = self.extract_neg(n);
         let this = self.extend(theta);
         match e {

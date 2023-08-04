@@ -30,22 +30,18 @@ impl BitAnd for ExtendedConstraint {
     }
 }
 
-// impl ExtendedConstraint {
-//     // pub fn and(self, rhs: ExtendedConstraint)
-// }
-
 impl ExtendedConstraint {
     pub fn and(mut self, rhs: Rc<Constraint>) -> Self {
         self.w = Rc::new(Constraint::And(self.w, rhs));
         self
     }
 
-    pub fn and_prop(mut self, prop: &Rc<Prop>) -> Self {
+    pub fn and_prop(self, prop: &Rc<Prop>) -> Self {
         let cons = Rc::new(Constraint::Prop(prop.clone()));
         self.and(cons)
     }
 
-    pub fn and_prop_eq(mut self, lhs: &Rc<Prop>, rhs: &Rc<Prop>) -> Self {
+    pub fn and_prop_eq(self, lhs: &Rc<Prop>, rhs: &Rc<Prop>) -> Self {
         let cons = Rc::new(Constraint::PropEq(lhs.clone(), rhs.clone()));
         self.and(cons)
     }
@@ -64,29 +60,29 @@ impl ExtendedConstraint {
     pub fn inst(mut self, t: &Rc<Term>, t_: &Rc<Term>) -> Self {
         let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
         self = self.and_prop(&prop);
-        todo!()
+        if let Term::LVar(x) = t_.as_ref() {
+            self.r.resize_with(max(self.r.len(), x + 1), || None);
+            self.r[*x] = self.r[*x].take().or_else(|| Some(t.clone()));
+        }
+        self
     }
 }
 
 impl Context {
-    pub fn exists(&self, tau: &Sort) -> Self {
-        todo!()
-    }
-
-    pub fn forall(&self, tau: &Sort) -> Self {
+    pub fn add(self: &Rc<Self>, tau: &Sort) -> Rc<Self> {
         self.extend(vec![ContextPart::Free(*tau)])
     }
 
-    pub fn get_exists(&self, var: usize) -> &Option<Rc<Term>> {
-        todo!()
-    }
-
-    pub fn extend(&self, theta: Vec<ContextPart>) -> Self {
-        todo!()
+    pub fn extend(self: &Rc<Self>, theta: Vec<ContextPart>) -> Rc<Self> {
+        let mut next = self.clone();
+        for part in theta {
+            next = Rc::new(Self::Cons { part, next })
+        }
+        next
     }
 
     // can we make this position independent into position independent??
-    pub fn extract_neg(&self, n: &Rc<NegTyp>) -> (Rc<NegTyp>, Vec<ContextPart>) {
+    pub fn extract_neg(self: &Rc<Self>, n: &Rc<NegTyp>) -> (Rc<NegTyp>, Vec<ContextPart>) {
         match n.as_ref() {
             NegTyp::Implies(phi, n) => {
                 let (n, mut theta) = self.extract_neg(n);
@@ -94,7 +90,7 @@ impl Context {
                 (n, theta)
             }
             NegTyp::Forall(tau, n) => {
-                let (n, mut theta) = self.forall(tau).extract_neg(n);
+                let (n, mut theta) = self.add(tau).extract_neg(n);
                 theta.push(ContextPart::Free(*tau));
                 (n, theta)
             }
@@ -108,7 +104,7 @@ impl Context {
         }
     }
 
-    pub fn extract_pos(&self, p: &Rc<PosTyp>) -> (Rc<PosTyp>, Vec<ContextPart>) {
+    pub fn extract_pos(self: &Rc<Self>, p: &Rc<PosTyp>) -> (Rc<PosTyp>, Vec<ContextPart>) {
         match p.as_ref() {
             PosTyp::Refined(p, phi) => {
                 let (p, mut theta) = self.extract_pos(p);
@@ -116,7 +112,7 @@ impl Context {
                 (p, theta)
             }
             PosTyp::Exists(tau, p) => {
-                let (p, mut theta) = self.forall(tau).extract_pos(p);
+                let (p, mut theta) = self.add(tau).extract_pos(p);
                 theta.push(ContextPart::Free(*tau));
                 (p, theta)
             }
@@ -134,7 +130,11 @@ impl Context {
         }
     }
 
-    pub fn sub_base_functor(&self, f: &BaseFunctor, g: &BaseFunctor) -> ExtendedConstraint {
+    pub fn sub_base_functor(
+        self: &Rc<Self>,
+        f: &BaseFunctor,
+        g: &BaseFunctor,
+    ) -> ExtendedConstraint {
         match (f, g) {
             (BaseFunctor::Pos(p), BaseFunctor::Pos(q)) => self.sub_pos_typ(p, q),
             (BaseFunctor::Id, BaseFunctor::Id) => ExtendedConstraint::default(),
@@ -142,7 +142,11 @@ impl Context {
         }
     }
 
-    pub fn sub_prod_functor(&self, f: &ProdFunctor, g: &ProdFunctor) -> ExtendedConstraint {
+    pub fn sub_prod_functor(
+        self: &Rc<Self>,
+        f: &ProdFunctor,
+        g: &ProdFunctor,
+    ) -> ExtendedConstraint {
         let mut res = ExtendedConstraint::default();
         assert_eq!(f.prod.len(), g.prod.len());
         for (x, y) in zip(&f.prod, &g.prod) {
@@ -153,7 +157,7 @@ impl Context {
 
     // `p` is ground, solves all "value determined" indices in `q`
     // `p` must also be position independent
-    pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> ExtendedConstraint {
+    pub fn sub_pos_typ(self: &Rc<Self>, p: &PosTyp, q: &PosTyp) -> ExtendedConstraint {
         match (p, q) {
             (PosTyp::Prod(p), PosTyp::Prod(q)) => {
                 let iter = zip(p, q).map(|(p, q)| self.sub_pos_typ(p, q));
@@ -164,7 +168,7 @@ impl Context {
                 w.and_prop(phi)
             }
             (p, PosTyp::Exists(tau, q)) => {
-                let w = self.forall(tau).sub_pos_typ(p, q);
+                let w = self.add(tau).sub_pos_typ(p, q);
                 w.push_down(tau)
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
@@ -187,7 +191,7 @@ impl Context {
 
     // we must have that no LVar in `m` refers to the context
     // value determined instances in `n` are resolved
-    pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
+    pub fn sub_neg_type(self: &Rc<Self>, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
         match (n, m) {
             (NegTyp::Force(p), NegTyp::Force(q)) => {
                 // `p` might have existential variables refering to our scope
@@ -205,7 +209,7 @@ impl Context {
                 w.and_prop(phi)
             }
             (NegTyp::Forall(tau, n), m) => {
-                let w = self.exists(tau).sub_neg_type(n, m);
+                let w = self.add(tau).sub_neg_type(n, m);
                 w.push_down(tau)
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
@@ -225,11 +229,6 @@ impl Constraint {
             let res = match part {
                 ContextPart::Assume(phi) => Self::Implies(phi.clone(), self),
                 ContextPart::Free(tau) => Self::Forall(*tau, self),
-                ContextPart::Existential(tau, t) => {
-                    let prop =
-                        Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), Rc::new(t.take().unwrap())));
-                    Self::Forall(*tau, Rc::new(Self::Implies(prop, self)))
-                }
             };
             self = Rc::new(res)
         }
