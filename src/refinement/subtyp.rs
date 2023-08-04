@@ -33,7 +33,7 @@ impl Context {
     // Constraints, props and terms use de bruijn indices
     // Only problem is that when we instantiate, we need to raise the solution correctly
     pub fn inst(&self, t: &Rc<Term>, t_: &Rc<Term>) {
-        let Term::Var(x) = t.as_ref() else { panic!() };
+        let Term::LVar(x) = t_.as_ref() else { panic!() };
         todo!()
     }
 
@@ -49,6 +49,11 @@ impl Context {
         todo!()
     }
 
+    pub fn extend(&self, theta: Vec<ContextPart>) -> Self {
+        todo!()
+    }
+
+    // can we make this position independent into position independent??
     pub fn extract_neg(&self, n: &Rc<NegTyp>) -> (Rc<NegTyp>, Vec<ContextPart>) {
         match n.as_ref() {
             NegTyp::Implies(phi, n) => {
@@ -149,10 +154,9 @@ impl Context {
     }
 
     // `p` is ground, solves all "value determined" indices in `q`
-    // also solves indices that are the result of unrolling...
+    // `p` must also be position independent
     // TODO: return a list of solved indices
     pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> Rc<Constraint> {
-        // TODO: extract here instead of on all call sites :D
         let res = match (p, q) {
             (PosTyp::Prod(p), PosTyp::Prod(q)) => {
                 let iter = zip(p, q).map(|(p, q)| self.sub_pos_typ(p, q));
@@ -168,7 +172,7 @@ impl Context {
                 let Some(t) = extended.get_exists(0) else {
                     panic!()
                 };
-                let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
+                let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
                 Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
@@ -214,11 +218,17 @@ impl Context {
         Rc::new(res)
     }
 
-    // `m` is ground
-    // ground means that there are no existential variables
+    // we must have that no LVar in `m` refers to the context
+    // value determined instances in `n` are resolved
     pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> Rc<Constraint> {
         let res = match (n, m) {
             (NegTyp::Force(p), NegTyp::Force(q)) => {
+                // `p` might have existential variables refering to our scope
+                // we remove a bunch of binders and add them in the constraint
+                // this keeps the existential variables correctly bound, because
+                // we will add the existential variables to the the context when they are solved.
+                // we do not update the variables that were bound by `theta`
+                // Luckily all vars start out as LVar, so this is fine!
                 let (p, theta) = self.extract_pos(p);
                 let w = Rc::new(Constraint::SubPosTyp(p, q.clone()));
                 return w.extend(&theta);
@@ -233,7 +243,7 @@ impl Context {
                 let Some(t) = extended.get_exists(0) else {
                     panic!()
                 };
-                let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), t.clone()));
+                let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
                 Constraint::Forall(*tau, Rc::new(Constraint::Implies(prop, w)))
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
@@ -255,7 +265,8 @@ impl Constraint {
                 ContextPart::Assume(phi) => Self::Implies(phi.clone(), self),
                 ContextPart::Free(tau) => Self::Forall(*tau, self),
                 ContextPart::Existential(tau, t) => {
-                    let prop = Rc::new(Prop::Eq(Rc::new(Term::Var(0)), Rc::new(t.take().unwrap())));
+                    let prop =
+                        Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), Rc::new(t.take().unwrap())));
                     Self::Forall(*tau, Rc::new(Self::Implies(prop, self)))
                 }
             };

@@ -1,7 +1,8 @@
 use std::{iter::zip, rc::Rc};
 
 use super::{
-    BoundExpr, Constraint, Context, ContextPart, Expr, Head, NegTyp, PosTyp, TConstraint, Value,
+    BoundExpr, Constraint, Context, ContextPart, Expr, FullContext, Head, NegTyp, PosTyp, Prop,
+    TConstraint, Term, Value,
 };
 
 pub(super) fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint {
@@ -9,12 +10,27 @@ pub(super) fn t_and(iter: impl Iterator<Item = Rc<TConstraint>>) -> TConstraint 
     iter.fold(xi, |xi, xi_n| TConstraint::And(Rc::new(xi), xi_n))
 }
 
+// Value, Head, Expr and BoundExpr are always position independent
+// "position independent" only refers to sort indices
 impl Context {
+    // This should probably make LVars that refer to the context into GVars.
+    // That is the only way to make it relocatable
+    // I don't know if we can do this by wrapping..
     pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
+        let (p, theta) = self.extract_pos(p);
+        let this = self.extend(theta);
         todo!()
     }
 
+    // the returned type is position independent
     pub fn get_pos(&self, x: &usize, proj: &[usize]) -> Option<&Rc<PosTyp>> {
+        // match self {
+        //     Context::Empty => panic!(),
+        //     Context::Cons { part, next } => {
+        //         let res = next.get_pos(x, proj);
+        //     }
+        // }
+
         // for proj in proj {
         //     let PosTyp::Prod(a, b) = p.as_ref() else { panic!() };
         //     p = [a, b][*proj];
@@ -23,7 +39,7 @@ impl Context {
         todo!()
     }
 
-    // This resolves existential values from the context in `p`
+    // This resolves value determined indices in `p`
     pub fn check_value(&self, v: &Value, p: &PosTyp) -> Rc<TConstraint> {
         let res = match p {
             PosTyp::Refined(p, phi) => {
@@ -68,7 +84,8 @@ impl Context {
         Rc::new(res)
     }
 
-    // This resolves existential values from the context in `n`
+    // This resolves value determined indices in `n`
+    // if `n` is position independent, then the output is also position independent
     pub fn spine(&self, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, Rc<TConstraint>) {
         let (p, xi) = match n {
             NegTyp::Force(p) => {
@@ -87,7 +104,10 @@ impl Context {
                     panic!()
                 };
                 // TODO: somehow apply `t` to `p`??
-                (p, xi.apply(t))
+                // is the following code correct?
+                let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
+                let p = PosTyp::Exists(*tau, Rc::new(PosTyp::Refined(p, prop)));
+                (Rc::new(p), xi.apply(t))
             }
             NegTyp::Fun(q, n) => {
                 let [v, s @ ..] = s else { panic!() };
@@ -99,6 +119,7 @@ impl Context {
         (p, Rc::new(xi))
     }
 
+    // the result of infer_head is position independent
     pub fn infer_head(&self, h: &Head) -> Rc<PosTyp> {
         match h {
             Head::Var(x, proj) => {
@@ -116,6 +137,7 @@ impl Context {
         }
     }
 
+    // the result is position independent
     pub fn infer_bound_expr(&self, g: &BoundExpr) -> Rc<PosTyp> {
         match g {
             BoundExpr::App(h, s) => {
@@ -135,6 +157,7 @@ impl Context {
         }
     }
 
+    // can we make sure than `n` is always position independent????
     pub fn check_expr(&self, e: &Expr, n: &Rc<NegTyp>) {
         let (n, theta) = self.extract_neg(n);
         let this = self.extend(theta);
@@ -147,10 +170,7 @@ impl Context {
             }
             Expr::Let(g, e) => {
                 let p = this.infer_bound_expr(g);
-                let (p, theta) = this.extract_pos(&p);
-                let this = this.extend(theta);
-                let this = this.add_pos(&p);
-                this.check_expr(e, &n)
+                this.add_pos(&p).check_expr(e, &n)
             }
             Expr::Match(h, pats) => {
                 let p = self.infer_head(h);
@@ -160,22 +180,15 @@ impl Context {
                 assert_eq!(pats.len(), f_alpha.len());
                 for (i, e) in pats.iter().enumerate() {
                     let p = self.unroll_prod(f_alpha, i, t);
-                    let (p, theta) = self.extract_pos(&p);
-                    let this = self.extend(theta).add_pos(&p);
-                    this.check_expr(e, &n);
+                    this.add_pos(&p).check_expr(e, &n);
                 }
             }
             Expr::Lambda(e) => {
                 let NegTyp::Fun(p, n) = n.as_ref() else {
                     panic!()
                 };
-                let this = this.add_pos(p);
-                this.check_expr(e, n)
+                this.add_pos(p).check_expr(e, n)
             }
         }
-    }
-
-    pub fn extend(&self, theta: Vec<ContextPart>) -> Self {
-        todo!()
     }
 }

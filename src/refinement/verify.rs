@@ -1,6 +1,6 @@
 use crate::refinement::ContextPart;
 
-use super::{Constraint, Context, Prop, TConstraint};
+use super::{Constraint, Context, FullContext, Prop, TConstraint};
 
 impl Context {
     pub fn verify_prop(&self, phi: &Prop) {
@@ -50,7 +50,9 @@ impl Context {
             }
         }
     }
+}
 
+impl Context {
     pub fn verify_t(&self, xi: &TConstraint) {
         match xi {
             TConstraint::Cons(w) => self.verify(w),

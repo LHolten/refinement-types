@@ -19,7 +19,7 @@ impl Context {
             let res = match g {
                 BaseFunctor::Pos(q) => q.clone(),
                 BaseFunctor::Id => {
-                    let m = PosTyp::Measured(f_alpha.to_owned(), Rc::new(Term::Var(0)));
+                    let m = PosTyp::Measured(f_alpha.to_owned(), Rc::new(Term::LVar(0)));
                     Rc::new(PosTyp::Exists(tau, Rc::new(m)))
                 }
             };

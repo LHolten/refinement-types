@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, ops::Deref, rc::Rc};
 
 mod determined;
 mod subtyp;
@@ -17,7 +17,7 @@ enum Sort {
 #[non_exhaustive]
 #[derive(PartialEq, Eq)]
 enum Term {
-    Var(usize),
+    LVar(usize),
     Prop(Rc<Prop>),
 }
 
@@ -34,6 +34,27 @@ enum Context {
         part: ContextPart,
         next: Rc<Context>,
     },
+}
+
+enum VarContext {
+    Empty,
+    Cons {
+        typ: Rc<PosTyp>,
+        next: Rc<VarContext>,
+    },
+}
+
+struct FullContext {
+    ctx: Rc<Context>,
+    var: Rc<VarContext>,
+}
+
+impl Deref for FullContext {
+    type Target = Context;
+
+    fn deref(&self) -> &Self::Target {
+        self.ctx.as_ref()
+    }
 }
 
 enum Constraint {
@@ -80,18 +101,6 @@ struct ProdFunctor {
 enum BaseFunctor {
     Pos(Rc<PosTyp>),
     Id,
-}
-
-#[derive(PartialEq, Eq)]
-struct ProdPattern {
-    parts: Vec<BasePattern>,
-}
-
-#[derive(PartialEq, Eq)]
-enum BasePattern {
-    Ignore,
-    Var(usize),
-    Pack,
 }
 
 struct Pattern;

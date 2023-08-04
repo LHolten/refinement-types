@@ -18,7 +18,7 @@ impl Context {
 
     pub fn infer_term(&self, t: &Term) -> Sort {
         match t {
-            Term::Var(b) => self.get(b),
+            Term::LVar(b) => self.get(b),
             Term::Prop(phi) => self.infer_prop(phi),
         }
     }
@@ -71,7 +71,7 @@ impl Context {
                     r = zip(r, v2).map(|(x, y)| x & y).collect();
                 }
 
-                if let Term::Var(b) = t.as_ref() {
+                if let Term::LVar(b) = t.as_ref() {
                     // if the term is just a variable, then it is value determined!
                     r.resize(b + 1, false);
                     r[*b] = true;
