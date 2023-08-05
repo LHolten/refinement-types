@@ -27,12 +27,10 @@ impl FullContext {
     pub fn get_pos(&self, x: &usize, proj: &[usize]) -> &Rc<PosTyp> {
         let mut res = &self.var;
         for _ in 0..*x {
-            match self.var.as_ref() {
-                VarContext::Empty => panic!(),
-                VarContext::Cons { typ: _, next } => {
-                    res = next;
-                }
-            }
+            let VarContext::Cons { typ: _, next } = res.as_ref() else {
+                panic!()
+            };
+            res = next;
         }
         let VarContext::Cons { typ, next: _ } = res.as_ref() else {
             panic!()

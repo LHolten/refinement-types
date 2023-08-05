@@ -4,6 +4,8 @@ use std::{collections::VecDeque, ops::Deref, rc::Rc};
 
 mod determined;
 mod subtyp;
+#[cfg(test)]
+mod test;
 mod typing;
 mod unroll;
 mod verify;
@@ -15,10 +17,11 @@ enum Sort {
 }
 
 #[non_exhaustive]
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum Term {
     LVar(usize),
     Prop(Rc<Prop>),
+    Zero,
 }
 
 enum ContextPart {
@@ -26,7 +29,9 @@ enum ContextPart {
     Free(Sort),
 }
 
+#[derive(Default)]
 enum Context {
+    #[default]
     Empty,
     Cons {
         part: ContextPart,
@@ -34,7 +39,9 @@ enum Context {
     },
 }
 
+#[derive(Default)]
 enum VarContext {
+    #[default]
     Empty,
     Cons {
         typ: Rc<PosTyp>,
@@ -42,7 +49,7 @@ enum VarContext {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct FullContext {
     ctx: Rc<Context>,
     var: Rc<VarContext>,
@@ -77,7 +84,7 @@ struct ExtendedConstraint {
     r: VecDeque<Option<Rc<Term>>>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
 }

@@ -1,6 +1,6 @@
 use std::{cmp::max, collections::VecDeque, iter::zip, rc::Rc};
 
-use crate::refinement::BaseFunctor;
+use crate::refinement::{BaseFunctor, ContextPart};
 
 use super::{Context, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
 
@@ -13,18 +13,41 @@ pub fn or(mut r1: VecDeque<bool>, mut r2: VecDeque<bool>) -> VecDeque<bool> {
 
 impl Context {
     pub fn infer_prop(&self, phi: &Prop) -> Sort {
-        todo!()
+        match phi {
+            Prop::Eq(a, b) => {
+                assert_eq!(self.infer_term(a), self.infer_term(b));
+            }
+        }
+        Sort::Bool
     }
 
     pub fn infer_term(&self, t: &Term) -> Sort {
         match t {
             Term::LVar(b) => self.get(b),
             Term::Prop(phi) => self.infer_prop(phi),
+            Term::Zero => Sort::Nat,
         }
     }
 
     pub fn get(&self, b: &usize) -> Sort {
-        todo!()
+        fn next_sort(mut res: &Context) -> (Sort, &Context) {
+            loop {
+                let Context::Cons { part, next } = res else {
+                    panic!()
+                };
+                if let ContextPart::Free(tau) = part {
+                    return (*tau, next.as_ref());
+                }
+                res = next.as_ref();
+            }
+        }
+
+        let mut res = self;
+        for _ in 0..*b {
+            (_, res) = next_sort(res);
+        }
+        let (tau, _) = next_sort(res);
+        tau
     }
 
     // this needs to check that every index is used and other things
