@@ -1,10 +1,8 @@
-use std::rc::Rc;
-
 use crate::refinement::ContextPart;
 
-use super::{Constraint, Context, Prop};
+use super::{Constraint, FullContext, Prop};
 
-impl Context {
+impl FullContext {
     pub fn verify_prop(&self, phi: &Prop) {
         // This is where we need to use SMT
         todo!()
@@ -20,7 +18,7 @@ impl Context {
     }
 
     // Θ |= 𝑊
-    pub fn verify(self: &Rc<Self>, w: &Constraint) {
+    pub fn verify(&self, w: &Constraint) {
         match w {
             Constraint::True => {}
             Constraint::And(w1, w2) => {
@@ -35,11 +33,11 @@ impl Context {
                 extended.verify(w);
             }
             Constraint::SubNegTyp(n, m) => {
-                let w = self.sub_neg_type(n, m);
+                let w = self.ctx.sub_neg_type(n, m);
                 self.verify(&w.w);
             }
             Constraint::SubPosTyp(p, q) => {
-                let w = self.sub_pos_typ(p, q);
+                let w = self.ctx.sub_pos_typ(p, q);
                 self.verify(&w.w);
             }
             Constraint::Check(e, n) => {

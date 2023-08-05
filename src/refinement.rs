@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{cell::Cell, collections::VecDeque, default, ops::Deref, rc::Rc};
+use std::{collections::VecDeque, ops::Deref, rc::Rc};
 
 mod determined;
 mod subtyp;
@@ -42,6 +42,7 @@ enum VarContext {
     },
 }
 
+#[derive(Clone)]
 struct FullContext {
     ctx: Rc<Context>,
     var: Rc<VarContext>,
@@ -109,8 +110,6 @@ enum BaseFunctor {
     Id,
 }
 
-struct Pattern;
-
 enum Value {
     // second argument is projections
     Var(usize, Vec<usize>),
@@ -139,5 +138,6 @@ enum BoundExpr {
 
 // - Make Prod type any length and povide projections
 // - Remove the Sum type
-// - Functors should not deal with products?
-//      maybe they just have Id in scope?
+// - Functors do not destruct tuples
+// - Remove EqualTerms
+// -

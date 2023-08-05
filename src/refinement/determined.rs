@@ -58,7 +58,9 @@ impl Context {
                 let tau = self.infer_term(t);
                 for (i, (_g, beta)) in f_alpha.iter().enumerate() {
                     let p = self.unroll_prod(f_alpha, i, t);
-                    assert_eq!(tau, self.add_pos(&p).infer_term(beta))
+                    let (_, theta) = self.extract_pos(&p);
+                    // TODO: maybe remove the outer scope so that beta can not refer to it?
+                    assert_eq!(tau, self.extend(theta).infer_term(beta))
                 }
 
                 // we will just assume that there is at least one variant
