@@ -11,6 +11,24 @@ pub fn or(mut r1: VecDeque<bool>, mut r2: VecDeque<bool>) -> VecDeque<bool> {
     zip(r1, r2).map(|(x, y)| x | y).collect()
 }
 
+struct ContextIter<'a>(&'a Context);
+
+impl Iterator for ContextIter<'_> {
+    type Item = Sort;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let Context::Cons { part, next } = self.0 else {
+                return None;
+            };
+            self.0 = next.as_ref();
+            if let ContextPart::Free(tau) = part {
+                return Some(*tau);
+            }
+        }
+    }
+}
+
 impl Context {
     pub fn infer_prop(&self, phi: &Prop) -> Sort {
         match phi {
@@ -23,31 +41,18 @@ impl Context {
 
     pub fn infer_term(&self, t: &Term) -> Sort {
         match t {
-            Term::LVar(b) => self.get(b),
+            Term::LVar(b) => ContextIter(self).nth(*b).unwrap(),
+            Term::GVar(x) => {
+                let vec: Vec<_> = ContextIter(self).collect();
+                vec.into_iter().rev().nth(*x).unwrap()
+            }
             Term::Prop(phi) => self.infer_prop(phi),
             Term::Zero => Sort::Nat,
         }
     }
 
-    pub fn get(&self, b: &usize) -> Sort {
-        fn next_sort(mut res: &Context) -> (Sort, &Context) {
-            loop {
-                let Context::Cons { part, next } = res else {
-                    panic!()
-                };
-                if let ContextPart::Free(tau) = part {
-                    return (*tau, next.as_ref());
-                }
-                res = next.as_ref();
-            }
-        }
-
-        let mut res = self;
-        for _ in 0..*b {
-            (_, res) = next_sort(res);
-        }
-        let (tau, _) = next_sort(res);
-        tau
+    pub fn len(&self) -> usize {
+        ContextIter(self).count()
     }
 
     // this needs to check that every index is used and other things

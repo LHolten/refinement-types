@@ -90,9 +90,10 @@ impl Context {
                 (n, theta)
             }
             NegTyp::Forall(tau, n) => {
+                let gvar = Rc::new(Term::GVar(self.len()));
                 let (n, mut theta) = self.add(tau).extract_neg(n);
                 theta.push(ContextPart::Free(*tau));
-                (n, theta)
+                (n.subst(0, &gvar), theta)
             }
             NegTyp::Fun(p, n) => {
                 let (p, mut theta_p) = self.extract_pos(p);
@@ -112,9 +113,10 @@ impl Context {
                 (p, theta)
             }
             PosTyp::Exists(tau, p) => {
+                let gvar = Rc::new(Term::GVar(self.len()));
                 let (p, mut theta) = self.add(tau).extract_pos(p);
                 theta.push(ContextPart::Free(*tau));
-                (p, theta)
+                (p.subst(0, &gvar), theta)
             }
             PosTyp::Prod(p) => {
                 let mut theta1 = vec![];
@@ -189,7 +191,7 @@ impl Context {
         }
     }
 
-    // we must have that no LVar in `m` refers to the context
+    // `m` must be position independent
     // value determined instances in `n` are resolved
     pub fn sub_neg_type(self: &Rc<Self>, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
         match (n, m) {

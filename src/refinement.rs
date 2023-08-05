@@ -3,6 +3,7 @@
 use std::{collections::VecDeque, fmt::Debug, ops::Deref, rc::Rc};
 
 mod determined;
+mod subst;
 mod subtyp;
 #[cfg(test)]
 mod test;
@@ -20,6 +21,7 @@ enum Sort {
 #[derive(PartialEq, Eq, Debug)]
 enum Term {
     LVar(usize),
+    GVar(usize),
     Prop(Rc<Prop>),
     Zero,
 }
