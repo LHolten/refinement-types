@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{collections::VecDeque, ops::Deref, rc::Rc};
+use std::{collections::VecDeque, fmt::Debug, ops::Deref, rc::Rc};
 
 mod determined;
 mod subtyp;
@@ -24,6 +24,7 @@ enum Term {
     Zero,
 }
 
+#[derive(Debug)]
 enum ContextPart {
     Assume(Rc<Prop>),
     Free(Sort),
@@ -37,6 +38,18 @@ enum Context {
         part: ContextPart,
         next: Rc<Context>,
     },
+}
+
+impl Debug for Context {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut res = Vec::new();
+        let mut this = self;
+        while let Self::Cons { part, next } = this {
+            this = next;
+            res.push(part);
+        }
+        f.debug_list().entries(res.iter().rev()).finish()
+    }
 }
 
 #[derive(Default)]

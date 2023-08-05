@@ -171,7 +171,8 @@ impl FullContext {
                 let NegTyp::Force(p) = n.as_ref() else {
                     panic!()
                 };
-                this.check_value(v, p);
+                let xi = this.check_value(v, p);
+                self.verify(&xi.w);
             }
             Expr::Let(g, e) => {
                 let p = this.infer_bound_expr(g);

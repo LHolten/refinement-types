@@ -5,7 +5,8 @@ use super::{Constraint, FullContext, Prop};
 impl FullContext {
     pub fn verify_prop(&self, phi: &Prop) {
         // This is where we need to use SMT
-        eprintln!("phi = {:?}", phi);
+        eprintln!("{:?}", &self.ctx);
+        eprintln!("=> {:?}", phi);
     }
 
     pub fn equal_prop(&self, phi: &Prop, psi: &Prop) {
