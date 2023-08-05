@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{collections::VecDeque, fmt::Debug, ops::Deref, rc::Rc};
+use std::{fmt::Debug, ops::Deref, rc::Rc};
 
 mod determined;
 mod subst;
@@ -84,7 +84,6 @@ enum Constraint {
     True,
     And(Rc<Constraint>, Rc<Constraint>),
     Prop(Rc<Prop>),
-    PropEq(Rc<Prop>, Rc<Prop>),
     Forall(Sort, Rc<Constraint>),
     Implies(Rc<Prop>, Rc<Constraint>),
     SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
@@ -96,7 +95,7 @@ enum Constraint {
 #[derive(Default)]
 struct ExtendedConstraint {
     w: Rc<Constraint>,
-    r: VecDeque<Option<Rc<Term>>>,
+    r: Vec<Option<Rc<Term>>>,
 }
 
 #[derive(PartialEq, Eq, Debug)]

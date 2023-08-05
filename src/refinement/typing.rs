@@ -66,9 +66,11 @@ impl FullContext {
                 xi.and_prop(phi)
             }
             PosTyp::Exists(tau, p) => {
+                let idx = self.len();
                 let extended = self.add(tau);
-                let xi = extended.check_value(v, p);
-                xi.push_down(tau)
+                let p = p.subst(0, &Rc::new(Term::GVar(idx)));
+                let xi = extended.check_value(v, &p);
+                xi.push_down(idx, tau)
             }
             _ => match v {
                 Value::Var(x, proj) => {
@@ -108,14 +110,16 @@ impl FullContext {
                 (p, xi.and_prop(phi))
             }
             NegTyp::Forall(tau, n) => {
+                let idx = self.len();
                 let extended = self.add(tau);
-                let (p, xi) = extended.spine(n, s);
-                // TODO: somehow apply `t` to `p`??
-                // is the following code correct?
-                let t = xi.r.front().unwrap().as_ref().unwrap();
-                let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t.clone()));
+                let n = n.subst(0, &Rc::new(Term::GVar(idx)));
+                let (p, xi) = extended.spine(&n, s);
+
+                let t = xi.r[idx].as_ref().unwrap();
+                // this is allowed to be LVar, because it is self contained
+                let prop = Rc::new(Prop::Eq(t.clone(), Rc::new(Term::LVar(0))));
                 let p = PosTyp::Exists(*tau, Rc::new(PosTyp::Refined(p, prop)));
-                (Rc::new(p), xi.push_down(tau))
+                (Rc::new(p), xi.push_down(idx, tau))
             }
             NegTyp::Fun(q, n) => {
                 let [v, s @ ..] = s else { panic!() };
@@ -162,7 +166,7 @@ impl FullContext {
         }
     }
 
-    // can we make sure than `n` is always position independent????
+    // can we make sure that `n` is always position independent????
     pub fn check_expr(&self, e: &Expr, n: &Rc<NegTyp>) {
         let (n, theta) = self.ctx.extract_neg(n);
         let this = self.extend(theta);
@@ -193,6 +197,7 @@ impl FullContext {
                 let NegTyp::Fun(p, n) = n.as_ref() else {
                     panic!()
                 };
+                // extracting `p` does nothing here, but we still do it
                 this.add_pos(p).check_expr(e, n)
             }
         }

@@ -27,7 +27,6 @@ impl FullContext {
                 self.verify(w2);
             }
             Constraint::Prop(phi) => self.verify_prop(phi),
-            Constraint::PropEq(phi, psi) => self.equal_prop(phi, psi),
             Constraint::Forall(tau, w) => self.add(tau).verify(w),
             Constraint::Implies(phi, w) => {
                 let extended = self.extend(vec![ContextPart::Assume(phi.clone())]);

@@ -41,17 +41,16 @@ impl ExtendedConstraint {
         self.and(cons)
     }
 
-    pub fn and_prop_eq(self, lhs: &Rc<Prop>, rhs: &Rc<Prop>) -> Self {
-        let cons = Rc::new(Constraint::PropEq(lhs.clone(), rhs.clone()));
-        self.and(cons)
-    }
-
     // uses the found solution for the topmost variable
-    pub fn push_down(mut self, tau: &Sort) -> Self {
-        let Some(Some(t)) = self.r.pop_front() else {
+    pub fn push_down(mut self, idx: usize, tau: &Sort) -> Self {
+        // remove solutions found for universal quantifiers
+        self.r.truncate(idx + 1);
+        assert_eq!(self.r.len(), idx + 1);
+
+        let Some(t) = self.r.pop().unwrap() else {
             panic!()
         };
-        let prop = Rc::new(Prop::Eq(Rc::new(Term::LVar(0)), t));
+        let prop = Rc::new(Prop::Eq(t.clone(), Rc::new(Term::GVar(idx))));
         let implies = Rc::new(Constraint::Implies(prop, self.w));
         self.w = Rc::new(Constraint::Forall(*tau, implies));
         self
@@ -60,7 +59,7 @@ impl ExtendedConstraint {
     pub fn inst(mut self, t: &Rc<Term>, t_: &Rc<Term>) -> Self {
         let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
         self = self.and_prop(&prop);
-        if let Term::LVar(x) = t_.as_ref() {
+        if let Term::GVar(x) = t_.as_ref() {
             self.r.resize_with(max(self.r.len(), x + 1), || None);
             self.r[*x] = self.r[*x].take().or_else(|| Some(t.clone()));
         }
@@ -170,8 +169,10 @@ impl Context {
                 w.and_prop(phi)
             }
             (p, PosTyp::Exists(tau, q)) => {
-                let w = self.add(tau).sub_pos_typ(p, q);
-                w.push_down(tau)
+                let idx = self.len();
+                let q = q.subst(0, &Rc::new(Term::GVar(idx)));
+                let w = self.add(tau).sub_pos_typ(p, &q);
+                w.push_down(idx, tau)
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
                 let (m, theta) = self.extract_neg(m);
@@ -211,8 +212,10 @@ impl Context {
                 w.and_prop(phi)
             }
             (NegTyp::Forall(tau, n), m) => {
-                let w = self.add(tau).sub_neg_type(n, m);
-                w.push_down(tau)
+                let idx = self.len();
+                let n = n.subst(0, &Rc::new(Term::GVar(idx)));
+                let w = self.add(tau).sub_neg_type(&n, m);
+                w.push_down(idx, tau)
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
                 // arguments are swapped! (fun is contravariant in the argument)
@@ -236,7 +239,7 @@ impl Constraint {
         }
         ExtendedConstraint {
             w: self,
-            r: VecDeque::new(),
+            r: Vec::new(),
         }
     }
 }
