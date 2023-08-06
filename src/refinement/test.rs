@@ -21,6 +21,10 @@ fn id_typ(arg: &Rc<PosTyp>) -> Rc<NegTyp> {
     ))
 }
 
+fn inductive_val() -> Value {
+    Value::Inj(0, Rc::new(Value::Tuple(vec![])))
+}
+
 fn inductive_typ(idx: &Rc<Term>) -> Rc<PosTyp> {
     Rc::new(PosTyp::Measured(
         vec![(Rc::new(ProdFunctor { prod: vec![] }), Rc::new(Term::Zero))],
@@ -62,4 +66,13 @@ fn check_id_typ() {
     eprintln!();
     eprintln!("== test4");
     ctx.check_expr(&id_fun(), &impossible_id_typ())
+}
+
+#[test]
+fn checkk_id_app() {
+    let ctx = FullContext::default();
+    // ctx.ctx.value_determined_neg(&forall_id_typ());
+    let (res, xi) = ctx.spine(&forall_id_typ(), &[inductive_val()]);
+    ctx.verify(&xi.w);
+    assert_eq!(res, existential_typ());
 }
