@@ -2,6 +2,7 @@
 
 use std::{fmt::Debug, ops::Deref, rc::Rc};
 
+mod constraint;
 mod determined;
 mod subst;
 mod subtyp;
@@ -21,7 +22,8 @@ enum Sort {
 #[derive(PartialEq, Eq, Debug)]
 enum Term {
     LVar(usize),
-    GVar(usize),
+    UVar(usize, Sort),
+    EVar(usize, Sort),
     Prop(Rc<Prop>),
     Zero,
 }
@@ -65,16 +67,22 @@ enum VarContext {
 }
 
 #[derive(Clone, Default)]
+struct SubContext {
+    exis: Rc<Context>,
+    univ: Rc<Context>,
+}
+
+#[derive(Clone, Default)]
 struct FullContext {
-    ctx: Rc<Context>,
+    sub: SubContext,
     var: Rc<VarContext>,
 }
 
 impl Deref for FullContext {
-    type Target = Context;
+    type Target = SubContext;
 
     fn deref(&self) -> &Self::Target {
-        self.ctx.as_ref()
+        &self.sub
     }
 }
 
@@ -103,7 +111,7 @@ enum Prop {
     Eq(Rc<Term>, Rc<Term>),
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum PosTyp {
     Prod(Vec<Rc<PosTyp>>),
     Refined(Rc<PosTyp>, Rc<Prop>),
@@ -112,7 +120,7 @@ enum PosTyp {
     Measured(Vec<(Rc<ProdFunctor>, Rc<Term>)>, Rc<Term>),
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum NegTyp {
     Force(Rc<PosTyp>),
     Implies(Rc<Prop>, Rc<NegTyp>),
@@ -120,12 +128,12 @@ enum NegTyp {
     Fun(Rc<PosTyp>, Rc<NegTyp>),
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 struct ProdFunctor {
     prod: Vec<BaseFunctor>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum BaseFunctor {
     Pos(Rc<PosTyp>),
     Id,

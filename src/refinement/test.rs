@@ -74,5 +74,5 @@ fn checkk_id_app() {
     // ctx.ctx.value_determined_neg(&forall_id_typ());
     let (res, xi) = ctx.spine(&forall_id_typ(), &[inductive_val()]);
     ctx.verify(&xi.w);
-    assert_eq!(res, existential_typ());
+    assert_eq!(res, inductive_typ(&Rc::new(Term::Zero)));
 }

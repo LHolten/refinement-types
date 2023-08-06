@@ -3,8 +3,8 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::VarContext;
 
 use super::{
-    subtyp::and, BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint, FullContext, Head,
-    NegTyp, PosTyp, Prop, Sort, Term, Value,
+    constraint, subst::Subst, BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint,
+    FullContext, Head, NegTyp, PosTyp, Sort, Term, Value,
 };
 
 // Value, Head, Expr and BoundExpr are always position independent
@@ -14,8 +14,8 @@ impl FullContext {
     // That is the only way to make it relocatable
     // I don't know if we can do this by wrapping..
     pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
-        let (p, theta) = self.ctx.extract_pos(p);
-        let mut this = self.extend(theta);
+        let (p, theta) = self.extract_pos(p);
+        let mut this = self.extend_univ(theta);
         this.var = Rc::new(VarContext::Cons {
             typ: p.clone(),
             next: this.var,
@@ -45,15 +45,17 @@ impl FullContext {
         p
     }
 
-    pub fn add(&self, tau: &Sort) -> Self {
+    // local
+    pub fn add_exis(&self, tau: &Sort) -> Self {
         let mut this = self.clone();
-        this.ctx = this.ctx.add(tau);
+        this.sub = this.sub.add_exis(tau);
         this
     }
 
-    pub fn extend(&self, theta: Vec<ContextPart>) -> Self {
+    // global
+    pub fn extend_univ(&self, theta: Vec<ContextPart>) -> Self {
         let mut this = self.clone();
-        this.ctx = this.ctx.extend(theta);
+        this.sub = this.sub.extend_univ(theta);
         this
     }
 
@@ -67,20 +69,20 @@ impl FullContext {
             }
             PosTyp::Exists(tau, p) => {
                 let idx = self.len();
-                let extended = self.add(tau);
-                let p = p.subst(0, &Rc::new(Term::GVar(idx)));
+                let extended = self.add_exis(tau);
+                let p = p.subst(Subst::Local(0), &Rc::new(Term::UVar(idx, *tau)));
                 let xi = extended.check_value(v, &p);
-                xi.push_down(idx, tau)
+                xi.push_down(idx)
             }
             _ => match v {
                 Value::Var(x, proj) => {
                     let q = self.get_pos(x, proj);
-                    self.ctx.sub_pos_typ(q, p)
+                    self.sub.sub_pos_typ(q, p)
                 }
                 Value::Tuple(v) => {
                     let PosTyp::Prod(p) = p else { panic!() };
                     let iter = zip(v, p).map(|(v, p)| self.check_value(v, p));
-                    and(iter)
+                    constraint::and(iter)
                 }
                 Value::Thunk(e) => {
                     let PosTyp::Thunk(n) = p else { panic!() };
@@ -90,8 +92,9 @@ impl FullContext {
                     let PosTyp::Measured(f_alpha, t) = p else {
                         panic!()
                     };
-                    let p = self.unroll_prod(f_alpha, *i, t);
-                    self.check_value(v, &p)
+                    let (p, xi1) = self.unroll_prod(f_alpha, *i, t);
+                    let xi2 = self.check_value(v, &p);
+                    xi1 & xi2
                 }
             },
         }
@@ -111,15 +114,13 @@ impl FullContext {
             }
             NegTyp::Forall(tau, n) => {
                 let idx = self.len();
-                let extended = self.add(tau);
-                let n = n.subst(0, &Rc::new(Term::GVar(idx)));
+                let extended = self.add_exis(tau);
+                let n = n.subst(Subst::Local(0), &Rc::new(Term::EVar(idx, *tau)));
                 let (p, xi) = extended.spine(&n, s);
 
                 let t = xi.r[idx].as_ref().unwrap();
-                // this is allowed to be LVar, because it is self contained
-                let prop = Rc::new(Prop::Eq(t.clone(), Rc::new(Term::LVar(0))));
-                let p = PosTyp::Exists(*tau, Rc::new(PosTyp::Refined(p, prop)));
-                (Rc::new(p), xi.push_down(idx, tau))
+                let p = p.subst(Subst::Global(idx), t);
+                (p, xi.push_down(idx))
             }
             NegTyp::Fun(q, n) => {
                 let [v, s @ ..] = s else { panic!() };
@@ -168,8 +169,8 @@ impl FullContext {
 
     // can we make sure that `n` is always position independent????
     pub fn check_expr(&self, e: &Expr, n: &Rc<NegTyp>) {
-        let (n, theta) = self.ctx.extract_neg(n);
-        let this = self.extend(theta);
+        let (n, theta) = self.extract_neg(n);
+        let this = self.extend_univ(theta);
         match e {
             Expr::Return(v) => {
                 let NegTyp::Force(p) = n.as_ref() else {
@@ -189,7 +190,8 @@ impl FullContext {
                 };
                 assert_eq!(pats.len(), f_alpha.len());
                 for (i, e) in pats.iter().enumerate() {
-                    let p = self.unroll_prod(f_alpha, i, t);
+                    // we ignore the constraint from unrolling
+                    let (p, _) = self.unroll_prod(f_alpha, i, t);
                     this.add_pos(&p).check_expr(e, &n);
                 }
             }

@@ -1,87 +1,40 @@
-use std::{cmp::max, collections::VecDeque, iter::zip, ops::BitAnd, rc::Rc};
+use std::{iter::zip, rc::Rc};
+
+use crate::refinement::{constraint, Context, SubContext};
 
 use super::{
-    BaseFunctor, Constraint, Context, ContextPart, ExtendedConstraint, NegTyp, PosTyp, ProdFunctor,
-    Prop, Sort, Term,
+    subst::Subst, BaseFunctor, Constraint, ContextPart, ExtendedConstraint, NegTyp, PosTyp,
+    ProdFunctor, Sort, Term,
 };
 
-type TermSol = VecDeque<Option<Term>>;
+impl SubContext {
+    pub fn add_exis(&self, tau: &Sort) -> Self {
+        Self {
+            exis: Rc::new(Context::Cons {
+                part: ContextPart::Free(*tau),
+                next: self.exis.clone(),
+            }),
+            univ: self.univ.clone(),
+        }
+    }
 
-pub(super) fn and(iter: impl IntoIterator<Item = ExtendedConstraint>) -> ExtendedConstraint {
-    iter.into_iter()
-        .fold(ExtendedConstraint::default(), BitAnd::bitand)
-}
+    pub fn add_univ(&self, tau: &Sort) -> Self {
+        self.extend_univ(vec![ContextPart::Free(*tau)])
+    }
 
-impl BitAnd for ExtendedConstraint {
-    type Output = Self;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        let Self { w: w1, r: mut r1 } = self;
-        let Self { w: w2, r: r2 } = rhs;
-        let new_len = max(r1.len(), r2.len());
-        r1.resize_with(new_len, || None);
-        for (r1, r2) in zip(&mut r1, r2) {
-            *r1 = r1.take().or(r2)
+    pub fn extend_univ(&self, theta: Vec<ContextPart>) -> Self {
+        let mut next = self.univ.clone();
+        for part in theta {
+            next = Rc::new(Context::Cons { part, next })
         }
         Self {
-            w: Rc::new(Constraint::And(w1, w2)),
-            r: r1,
+            exis: self.exis.clone(),
+            univ: next,
         }
-    }
-}
-
-impl ExtendedConstraint {
-    pub fn and(mut self, rhs: Rc<Constraint>) -> Self {
-        self.w = Rc::new(Constraint::And(self.w, rhs));
-        self
-    }
-
-    pub fn and_prop(self, prop: &Rc<Prop>) -> Self {
-        let cons = Rc::new(Constraint::Prop(prop.clone()));
-        self.and(cons)
-    }
-
-    // uses the found solution for the topmost variable
-    pub fn push_down(mut self, idx: usize, tau: &Sort) -> Self {
-        // remove solutions found for universal quantifiers
-        self.r.truncate(idx + 1);
-        assert_eq!(self.r.len(), idx + 1);
-
-        let Some(t) = self.r.pop().unwrap() else {
-            panic!()
-        };
-        let prop = Rc::new(Prop::Eq(t.clone(), Rc::new(Term::GVar(idx))));
-        let implies = Rc::new(Constraint::Implies(prop, self.w));
-        self.w = Rc::new(Constraint::Forall(*tau, implies));
-        self
-    }
-
-    pub fn inst(mut self, t: &Rc<Term>, t_: &Rc<Term>) -> Self {
-        let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
-        self = self.and_prop(&prop);
-        if let Term::GVar(x) = t_.as_ref() {
-            self.r.resize_with(max(self.r.len(), x + 1), || None);
-            self.r[*x] = self.r[*x].take().or_else(|| Some(t.clone()));
-        }
-        self
-    }
-}
-
-impl Context {
-    pub fn add(self: &Rc<Self>, tau: &Sort) -> Rc<Self> {
-        self.extend(vec![ContextPart::Free(*tau)])
-    }
-
-    pub fn extend(self: &Rc<Self>, theta: Vec<ContextPart>) -> Rc<Self> {
-        let mut next = self.clone();
-        for part in theta {
-            next = Rc::new(Self::Cons { part, next })
-        }
-        next
     }
 
     // can we make this position independent into position independent??
-    pub fn extract_neg(self: &Rc<Self>, n: &Rc<NegTyp>) -> (Rc<NegTyp>, Vec<ContextPart>) {
+    pub fn extract_neg(&self, n: &Rc<NegTyp>) -> (Rc<NegTyp>, Vec<ContextPart>) {
         match n.as_ref() {
             NegTyp::Implies(phi, n) => {
                 let (n, mut theta) = self.extract_neg(n);
@@ -89,10 +42,12 @@ impl Context {
                 (n, theta)
             }
             NegTyp::Forall(tau, n) => {
-                let gvar = Rc::new(Term::GVar(self.len()));
-                let (n, mut theta) = self.add(tau).extract_neg(n);
+                // we keep `n` positionally independent
+                let gvar = Rc::new(Term::UVar(self.len(), *tau));
+                let n = n.subst(Subst::Local(0), &gvar);
+                let (n, mut theta) = self.add_univ(tau).extract_neg(&n);
                 theta.push(ContextPart::Free(*tau));
-                (n.subst(0, &gvar), theta)
+                (n, theta)
             }
             NegTyp::Fun(p, n) => {
                 let (p, mut theta_p) = self.extract_pos(p);
@@ -104,7 +59,7 @@ impl Context {
         }
     }
 
-    pub fn extract_pos(self: &Rc<Self>, p: &Rc<PosTyp>) -> (Rc<PosTyp>, Vec<ContextPart>) {
+    pub fn extract_pos(&self, p: &Rc<PosTyp>) -> (Rc<PosTyp>, Vec<ContextPart>) {
         match p.as_ref() {
             PosTyp::Refined(p, phi) => {
                 let (p, mut theta) = self.extract_pos(p);
@@ -112,10 +67,11 @@ impl Context {
                 (p, theta)
             }
             PosTyp::Exists(tau, p) => {
-                let gvar = Rc::new(Term::GVar(self.len()));
-                let (p, mut theta) = self.add(tau).extract_pos(p);
+                let gvar = Rc::new(Term::UVar(self.len(), *tau));
+                let p = p.subst(Subst::Local(0), &gvar);
+                let (p, mut theta) = self.add_univ(tau).extract_pos(&p);
                 theta.push(ContextPart::Free(*tau));
-                (p.subst(0, &gvar), theta)
+                (p, theta)
             }
             PosTyp::Prod(p) => {
                 let mut theta1 = vec![];
@@ -131,11 +87,7 @@ impl Context {
         }
     }
 
-    pub fn sub_base_functor(
-        self: &Rc<Self>,
-        f: &BaseFunctor,
-        g: &BaseFunctor,
-    ) -> ExtendedConstraint {
+    pub fn sub_base_functor(&self, f: &BaseFunctor, g: &BaseFunctor) -> ExtendedConstraint {
         match (f, g) {
             (BaseFunctor::Pos(p), BaseFunctor::Pos(q)) => self.sub_pos_typ(p, q),
             (BaseFunctor::Id, BaseFunctor::Id) => ExtendedConstraint::default(),
@@ -143,11 +95,7 @@ impl Context {
         }
     }
 
-    pub fn sub_prod_functor(
-        self: &Rc<Self>,
-        f: &ProdFunctor,
-        g: &ProdFunctor,
-    ) -> ExtendedConstraint {
+    pub fn sub_prod_functor(&self, f: &ProdFunctor, g: &ProdFunctor) -> ExtendedConstraint {
         let mut res = ExtendedConstraint::default();
         assert_eq!(f.prod.len(), g.prod.len());
         for (x, y) in zip(&f.prod, &g.prod) {
@@ -158,21 +106,21 @@ impl Context {
 
     // `p` is ground, solves all "value determined" indices in `q`
     // `p` must also be position independent
-    pub fn sub_pos_typ(self: &Rc<Self>, p: &PosTyp, q: &PosTyp) -> ExtendedConstraint {
+    pub fn sub_pos_typ(&self, p: &PosTyp, q: &PosTyp) -> ExtendedConstraint {
         match (p, q) {
             (PosTyp::Prod(p), PosTyp::Prod(q)) => {
                 let iter = zip(p, q).map(|(p, q)| self.sub_pos_typ(p, q));
-                and(iter)
+                constraint::and(iter)
             }
             (p, PosTyp::Refined(q, phi)) => {
                 let w = self.sub_pos_typ(p, q);
                 w.and_prop(phi)
             }
             (p, PosTyp::Exists(tau, q)) => {
-                let idx = self.len();
-                let q = q.subst(0, &Rc::new(Term::GVar(idx)));
-                let w = self.add(tau).sub_pos_typ(p, &q);
-                w.push_down(idx, tau)
+                let evar = Rc::new(Term::EVar(self.len(), *tau));
+                let q = q.subst(Subst::Local(0), &evar);
+                let w = self.add_exis(tau).sub_pos_typ(p, &q);
+                w.push_down(self.len())
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
                 let (m, theta) = self.extract_neg(m);
@@ -185,7 +133,7 @@ impl Context {
                     assert!(f_alpha.1 == g_alpha.1);
                     self.sub_prod_functor(&f_alpha.0, &g_alpha.0)
                 });
-                let w = and(iter);
+                let w = constraint::and(iter);
                 w.inst(t, t_)
             }
             _ => panic!(),
@@ -194,7 +142,7 @@ impl Context {
 
     // `m` must be position independent
     // value determined instances in `n` are resolved
-    pub fn sub_neg_type(self: &Rc<Self>, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
+    pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
         match (n, m) {
             (NegTyp::Force(p), NegTyp::Force(q)) => {
                 // `p` might have existential variables refering to our scope
@@ -213,9 +161,9 @@ impl Context {
             }
             (NegTyp::Forall(tau, n), m) => {
                 let idx = self.len();
-                let n = n.subst(0, &Rc::new(Term::GVar(idx)));
-                let w = self.add(tau).sub_neg_type(&n, m);
-                w.push_down(idx, tau)
+                let n = n.subst(Subst::Local(0), &Rc::new(Term::UVar(idx, *tau)));
+                let w = self.add_exis(tau).sub_neg_type(&n, m);
+                w.push_down(idx)
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
                 // arguments are swapped! (fun is contravariant in the argument)
