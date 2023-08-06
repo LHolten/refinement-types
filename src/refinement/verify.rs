@@ -1,5 +1,3 @@
-use crate::refinement::ContextPart;
-
 use super::{Constraint, FullContext, Prop};
 
 impl FullContext {
@@ -27,8 +25,8 @@ impl FullContext {
                 self.verify(w2);
             }
             Constraint::Prop(phi) => self.verify_prop(phi),
-            Constraint::Implies(phi, w) => {
-                let extended = &self.extend_univ(vec![ContextPart::Assume(phi.clone())]);
+            Constraint::Context(part, w) => {
+                let extended = &self.extend_univ(vec![part.clone()]);
                 extended.verify(w);
             }
             Constraint::SubNegTyp(n, m) => {

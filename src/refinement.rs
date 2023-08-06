@@ -28,7 +28,7 @@ enum Term {
     Zero,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ContextPart {
     Assume(Rc<Prop>),
     Free,
@@ -48,9 +48,9 @@ impl Debug for Context {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut res = Vec::new();
         let mut this = self;
-        while let Self::Assume { phi: part, next } = this {
+        while let Self::Assume { phi, next } = this {
             this = next;
-            res.push(part);
+            res.push(phi);
         }
         f.debug_list().entries(res.iter().rev()).finish()
     }
@@ -93,7 +93,7 @@ enum Constraint {
     True,
     And(Rc<Constraint>, Rc<Constraint>),
     Prop(Rc<Prop>),
-    Implies(Rc<Prop>, Rc<Constraint>),
+    Context(ContextPart, Rc<Constraint>),
     SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
     SubPosTyp(Rc<PosTyp>, Rc<PosTyp>),
     Check(Rc<Expr>, Rc<NegTyp>),

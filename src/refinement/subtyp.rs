@@ -164,11 +164,7 @@ impl SubContext {
 impl Constraint {
     pub fn extend(mut self: Rc<Self>, theta: &[ContextPart]) -> ExtendedConstraint {
         for part in theta.iter().rev() {
-            let res = match part {
-                ContextPart::Assume(phi) => Self::Implies(phi.clone(), self),
-                ContextPart::Free => continue,
-            };
-            self = Rc::new(res)
+            self = Rc::new(Self::Context(part.clone(), self));
         }
         ExtendedConstraint {
             w: self,

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::refinement::Constraint;
+use crate::refinement::{Constraint, ContextPart};
 
 use super::{NegTyp, PosTyp, Prop, Term};
 
@@ -25,12 +25,23 @@ impl Constraint {
             Constraint::True => Constraint::True,
             Constraint::And(w1, w2) => Constraint::And(w1.subst(var, t), w2.subst(var, t)),
             Constraint::Prop(phi) => Constraint::Prop(phi.subst(var, t)),
-            Constraint::Implies(phi, w) => Constraint::Implies(phi.subst(var, t), w.subst(var, t)),
+            Constraint::Context(part, w) => {
+                Constraint::Context(part.subst(var, t), w.subst(var, t))
+            }
             Constraint::SubNegTyp(n, m) => Constraint::SubNegTyp(n.subst(var, t), m.subst(var, t)),
             Constraint::SubPosTyp(p, q) => Constraint::SubPosTyp(p.subst(var, t), q.subst(var, t)),
             Constraint::Check(e, n) => Constraint::Check(e.clone(), n.subst(var, t)),
         };
         Rc::new(res)
+    }
+}
+
+impl ContextPart {
+    pub fn subst(&self, var: Subst, t: &Rc<Term>) -> Self {
+        match self {
+            ContextPart::Assume(phi) => ContextPart::Assume(phi.subst(var, t)),
+            ContextPart::Free => ContextPart::Free,
+        }
     }
 }
 
