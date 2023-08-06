@@ -4,32 +4,23 @@ use crate::refinement::{constraint, Context, SubContext};
 
 use super::{
     subst::Subst, BaseFunctor, Constraint, ContextPart, ExtendedConstraint, NegTyp, PosTyp,
-    ProdFunctor, Sort, Term,
+    ProdFunctor,
 };
 
 impl SubContext {
-    pub fn add_exis(&self, tau: &Sort) -> Self {
-        Self {
-            exis: Rc::new(Context::Cons {
-                part: ContextPart::Free(*tau),
-                next: self.exis.clone(),
-            }),
-            univ: self.univ.clone(),
-        }
-    }
-
-    pub fn add_univ(&self, tau: &Sort) -> Self {
-        self.extend_univ(vec![ContextPart::Free(*tau)])
-    }
-
     pub fn extend_univ(&self, theta: Vec<ContextPart>) -> Self {
-        let mut next = self.univ.clone();
+        let mut next = self.assume.clone();
+        let mut univ = self.univ;
         for part in theta {
-            next = Rc::new(Context::Cons { part, next })
+            match part {
+                ContextPart::Assume(phi) => next = Rc::new(Context::Assume { phi, next }),
+                ContextPart::Free => univ += 1,
+            }
         }
         Self {
-            exis: self.exis.clone(),
-            univ: next,
+            exis: self.exis,
+            univ,
+            assume: next,
         }
     }
 
@@ -43,10 +34,10 @@ impl SubContext {
             }
             NegTyp::Forall(tau, n) => {
                 // we keep `n` positionally independent
-                let gvar = Rc::new(Term::UVar(self.len(), *tau));
-                let n = n.subst(Subst::Local(0), &gvar);
-                let (n, mut theta) = self.add_univ(tau).extract_neg(&n);
-                theta.push(ContextPart::Free(*tau));
+                let (this, uvar) = self.new_uvar(tau);
+                let n = n.subst(Subst::Local(0), &uvar);
+                let (n, mut theta) = this.extract_neg(&n);
+                theta.push(ContextPart::Free);
                 (n, theta)
             }
             NegTyp::Fun(p, n) => {
@@ -67,10 +58,10 @@ impl SubContext {
                 (p, theta)
             }
             PosTyp::Exists(tau, p) => {
-                let gvar = Rc::new(Term::UVar(self.len(), *tau));
-                let p = p.subst(Subst::Local(0), &gvar);
-                let (p, mut theta) = self.add_univ(tau).extract_pos(&p);
-                theta.push(ContextPart::Free(*tau));
+                let (this, uvar) = self.new_uvar(tau);
+                let p = p.subst(Subst::Local(0), &uvar);
+                let (p, mut theta) = this.extract_pos(&p);
+                theta.push(ContextPart::Free);
                 (p, theta)
             }
             PosTyp::Prod(p) => {
@@ -117,10 +108,10 @@ impl SubContext {
                 w.and_prop(phi)
             }
             (p, PosTyp::Exists(tau, q)) => {
-                let evar = Rc::new(Term::EVar(self.len(), *tau));
+                let (this, evar) = self.new_evar(tau);
                 let q = q.subst(Subst::Local(0), &evar);
-                let w = self.add_exis(tau).sub_pos_typ(p, &q);
-                w.push_down(self.len())
+                let w = this.sub_pos_typ(p, &q);
+                w.push_down(self.exis)
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
                 let (m, theta) = self.extract_neg(m);
@@ -145,12 +136,6 @@ impl SubContext {
     pub fn sub_neg_type(&self, n: &NegTyp, m: &NegTyp) -> ExtendedConstraint {
         match (n, m) {
             (NegTyp::Force(p), NegTyp::Force(q)) => {
-                // `p` might have existential variables refering to our scope
-                // we remove a bunch of binders and add them in the constraint
-                // this keeps the existential variables correctly bound, because
-                // we will add the existential variables to the the context when they are solved.
-                // we do not update the variables that were bound by `theta`
-                // Luckily all vars start out as LVar, so this is fine!
                 let (p, theta) = self.extract_pos(p);
                 let w = Rc::new(Constraint::SubPosTyp(p, q.clone()));
                 w.extend(&theta)
@@ -160,10 +145,10 @@ impl SubContext {
                 w.and_prop(phi)
             }
             (NegTyp::Forall(tau, n), m) => {
-                let idx = self.len();
-                let n = n.subst(Subst::Local(0), &Rc::new(Term::UVar(idx, *tau)));
-                let w = self.add_exis(tau).sub_neg_type(&n, m);
-                w.push_down(idx)
+                let (this, uvar) = self.new_uvar(tau);
+                let n = n.subst(Subst::Local(0), &uvar);
+                let w = this.sub_neg_type(&n, m);
+                w.push_down(self.exis)
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
                 // arguments are swapped! (fun is contravariant in the argument)
@@ -178,10 +163,10 @@ impl SubContext {
 
 impl Constraint {
     pub fn extend(mut self: Rc<Self>, theta: &[ContextPart]) -> ExtendedConstraint {
-        for part in theta {
+        for part in theta.iter().rev() {
             let res = match part {
                 ContextPart::Assume(phi) => Self::Implies(phi.clone(), self),
-                ContextPart::Free(tau) => Self::Forall(*tau, self),
+                ContextPart::Free => continue,
             };
             self = Rc::new(res)
         }

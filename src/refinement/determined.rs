@@ -1,32 +1,14 @@
-use std::{cmp::max, collections::VecDeque, iter::zip};
+use std::{cmp::max, iter::zip, rc::Rc};
 
-use crate::refinement::{BaseFunctor, ContextPart, SubContext};
+use crate::refinement::{subst::Subst, BaseFunctor, SubContext};
 
-use super::{Context, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
+use super::{NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
 
-pub fn or(mut r1: VecDeque<bool>, mut r2: VecDeque<bool>) -> VecDeque<bool> {
+pub fn or(mut r1: Vec<bool>, mut r2: Vec<bool>) -> Vec<bool> {
     let total_len = max(r1.len(), r2.len());
     r1.resize(total_len, false);
     r2.resize(total_len, false);
     zip(r1, r2).map(|(x, y)| x | y).collect()
-}
-
-struct ContextIter<'a>(&'a Context);
-
-impl Iterator for ContextIter<'_> {
-    type Item = Sort;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let Context::Cons { part, next } = self.0 else {
-                return None;
-            };
-            self.0 = next.as_ref();
-            if let ContextPart::Free(tau) = part {
-                return Some(*tau);
-            }
-        }
-    }
 }
 
 impl SubContext {
@@ -49,17 +31,33 @@ impl SubContext {
         }
     }
 
-    pub fn len(&self) -> usize {
-        ContextIter(&self.univ).count()
+    pub fn new_uvar(&self, tau: &Sort) -> (Self, Rc<Term>) {
+        let uvar = Rc::new(Term::UVar(self.univ, *tau));
+        let this = Self {
+            exis: self.exis,
+            univ: self.univ + 1,
+            assume: self.assume.clone(),
+        };
+        (this, uvar)
+    }
+
+    pub fn new_evar(&self, tau: &Sort) -> (Self, Rc<Term>) {
+        let evar = Rc::new(Term::EVar(self.exis, *tau));
+        let this = Self {
+            exis: self.exis + 1,
+            univ: self.univ,
+            assume: self.assume.clone(),
+        };
+        (this, evar)
     }
 
     // this needs to check that every index is used and other things
     // the returned value is a bitset indicating which variables were used
     // for now the variable index is the VecDeque index
-    pub fn value_determined_pos(&self, p: &PosTyp) -> VecDeque<bool> {
+    pub fn value_determined_pos(&self, p: &PosTyp) -> Vec<bool> {
         match p {
             PosTyp::Prod(p) => {
-                let mut r = VecDeque::new();
+                let mut r = Vec::new();
                 for p in p {
                     r = or(r, self.value_determined_pos(p))
                 }
@@ -72,13 +70,17 @@ impl SubContext {
                 self.value_determined_pos(p)
             }
             PosTyp::Exists(tau, p) => {
-                let mut r = self.add_exis(tau).value_determined_pos(p);
-                let Some(true) = r.pop_front() else { panic!() };
+                let (this, evar) = self.new_evar(tau);
+                let p = p.subst(Subst::Local(0), &evar);
+                let r = this.value_determined_pos(&p);
+                let Some(true) = r.get(self.exis) else {
+                    panic!()
+                };
                 r
             }
             PosTyp::Thunk(n) => {
                 let _ = self.value_determined_neg(n);
-                VecDeque::new()
+                Vec::new()
             }
             PosTyp::Measured(f_alpha, t) => {
                 let tau = self.infer_term(t);
@@ -99,21 +101,21 @@ impl SubContext {
                     r = zip(r, v2).map(|(x, y)| x & y).collect();
                 }
 
-                if let Term::LVar(b) = t.as_ref() {
+                if let Term::EVar(x, _) = t.as_ref() {
                     // if the term is just a variable, then it is value determined!
-                    r.resize(b + 1, false);
-                    r[*b] = true;
+                    r.resize(x + 1, false);
+                    r[*x] = true;
                 }
                 r
             }
         }
     }
 
-    pub fn value_determined_neg(&self, n: &NegTyp) -> VecDeque<bool> {
+    pub fn value_determined_neg(&self, n: &NegTyp) -> Vec<bool> {
         match n {
             NegTyp::Force(p) => {
                 let _ = self.value_determined_pos(p);
-                VecDeque::new()
+                Vec::new()
             }
             NegTyp::Implies(phi, n) => {
                 let Sort::Bool = self.infer_prop(phi) else {
@@ -122,8 +124,12 @@ impl SubContext {
                 self.value_determined_neg(n)
             }
             NegTyp::Forall(tau, n) => {
-                let mut r = self.add_exis(tau).value_determined_neg(n);
-                let Some(true) = r.pop_front() else { panic!() };
+                let (this, evar) = self.new_evar(tau);
+                let n = n.subst(Subst::Local(0), &evar);
+                let r = this.value_determined_neg(&n);
+                let Some(true) = r.get(self.exis) else {
+                    panic!()
+                };
                 r
             }
             NegTyp::Fun(p, n) => {
@@ -134,8 +140,8 @@ impl SubContext {
         }
     }
 
-    pub fn value_determined_functor(&self, f: &ProdFunctor) -> VecDeque<bool> {
-        let mut r = VecDeque::new();
+    pub fn value_determined_functor(&self, f: &ProdFunctor) -> Vec<bool> {
+        let mut r = Vec::new();
         for f in &f.prod {
             match f {
                 BaseFunctor::Pos(p) => {

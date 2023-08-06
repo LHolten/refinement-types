@@ -31,15 +31,15 @@ enum Term {
 #[derive(Debug)]
 enum ContextPart {
     Assume(Rc<Prop>),
-    Free(Sort),
+    Free,
 }
 
 #[derive(Default)]
 enum Context {
     #[default]
     Empty,
-    Cons {
-        part: ContextPart,
+    Assume {
+        phi: Rc<Prop>,
         next: Rc<Context>,
     },
 }
@@ -48,7 +48,7 @@ impl Debug for Context {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut res = Vec::new();
         let mut this = self;
-        while let Self::Cons { part, next } = this {
+        while let Self::Assume { phi: part, next } = this {
             this = next;
             res.push(part);
         }
@@ -68,8 +68,9 @@ enum VarContext {
 
 #[derive(Clone, Default)]
 struct SubContext {
-    exis: Rc<Context>,
-    univ: Rc<Context>,
+    exis: usize,
+    univ: usize,
+    assume: Rc<Context>,
 }
 
 #[derive(Clone, Default)]
@@ -92,7 +93,6 @@ enum Constraint {
     True,
     And(Rc<Constraint>, Rc<Constraint>),
     Prop(Rc<Prop>),
-    Forall(Sort, Rc<Constraint>),
     Implies(Rc<Prop>, Rc<Constraint>),
     SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
     SubPosTyp(Rc<PosTyp>, Rc<PosTyp>),

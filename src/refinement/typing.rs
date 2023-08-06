@@ -1,16 +1,15 @@
 use std::{iter::zip, rc::Rc};
 
-use crate::refinement::VarContext;
+use crate::refinement::{Sort, VarContext};
 
 use super::{
     constraint, subst::Subst, BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint,
-    FullContext, Head, NegTyp, PosTyp, Sort, Term, Value,
+    FullContext, Head, NegTyp, PosTyp, Term, Value,
 };
 
 // Value, Head, Expr and BoundExpr are always position independent
 // "position independent" only refers to sort indices
 impl FullContext {
-    // TODO: This should probably make LVars that refer to the context into GVars.
     // That is the only way to make it relocatable
     // I don't know if we can do this by wrapping..
     pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
@@ -45,18 +44,20 @@ impl FullContext {
         p
     }
 
-    // local
-    pub fn add_exis(&self, tau: &Sort) -> Self {
-        let mut this = self.clone();
-        this.sub = this.sub.add_exis(tau);
-        this
-    }
-
     // global
     pub fn extend_univ(&self, theta: Vec<ContextPart>) -> Self {
         let mut this = self.clone();
         this.sub = this.sub.extend_univ(theta);
         this
+    }
+
+    pub fn new_evar(&self, tau: &Sort) -> (Self, Rc<Term>) {
+        let (sub, evar) = self.sub.new_evar(tau);
+        let this = Self {
+            sub,
+            var: self.var.clone(),
+        };
+        (this, evar)
     }
 
     // This resolves value determined indices in `p`
@@ -68,11 +69,10 @@ impl FullContext {
                 xi.and_prop(phi)
             }
             PosTyp::Exists(tau, p) => {
-                let idx = self.len();
-                let extended = self.add_exis(tau);
-                let p = p.subst(Subst::Local(0), &Rc::new(Term::UVar(idx, *tau)));
-                let xi = extended.check_value(v, &p);
-                xi.push_down(idx)
+                let (this, evar) = self.new_evar(tau);
+                let p = p.subst(Subst::Local(0), &evar);
+                let xi = this.check_value(v, &p);
+                xi.push_down(self.exis)
             }
             _ => match v {
                 Value::Var(x, proj) => {
@@ -93,6 +93,7 @@ impl FullContext {
                         panic!()
                     };
                     let (p, xi1) = self.unroll_prod(f_alpha, *i, t);
+                    // TODO: need to check the scoping here
                     let xi2 = self.check_value(v, &p);
                     xi1 & xi2
                 }
@@ -113,14 +114,13 @@ impl FullContext {
                 (p, xi.and_prop(phi))
             }
             NegTyp::Forall(tau, n) => {
-                let idx = self.len();
-                let extended = self.add_exis(tau);
-                let n = n.subst(Subst::Local(0), &Rc::new(Term::EVar(idx, *tau)));
-                let (p, xi) = extended.spine(&n, s);
+                let (this, evar) = self.new_evar(tau);
+                let n = n.subst(Subst::Local(0), &evar);
+                let (p, xi) = this.spine(&n, s);
 
-                let t = xi.r[idx].as_ref().unwrap();
-                let p = p.subst(Subst::Global(idx), t);
-                (p, xi.push_down(idx))
+                let t = xi.r[self.exis].as_ref().unwrap();
+                let p = p.subst(Subst::Global(self.exis), t);
+                (p, xi.push_down(self.exis))
             }
             NegTyp::Fun(q, n) => {
                 let [v, s @ ..] = s else { panic!() };

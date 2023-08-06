@@ -25,7 +25,6 @@ impl Constraint {
             Constraint::True => Constraint::True,
             Constraint::And(w1, w2) => Constraint::And(w1.subst(var, t), w2.subst(var, t)),
             Constraint::Prop(phi) => Constraint::Prop(phi.subst(var, t)),
-            Constraint::Forall(tau, w) => Constraint::Forall(*tau, w.subst(var, t)),
             Constraint::Implies(phi, w) => Constraint::Implies(phi.subst(var, t), w.subst(var, t)),
             Constraint::SubNegTyp(n, m) => Constraint::SubNegTyp(n.subst(var, t), m.subst(var, t)),
             Constraint::SubPosTyp(p, q) => Constraint::SubPosTyp(p.subst(var, t), q.subst(var, t)),

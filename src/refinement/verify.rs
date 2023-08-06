@@ -5,7 +5,7 @@ use super::{Constraint, FullContext, Prop};
 impl FullContext {
     pub fn verify_prop(&self, phi: &Prop) {
         // This is where we need to use SMT
-        eprintln!("{:?}", &self.sub.univ);
+        eprintln!("{:?}", &self.sub.assume);
         eprintln!("=> {:?}", phi);
     }
 
@@ -27,9 +27,8 @@ impl FullContext {
                 self.verify(w2);
             }
             Constraint::Prop(phi) => self.verify_prop(phi),
-            Constraint::Forall(tau, w) => self.add_exis(tau).verify(w),
             Constraint::Implies(phi, w) => {
-                let extended = self.extend_univ(vec![ContextPart::Assume(phi.clone())]);
+                let extended = &self.extend_univ(vec![ContextPart::Assume(phi.clone())]);
                 extended.verify(w);
             }
             Constraint::SubNegTyp(n, m) => {

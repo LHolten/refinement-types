@@ -33,14 +33,10 @@ impl BitAnd for ExtendedConstraint {
 }
 
 impl ExtendedConstraint {
-    pub fn and(mut self, rhs: Rc<Constraint>) -> Self {
-        self.w = Rc::new(Constraint::And(self.w, rhs));
-        self
-    }
-
-    pub fn and_prop(self, prop: &Rc<Prop>) -> Self {
+    pub fn and_prop(mut self, prop: &Rc<Prop>) -> Self {
         let cons = Rc::new(Constraint::Prop(prop.clone()));
-        self.and(cons)
+        self.w = Rc::new(Constraint::And(self.w, cons));
+        self
     }
 
     // uses the found solution for the topmost variable

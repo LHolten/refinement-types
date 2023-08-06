@@ -71,8 +71,12 @@ fn check_id_typ() {
 #[test]
 fn checkk_id_app() {
     let ctx = FullContext::default();
-    // ctx.ctx.value_determined_neg(&forall_id_typ());
+    eprintln!("== test1");
     let (res, xi) = ctx.spine(&forall_id_typ(), &[inductive_val()]);
     ctx.verify(&xi.w);
     assert_eq!(res, inductive_typ(&Rc::new(Term::Zero)));
+    // eprintln!();
+    // eprintln!("== test2");
+    // let (res, xi) = ctx.spine(&forall_id_typ(), &[inductive_val()]);
+    // ctx.verify(&xi.w);
 }
