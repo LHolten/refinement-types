@@ -3,8 +3,8 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::{Sort, VarContext};
 
 use super::{
-    constraint, subst::Subst, BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint,
-    FullContext, Head, NegTyp, PosTyp, Term, Value,
+    constraint, BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint, FullContext, Head,
+    NegTyp, PosTyp, Term, Value,
 };
 
 // Value, Head, Expr and BoundExpr are always position independent
@@ -68,11 +68,11 @@ impl FullContext {
                 let xi = self.check_value(v, p);
                 xi.and_prop(phi)
             }
-            PosTyp::Exists(tau, p) => {
-                let (this, evar) = self.new_evar(tau);
-                let p = p.subst(Subst::Local(0), &evar);
+            PosTyp::Exists(p) => {
+                let (this, evar) = self.new_evar(&p.tau);
+                let p = (p.fun)(&evar);
                 let xi = this.check_value(v, &p);
-                xi.push_down(self.exis)
+                xi.push_down(&evar)
             }
             _ => match v {
                 Value::Var(x, proj) => {
@@ -113,14 +113,11 @@ impl FullContext {
                 let (p, xi) = self.spine(n, s);
                 (p, xi.and_prop(phi))
             }
-            NegTyp::Forall(tau, n) => {
-                let (this, evar) = self.new_evar(tau);
-                let n = n.subst(Subst::Local(0), &evar);
+            NegTyp::Forall(n) => {
+                let (this, evar) = self.new_evar(&n.tau);
+                let n = (n.fun)(&evar);
                 let (p, xi) = this.spine(&n, s);
-
-                let t = xi.r[self.exis].as_ref().unwrap();
-                let p = p.subst(Subst::Global(self.exis), t);
-                (p, xi.push_down(self.exis))
+                (p, xi.push_down(&evar))
             }
             NegTyp::Fun(q, n) => {
                 let [v, s @ ..] = s else { panic!() };

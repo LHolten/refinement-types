@@ -1,7 +1,6 @@
-use crate::refinement::subst::Subst;
-
 use super::Constraint;
 use super::ExtendedConstraint;
+use super::InnerTerm;
 use super::Prop;
 use super::Term;
 use std::cmp::max;
@@ -40,24 +39,29 @@ impl ExtendedConstraint {
     }
 
     // uses the found solution for the topmost variable
-    pub fn push_down(mut self, idx: usize) -> Self {
+    pub fn push_down(mut self, evar: &Rc<Term>) -> Self {
+        // create a new scope to make sure the TermRef is dropped
+        let idx = {
+            let InnerTerm::EVar(idx, _) = *evar.borrow() else {
+                panic!()
+            };
+            idx
+        };
+
         assert_eq!(self.r.len(), idx + 1);
         let Some(t) = self.r.pop().unwrap() else {
             panic!()
         };
-        self.r.iter_mut().for_each(|r| {
-            *r = r.take().map(|r| r.subst(Subst::Global(idx), &t));
-        });
-        self.w = self.w.subst(Subst::Global(idx), &t);
+        evar.value.set(Some(t.borrow().clone()));
         self
     }
 
     pub fn inst(mut self, t: &Rc<Term>, t_: &Rc<Term>) -> Self {
         let prop = Rc::new(Prop::Eq(t.clone(), t_.clone()));
         self = self.and_prop(&prop);
-        if let Term::EVar(x, _) = t_.as_ref() {
+        if let InnerTerm::EVar(x, _) = *t_.borrow() {
             self.r.resize_with(max(self.r.len(), x + 1), || None);
-            self.r[*x] = self.r[*x].take().or_else(|| Some(t.clone()));
+            self.r[x] = self.r[x].take().or_else(|| Some(t.clone()));
         }
         self
     }

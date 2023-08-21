@@ -3,8 +3,7 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::{constraint, Context, SubContext};
 
 use super::{
-    subst::Subst, BaseFunctor, Constraint, ContextPart, ExtendedConstraint, NegTyp, PosTyp,
-    ProdFunctor,
+    BaseFunctor, Constraint, ContextPart, ExtendedConstraint, NegTyp, PosTyp, ProdFunctor,
 };
 
 impl SubContext {
@@ -32,10 +31,10 @@ impl SubContext {
                 theta.push(ContextPart::Assume(phi.clone()));
                 (n, theta)
             }
-            NegTyp::Forall(tau, n) => {
+            NegTyp::Forall(n) => {
                 // we keep `n` positionally independent
-                let (this, uvar) = self.new_uvar(tau);
-                let n = n.subst(Subst::Local(0), &uvar);
+                let (this, uvar) = self.new_uvar(&n.tau);
+                let n = (n.fun)(&uvar);
                 let (n, mut theta) = this.extract_neg(&n);
                 theta.push(ContextPart::Free);
                 (n, theta)
@@ -57,9 +56,9 @@ impl SubContext {
                 theta.push(ContextPart::Assume(phi.clone()));
                 (p, theta)
             }
-            PosTyp::Exists(tau, p) => {
-                let (this, uvar) = self.new_uvar(tau);
-                let p = p.subst(Subst::Local(0), &uvar);
+            PosTyp::Exists(p) => {
+                let (this, uvar) = self.new_uvar(&p.tau);
+                let p = (p.fun)(&uvar);
                 let (p, mut theta) = this.extract_pos(&p);
                 theta.push(ContextPart::Free);
                 (p, theta)
@@ -107,11 +106,11 @@ impl SubContext {
                 let w = self.sub_pos_typ(p, q);
                 w.and_prop(phi)
             }
-            (p, PosTyp::Exists(tau, q)) => {
-                let (this, evar) = self.new_evar(tau);
-                let q = q.subst(Subst::Local(0), &evar);
+            (p, PosTyp::Exists(q)) => {
+                let (this, evar) = self.new_evar(&q.tau);
+                let q = (q.fun)(&evar);
                 let w = this.sub_pos_typ(p, &q);
-                w.push_down(self.exis)
+                w.push_down(&evar)
             }
             (PosTyp::Thunk(n), PosTyp::Thunk(m)) => {
                 let (m, theta) = self.extract_neg(m);
@@ -144,11 +143,11 @@ impl SubContext {
                 let w = self.sub_neg_type(n, m);
                 w.and_prop(phi)
             }
-            (NegTyp::Forall(tau, n), m) => {
-                let (this, uvar) = self.new_uvar(tau);
-                let n = n.subst(Subst::Local(0), &uvar);
+            (NegTyp::Forall(n), m) => {
+                let (this, evar) = self.new_evar(&n.tau);
+                let n = (n.fun)(&evar);
                 let w = this.sub_neg_type(&n, m);
-                w.push_down(self.exis)
+                w.push_down(&evar)
             }
             (NegTyp::Fun(p, n), NegTyp::Fun(q, m)) => {
                 // arguments are swapped! (fun is contravariant in the argument)

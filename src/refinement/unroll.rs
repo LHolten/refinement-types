@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::{ExtendedConstraint, Prop, SubContext};
 
-use super::{BaseFunctor, PosTyp, ProdFunctor, Term};
+use super::{BaseFunctor, Fun, PosTyp, ProdFunctor, Term};
 
 impl SubContext {
     // Solve variables while unrolling?
@@ -19,8 +19,11 @@ impl SubContext {
             let res = match g {
                 BaseFunctor::Pos(q) => q.clone(),
                 BaseFunctor::Id => {
-                    let m = PosTyp::Measured(f_alpha.to_owned(), Rc::new(Term::LVar(0)));
-                    Rc::new(PosTyp::Exists(tau, Rc::new(m)))
+                    let f_alpha = f_alpha.to_owned();
+                    let fun = Rc::new(move |idx: &Rc<Term>| {
+                        Rc::new(PosTyp::Measured(f_alpha.clone(), idx.clone()))
+                    });
+                    Rc::new(PosTyp::Exists(Fun { tau, fun }))
                 }
             };
             parts.push(res);

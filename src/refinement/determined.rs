@@ -1,8 +1,8 @@
 use std::{cmp::max, iter::zip, rc::Rc};
 
-use crate::refinement::{subst::Subst, BaseFunctor, SubContext};
+use crate::refinement::{BaseFunctor, SubContext};
 
-use super::{NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
+use super::{InnerTerm, NegTyp, PosTyp, ProdFunctor, Prop, Sort, Term};
 
 pub fn or(mut r1: Vec<bool>, mut r2: Vec<bool>) -> Vec<bool> {
     let total_len = max(r1.len(), r2.len());
@@ -22,17 +22,16 @@ impl SubContext {
     }
 
     pub fn infer_term(&self, t: &Term) -> Sort {
-        match t {
-            Term::LVar(_) => panic!(),
-            Term::UVar(_, s) => *s,
-            Term::EVar(_, s) => *s,
-            Term::Prop(phi) => self.infer_prop(phi),
-            Term::Zero => Sort::Nat,
+        match *t.borrow() {
+            InnerTerm::UVar(_, s) => s,
+            InnerTerm::EVar(_, s) => s,
+            InnerTerm::Prop(ref phi) => self.infer_prop(phi),
+            InnerTerm::Zero => Sort::Nat,
         }
     }
 
     pub fn new_uvar(&self, tau: &Sort) -> (Self, Rc<Term>) {
-        let uvar = Rc::new(Term::UVar(self.univ, *tau));
+        let uvar = InnerTerm::UVar(self.univ, *tau).share();
         let this = Self {
             exis: self.exis,
             univ: self.univ + 1,
@@ -42,7 +41,7 @@ impl SubContext {
     }
 
     pub fn new_evar(&self, tau: &Sort) -> (Self, Rc<Term>) {
-        let evar = Rc::new(Term::EVar(self.exis, *tau));
+        let evar = InnerTerm::EVar(self.exis, *tau).share();
         let this = Self {
             exis: self.exis + 1,
             univ: self.univ,
@@ -69,9 +68,9 @@ impl SubContext {
                 };
                 self.value_determined_pos(p)
             }
-            PosTyp::Exists(tau, p) => {
-                let (this, evar) = self.new_evar(tau);
-                let p = p.subst(Subst::Local(0), &evar);
+            PosTyp::Exists(p) => {
+                let (this, evar) = self.new_evar(&p.tau);
+                let p = (p.fun)(&evar);
                 let r = this.value_determined_pos(&p);
                 let Some(true) = r.get(self.exis) else {
                     panic!()
@@ -101,10 +100,10 @@ impl SubContext {
                     r = zip(r, v2).map(|(x, y)| x & y).collect();
                 }
 
-                if let Term::EVar(x, _) = t.as_ref() {
+                if let InnerTerm::EVar(x, _) = *t.borrow() {
                     // if the term is just a variable, then it is value determined!
                     r.resize(x + 1, false);
-                    r[*x] = true;
+                    r[x] = true;
                 }
                 r
             }
@@ -123,9 +122,9 @@ impl SubContext {
                 };
                 self.value_determined_neg(n)
             }
-            NegTyp::Forall(tau, n) => {
-                let (this, evar) = self.new_evar(tau);
-                let n = n.subst(Subst::Local(0), &evar);
+            NegTyp::Forall(n) => {
+                let (this, evar) = self.new_evar(&n.tau);
+                let n = (n.fun)(&evar);
                 let r = this.value_determined_neg(&n);
                 let Some(true) = r.get(self.exis) else {
                     panic!()
