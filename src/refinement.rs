@@ -83,7 +83,8 @@ impl Term {
 
     fn instantiate(&self, rhs: &Self) {
         debug_assert!(rhs.borrow().inner.is_some());
-        self.value.set(rhs.borrow().inner.clone())
+        let old = self.value.replace(rhs.borrow().inner.clone());
+        assert_eq!(old, None);
     }
 }
 
@@ -153,7 +154,7 @@ enum Constraint {
     And(Rc<Constraint>, Rc<Constraint>),
     Prop(Rc<Prop>),
     Context(ContextPart, Rc<Constraint>),
-    SubNegTyp(Fun<NegTyp>, SolvedFun<NegTyp>),
+    SubNegTyp(Fun<NegTyp>, Unsolved<NegTyp>),
     SubPosTyp(PosTyp, Fun<PosTyp>),
     Check(Rc<Expr>, Fun<NegTyp>),
 }
@@ -171,15 +172,16 @@ enum Prop {
 }
 
 // PosType is product like, it can contain any number of items
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Default)]
 struct PosTyp {
+    measured: Vec<Measured>,
     thunks: Vec<Fun<NegTyp>>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
 struct Measured {
-    f_alpha: Vec<(Rc<ProdFunctor>, Rc<Term>)>,
-    tau: Sort,
+    f_alpha: Vec<Fun<(PosTyp, Rc<Term>)>>,
+    term: Rc<Term>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -189,23 +191,33 @@ struct NegTyp {
 }
 
 struct Fun<T> {
-    measured: Vec<Rc<Measured>>,
+    tau: Vec<Sort>,
     fun: Rc<dyn Fn(&[Rc<Term>]) -> (T, Vec<Rc<Prop>>)>,
 }
 
 impl<T> Clone for Fun<T> {
     fn clone(&self) -> Self {
         Self {
-            measured: self.measured.clone(),
+            tau: self.tau.clone(),
             fun: self.fun.clone(),
         }
     }
 }
 
-struct SolvedFun<T> {
+struct Unsolved<T> {
     // TODO: measured should probably be part of PosType
-    measured: Vec<(Rc<Measured>, Rc<Term>)>,
+    args: Vec<Rc<Term>>,
     inner: T,
+}
+
+impl<T> Unsolved<T> {
+    fn assert_resolved(&self) {
+        let res = self
+            .args
+            .iter()
+            .all(|arg| !matches!(*arg.borrow(), InnerTerm::EVar(_, _)));
+        assert!(res)
+    }
 }
 
 impl<T> PartialEq for Fun<T> {
@@ -222,17 +234,12 @@ impl<T> Debug for Fun<T> {
     }
 }
 
-#[derive(PartialEq, Eq, Debug)]
-struct ProdFunctor {
-    prod: Vec<BaseFunctor>,
-}
-
-#[derive(PartialEq, Eq, Debug)]
-enum BaseFunctor {
-    Pos(Rc<Fun<PosTyp>>),
-    Id,
-}
-
+// #[derive(PartialEq, Eq, Debug)]
+// struct ProdFunctor {
+//     measured: Vec<Measured>,
+//     thunks: Vec<Fun<NegTyp>>,
+//     recursive: usize,
+// }
 struct Value {
     thunk: Vec<Thunk>,
     inj: Vec<Inj>,
@@ -258,6 +265,7 @@ enum Expr {
 
 enum BoundExpr {
     App(usize, usize, Rc<Value>),
+    // expression that does not take any arguments, we thus only store the return type
     Anno(Rc<Expr>, Fun<PosTyp>),
 }
 

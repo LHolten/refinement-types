@@ -1,37 +1,45 @@
 use std::rc::Rc;
 
-use crate::refinement::{ExtendedConstraint, Prop, SubContext};
+use crate::refinement::SubContext;
 
-use super::{BaseFunctor, Fun, Measured, PosTyp, ProdFunctor, Term};
+use super::{ContextPart, Measured, PosTyp, Prop, Unsolved};
 
 impl SubContext {
-    // Solve variables while unrolling?
-    pub fn unroll_prod(
-        &self,
-        f_alpha: &Measured,
-        i: &usize,
-        // TODO: solve evar
-        evar: &Rc<Term>,
-    ) -> (Fun<PosTyp>, ExtendedConstraint) {
-        let tau = self.infer_term(evar);
-        let (g, beta) = &f_alpha[i];
-        let mut parts = vec![];
-        for g in &g.prod {
-            let res = match g {
-                BaseFunctor::Pos(q) => q.clone(),
-                BaseFunctor::Id => {
-                    let f_alpha = f_alpha.to_owned();
-                    let fun = Rc::new(move |idx: &Rc<Term>| {
-                        Rc::new(PosTyp::Measured(f_alpha.clone(), idx.clone()))
-                    });
-                    Rc::new(PosTyp::Exists(Fun { tau, fun }))
-                }
-            };
-            parts.push(res);
-        }
-        let cons = ExtendedConstraint::default().inst(beta, evar);
-        let res = Rc::new(PosTyp::Prod(parts));
-        let prop = Rc::new(Prop::Eq(beta.clone(), evar.clone()));
-        (Rc::new(PosTyp::Refined(res, prop)), cons)
+    // Solves outer variable with computation on new variables
+    // returns PosTyp that contains new variables unsolved
+    pub fn unroll_prod(&self, obj: &Measured, i: &usize) -> (Unsolved<PosTyp>, Vec<Rc<Prop>>) {
+        let tau = self.infer_term(&obj.term);
+        let g_beta = &obj.f_alpha[*i];
+        let (g_beta, props) = self.extract_evar(g_beta);
+        let (mut g, beta) = g_beta.inner;
+
+        obj.term.instantiate(&beta);
+
+        let inner = PosTyp {
+            measured: g.measured,
+            thunks: g.thunks,
+        };
+        let solved = Unsolved {
+            args: g_beta.args,
+            inner,
+        };
+        (solved, props)
+    }
+
+    pub fn unroll_prod_univ(&self, obj: &Measured, i: &usize) -> (PosTyp, Vec<ContextPart>) {
+        let tau = self.infer_term(&obj.term);
+        let g_beta = &obj.f_alpha[*i];
+        let (g_beta, theta) = self.extract(g_beta);
+        let (mut g, beta) = g_beta;
+
+        obj.term.instantiate(&beta);
+        // let eq = Rc::new(Prop::Eq(obj.term, beta));
+        // theta.push(ContextPart::Assume(eq));
+
+        let inner = PosTyp {
+            measured: g.measured,
+            thunks: g.thunks,
+        };
+        (inner, theta)
     }
 }
