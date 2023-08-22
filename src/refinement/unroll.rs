@@ -2,17 +2,18 @@ use std::rc::Rc;
 
 use crate::refinement::{ExtendedConstraint, Prop, SubContext};
 
-use super::{BaseFunctor, Fun, PosTyp, ProdFunctor, Term};
+use super::{BaseFunctor, Fun, Measured, PosTyp, ProdFunctor, Term};
 
 impl SubContext {
     // Solve variables while unrolling?
     pub fn unroll_prod(
         &self,
-        f_alpha: &[(Rc<ProdFunctor>, Rc<Term>)],
-        i: usize,
-        t: &Rc<Term>,
-    ) -> (Rc<PosTyp>, ExtendedConstraint) {
-        let tau = self.infer_term(t);
+        f_alpha: &Measured,
+        i: &usize,
+        // TODO: solve evar
+        evar: &Rc<Term>,
+    ) -> (Fun<PosTyp>, ExtendedConstraint) {
+        let tau = self.infer_term(evar);
         let (g, beta) = &f_alpha[i];
         let mut parts = vec![];
         for g in &g.prod {
@@ -28,9 +29,9 @@ impl SubContext {
             };
             parts.push(res);
         }
-        let cons = ExtendedConstraint::default().inst(beta, t);
+        let cons = ExtendedConstraint::default().inst(beta, evar);
         let res = Rc::new(PosTyp::Prod(parts));
-        let prop = Rc::new(Prop::Eq(beta.clone(), t.clone()));
+        let prop = Rc::new(Prop::Eq(beta.clone(), evar.clone()));
         (Rc::new(PosTyp::Refined(res, prop)), cons)
     }
 }

@@ -80,6 +80,11 @@ impl Term {
             inner: self.value.take(),
         }
     }
+
+    fn instantiate(&self, rhs: &Self) {
+        debug_assert!(rhs.borrow().inner.is_some());
+        self.value.set(rhs.borrow().inner.clone())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -148,9 +153,9 @@ enum Constraint {
     And(Rc<Constraint>, Rc<Constraint>),
     Prop(Rc<Prop>),
     Context(ContextPart, Rc<Constraint>),
-    SubNegTyp(Rc<NegTyp>, Rc<NegTyp>),
-    SubPosTyp(Rc<PosTyp>, Rc<PosTyp>),
-    Check(Rc<Expr>, Rc<NegTyp>),
+    SubNegTyp(Fun<NegTyp>, SolvedFun<NegTyp>),
+    SubPosTyp(PosTyp, Fun<PosTyp>),
+    Check(Rc<Expr>, Fun<NegTyp>),
 }
 
 // This is a constraint with additional substitutions
@@ -165,41 +170,56 @@ enum Prop {
     Eq(Rc<Term>, Rc<Term>),
 }
 
-#[allow(clippy::type_complexity)]
-struct Fun<T> {
+// PosType is product like, it can contain any number of items
+#[derive(PartialEq, Eq, Debug)]
+struct PosTyp {
+    thunks: Vec<Fun<NegTyp>>,
+}
+
+#[derive(PartialEq, Eq, Debug)]
+struct Measured {
+    f_alpha: Vec<(Rc<ProdFunctor>, Rc<Term>)>,
     tau: Sort,
-    fun: Rc<dyn Fn(&Rc<Term>) -> Rc<T>>,
 }
 
-impl<T: PartialEq> PartialEq for Fun<T> {
-    fn eq(&self, _other: &Self) -> bool {
-        panic!("please dont compare qualified terms")
+#[derive(PartialEq, Eq, Debug)]
+struct NegTyp {
+    arg: PosTyp,
+    ret: Fun<PosTyp>,
+}
+
+struct Fun<T> {
+    measured: Vec<Rc<Measured>>,
+    fun: Rc<dyn Fn(&[Rc<Term>]) -> (T, Vec<Rc<Prop>>)>,
+}
+
+impl<T> Clone for Fun<T> {
+    fn clone(&self) -> Self {
+        Self {
+            measured: self.measured.clone(),
+            fun: self.fun.clone(),
+        }
     }
 }
 
-impl<T: Eq> Eq for Fun<T> {}
+struct SolvedFun<T> {
+    // TODO: measured should probably be part of PosType
+    measured: Vec<(Rc<Measured>, Rc<Term>)>,
+    inner: T,
+}
 
-impl<T: Debug> Debug for Fun<T> {
+impl<T> PartialEq for Fun<T> {
+    fn eq(&self, other: &Self) -> bool {
+        panic!()
+    }
+}
+
+impl<T> Eq for Fun<T> {}
+
+impl<T> Debug for Fun<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Fun{{...}}")
+        f.debug_tuple("MyFun").finish()
     }
-}
-
-#[derive(PartialEq, Eq, Debug)]
-enum PosTyp {
-    Prod(Vec<Rc<PosTyp>>),
-    Refined(Rc<PosTyp>, Rc<Prop>),
-    Exists(Fun<PosTyp>),
-    Thunk(Rc<NegTyp>),
-    Measured(Vec<(Rc<ProdFunctor>, Rc<Term>)>, Rc<Term>),
-}
-
-#[derive(PartialEq, Eq, Debug)]
-enum NegTyp {
-    Force(Rc<PosTyp>),
-    Implies(Rc<Prop>, Rc<NegTyp>),
-    Forall(Fun<NegTyp>),
-    Fun(Rc<PosTyp>, Rc<NegTyp>),
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -209,38 +229,41 @@ struct ProdFunctor {
 
 #[derive(PartialEq, Eq, Debug)]
 enum BaseFunctor {
-    Pos(Rc<PosTyp>),
+    Pos(Rc<Fun<PosTyp>>),
     Id,
 }
 
-enum Value {
-    // second argument is projections
-    Var(usize, Vec<usize>),
-    Inj(usize, Rc<Value>),
-    Tuple(Vec<Rc<Value>>),
-    Thunk(Rc<Expr>),
+struct Value {
+    thunk: Vec<Thunk>,
+    inj: Vec<Inj>,
+}
+
+enum Inj {
+    Just(usize, Rc<Value>),
+    // second argument is projection
+    Var(usize, usize),
+}
+
+#[derive(Clone)]
+enum Thunk {
+    Just(Rc<Expr>),
+    Var(usize, usize),
 }
 
 enum Expr {
     Return(Rc<Value>),
     Let(Rc<BoundExpr>, Rc<Expr>),
-    Match(Rc<Head>, Vec<Expr>),
-    Lambda(Rc<Expr>),
-}
-
-enum Head {
-    // second argument is projections
-    Var(usize, Vec<usize>),
-    Anno(Rc<Value>, Rc<PosTyp>),
+    Match(usize, usize, Vec<Expr>),
 }
 
 enum BoundExpr {
-    App(Rc<Head>, Vec<Value>),
-    Anno(Rc<Expr>, Rc<PosTyp>),
+    App(usize, usize, Rc<Value>),
+    Anno(Rc<Expr>, Fun<PosTyp>),
 }
 
 // - Make Prod type any length and povide projections
 // - Remove the Sum type
 // - Functors do not destruct tuples
 // - Remove EqualTerms
-// -
+// - Use deep embedding for qualified types
+// - Flatten types

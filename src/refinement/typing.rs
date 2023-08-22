@@ -1,29 +1,39 @@
 use std::{iter::zip, rc::Rc};
 
-use crate::refinement::{Sort, VarContext};
+use crate::refinement::{Inj, Sort, Thunk, VarContext};
 
 use super::{
-    constraint, BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint, FullContext, Head,
-    NegTyp, PosTyp, Term, Value,
+    BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint, FullContext, Fun, Measured,
+    NegTyp, PosTyp, SolvedFun, Term, Value,
 };
+
+fn zip_eq<A: IntoIterator, B: IntoIterator>(a: A, b: B) -> impl Iterator<Item = (A::Item, B::Item)>
+where
+    A::IntoIter: ExactSizeIterator,
+    B::IntoIter: ExactSizeIterator,
+{
+    let (a_iter, b_iter) = (a.into_iter(), b.into_iter());
+    assert_eq!(a_iter.len(), b_iter.len());
+    zip(a_iter, b_iter)
+}
 
 // Value, Head, Expr and BoundExpr are always position independent
 // "position independent" only refers to sort indices
 impl FullContext {
     // That is the only way to make it relocatable
     // I don't know if we can do this by wrapping..
-    pub fn add_pos(&self, p: &Rc<PosTyp>) -> Self {
-        let (p, theta) = self.extract_pos(p);
+    pub fn add_pos(&self, p: &SolvedFun<PosTyp>) -> Self {
+        let (p, theta) = self.extract(p);
         let mut this = self.extend_univ(theta);
         this.var = Rc::new(VarContext::Cons {
-            typ: p.clone(),
+            typ: Rc::new(p),
             next: this.var,
         });
         this
     }
 
     // the returned type is position independent
-    pub fn get_pos(&self, x: &usize, proj: &[usize]) -> &Rc<PosTyp> {
+    pub fn get_pos(&self, x: &usize) -> &SolvedFun<PosTyp> {
         let mut res = &self.var;
         for _ in 0..*x {
             let VarContext::Cons { typ: _, next } = res.as_ref() else {
@@ -34,14 +44,7 @@ impl FullContext {
         let VarContext::Cons { typ, next: _ } = res.as_ref() else {
             panic!()
         };
-        let mut p = typ;
-        for proj in proj {
-            let PosTyp::Prod(v) = typ.as_ref() else {
-                panic!()
-            };
-            p = &v[*proj];
-        }
-        p
+        typ
     }
 
     // global
@@ -61,103 +64,91 @@ impl FullContext {
     }
 
     // This resolves value determined indices in `p`
-    // value determined indices are always LVar?
-    pub fn check_value(&self, v: &Value, p: &PosTyp) -> ExtendedConstraint {
-        match p {
-            PosTyp::Refined(p, phi) => {
-                let xi = self.check_value(v, p);
-                xi.and_prop(phi)
+    pub fn check_value(&self, v: &Value, p: &Fun<PosTyp>) -> ExtendedConstraint {
+        let (p, props) = self.extract_evar(p);
+        let mut xi = ExtendedConstraint::default();
+
+        for (inj, (obj, evar)) in zip_eq(&v.inj, &p.measured) {
+            xi = xi & self.check_inj(inj, obj, evar);
+        }
+
+        for (thunk, n) in zip_eq(&v.thunk, &p.inner.thunks) {
+            xi = xi & self.check_thunk(thunk, n);
+        }
+
+        for phi in props {
+            xi = xi.and_prop(&phi)
+        }
+        xi
+    }
+
+    pub fn infer_inj(&self, idx: &usize, proj: &usize) -> &(Rc<Measured>, Rc<Term>) {
+        &self.get_pos(idx).measured[*proj]
+    }
+
+    pub fn check_inj(&self, inj: &Inj, obj: &Measured, evar: &Rc<Term>) -> ExtendedConstraint {
+        match inj {
+            Inj::Just(i, v) => {
+                // TODO: unroll obj, check against unrolled, solve `evar`
+                let (p, xi1) = self.unroll_prod(obj, i, evar);
+                // TODO: need to check the scoping here
+                xi1 & self.check_value(v, &p)
             }
-            PosTyp::Exists(p) => {
-                let (this, evar) = self.new_evar(&p.tau);
-                let p = (p.fun)(&evar);
-                let xi = this.check_value(v, &p);
-                xi.push_down(&evar)
+            Inj::Var(idx, proj) => {
+                let (var_obj, val) = self.infer_inj(idx, proj);
+                assert_eq!(var_obj.as_ref(), obj);
+                evar.instantiate(val);
+                ExtendedConstraint::default()
             }
-            _ => match v {
-                Value::Var(x, proj) => {
-                    let q = self.get_pos(x, proj);
-                    self.sub.sub_pos_typ(q, p)
-                }
-                Value::Tuple(v) => {
-                    let PosTyp::Prod(p) = p else { panic!() };
-                    let iter = zip(v, p).map(|(v, p)| self.check_value(v, p));
-                    constraint::and(iter)
-                }
-                Value::Thunk(e) => {
-                    let PosTyp::Thunk(n) = p else { panic!() };
-                    Rc::new(Constraint::Check(e.clone(), n.clone())).extend(&[])
-                }
-                Value::Inj(i, v) => {
-                    let PosTyp::Measured(f_alpha, t) = p else {
-                        panic!()
-                    };
-                    let (p, xi1) = self.unroll_prod(f_alpha, *i, t);
-                    // TODO: need to check the scoping here
-                    let xi2 = self.check_value(v, &p);
-                    xi1 & xi2
-                }
-            },
+        }
+    }
+
+    pub fn infer_thunk(&self, idx: &usize, proj: &usize) -> &Fun<NegTyp> {
+        &self.get_pos(idx).inner.thunks[*proj]
+    }
+
+    pub fn check_thunk(&self, thunk: &Thunk, n: &Fun<NegTyp>) -> ExtendedConstraint {
+        match thunk {
+            Thunk::Just(e) => Rc::new(Constraint::Check(e.clone(), n.clone())).extend(&[]),
+            Thunk::Var(idx, proj) => {
+                let m = self.infer_thunk(idx, proj);
+                Rc::new(Constraint::SubNegTyp(m, n.clone())).extend(&[])
+            }
         }
     }
 
     // This resolves value determined indices in `n`
     // if `n` is position independent, then the output is also position independent
-    pub fn spine(&self, n: &NegTyp, s: &[Value]) -> (Rc<PosTyp>, ExtendedConstraint) {
-        match n {
-            NegTyp::Force(p) => {
-                let [] = s else { panic!() };
-                (p.clone(), ExtendedConstraint::default())
-            }
-            NegTyp::Implies(phi, n) => {
-                let (p, xi) = self.spine(n, s);
-                (p, xi.and_prop(phi))
-            }
-            NegTyp::Forall(n) => {
-                let (this, evar) = self.new_evar(&n.tau);
-                let n = (n.fun)(&evar);
-                let (p, xi) = this.spine(&n, s);
-                (p, xi.push_down(&evar))
-            }
-            NegTyp::Fun(q, n) => {
-                let [v, s @ ..] = s else { panic!() };
-                let xi1 = self.check_value(v, q);
-                let (p, xi2) = self.spine(n, s);
-                (p, xi1 & xi2)
-            }
-        }
-    }
+    pub fn spine(&self, n: &Fun<NegTyp>, s: &Value) -> (Fun<PosTyp>, ExtendedConstraint) {
+        let (n, props) = self.extract_evar(n);
+        let mut xi = ExtendedConstraint::default();
 
-    // the result of infer_head is position independent
-    pub fn infer_head(&self, h: &Head) -> Rc<PosTyp> {
-        match h {
-            Head::Var(x, proj) => {
-                let p = self.get_pos(x, proj);
-                p.clone()
-            }
-            Head::Anno(v, p) => {
-                // TODO: check that `p` is a type
-                let xi = self.check_value(v, p);
-                self.verify(&xi.w);
-                p.clone()
-            }
+        for (inj, (obj, evar)) in zip_eq(&s.inj, &n.measured) {
+            xi = xi & self.check_inj(inj, obj, evar);
         }
+
+        for (thunk, n) in zip_eq(&s.thunk, &n.inner.arg.thunks) {
+            xi = xi & self.check_thunk(thunk, n);
+        }
+
+        for phi in props {
+            xi = xi.and_prop(&phi)
+        }
+        (n.inner.ret.clone(), xi)
     }
 
     // the result is position independent
-    pub fn infer_bound_expr(&self, g: &BoundExpr) -> Rc<PosTyp> {
+    pub fn infer_bound_expr(&self, g: &BoundExpr) -> Fun<PosTyp> {
         match g {
-            BoundExpr::App(h, s) => {
-                let temp = self.infer_head(h);
-                let PosTyp::Thunk(n) = temp.as_ref() else {
-                    panic!()
-                };
+            BoundExpr::App(idx, proj, s) => {
+                let n = self.infer_thunk(idx, proj);
                 let (p, xi) = self.spine(n, s);
                 self.verify(&xi.w);
                 p
             }
             BoundExpr::Anno(e, p) => {
                 // TODO: check that `p` is a type
+                // TODO: do we want to allow all negative types instead of just Force?
                 self.check_expr(e, &Rc::new(NegTyp::Force(p.clone())));
                 p.clone()
             }
@@ -165,39 +156,38 @@ impl FullContext {
     }
 
     // can we make sure that `n` is always position independent????
-    pub fn check_expr(&self, e: &Expr, n: &Rc<NegTyp>) {
-        let (n, theta) = self.extract_neg(n);
+    pub fn check_expr(&self, e: &Expr, n: &Fun<NegTyp>) {
+        let (n, theta) = self.extract(n);
         let this = self.extend_univ(theta);
+        let p = SolvedFun {
+            measured: n.measured,
+            inner: PosTyp {
+                thunks: n.inner.arg.thunks,
+            },
+        };
+        let this = this.add_pos(&p);
+        this.check_expr_pos(e, &n.inner.ret);
+    }
+
+    pub fn check_expr_pos(&self, e: &Expr, p: &Fun<PosTyp>) {
         match e {
             Expr::Return(v) => {
-                let NegTyp::Force(p) = n.as_ref() else {
-                    panic!()
-                };
-                let xi = this.check_value(v, p);
+                let xi = self.check_value(v, p);
                 self.verify(&xi.w);
             }
             Expr::Let(g, e) => {
-                let p = this.infer_bound_expr(g);
-                this.add_pos(&p).check_expr(e, &n)
+                let bound_p = self.infer_bound_expr(g);
+                self.add_pos(&bound_p).check_expr_pos(e, p)
             }
-            Expr::Match(h, pats) => {
-                let p = self.infer_head(h);
-                let PosTyp::Measured(f_alpha, t) = p.as_ref() else {
-                    panic!()
-                };
-                assert_eq!(pats.len(), f_alpha.len());
+            Expr::Match(idx, proj, pats) => {
+                let (obj, t) = self.infer_inj(idx, proj);
+
+                assert_eq!(pats.len(), obj.f_alpha.len());
                 for (i, e) in pats.iter().enumerate() {
                     // we ignore the constraint from unrolling
-                    let (p, _) = self.unroll_prod(f_alpha, i, t);
-                    this.add_pos(&p).check_expr(e, &n);
+                    let (match_p, _) = self.unroll_prod(obj, &i, t);
+                    self.add_pos(&match_p).check_expr_pos(e, p);
                 }
-            }
-            Expr::Lambda(e) => {
-                let NegTyp::Fun(p, n) = n.as_ref() else {
-                    panic!()
-                };
-                // extracting `p` does nothing here, but we still do it
-                this.add_pos(p).check_expr(e, n)
             }
         }
     }
