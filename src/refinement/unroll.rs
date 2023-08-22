@@ -8,10 +8,9 @@ impl SubContext {
     // Solves outer variable with computation on new variables
     // returns PosTyp that contains new variables unsolved
     pub fn unroll_prod(&self, obj: &Measured, i: &usize) -> (Unsolved<PosTyp>, Vec<Rc<Prop>>) {
-        let tau = self.infer_term(&obj.term);
         let g_beta = &obj.f_alpha[*i];
         let (g_beta, props) = self.extract_evar(g_beta);
-        let (mut g, beta) = g_beta.inner;
+        let (g, beta) = g_beta.inner;
 
         obj.term.instantiate(&beta);
 
@@ -27,10 +26,9 @@ impl SubContext {
     }
 
     pub fn unroll_prod_univ(&self, obj: &Measured, i: &usize) -> (PosTyp, Vec<ContextPart>) {
-        let tau = self.infer_term(&obj.term);
         let g_beta = &obj.f_alpha[*i];
         let (g_beta, theta) = self.extract(g_beta);
-        let (mut g, beta) = g_beta;
+        let (g, beta) = g_beta;
 
         obj.term.instantiate(&beta);
         // let eq = Rc::new(Prop::Eq(obj.term, beta));

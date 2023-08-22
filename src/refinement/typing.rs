@@ -1,10 +1,9 @@
 use std::{iter::zip, rc::Rc};
 
-use crate::refinement::{Inj, Sort, Thunk, VarContext};
+use crate::refinement::{Inj, Thunk, VarContext};
 
 use super::{
-    BoundExpr, Constraint, ContextPart, Expr, ExtendedConstraint, FullContext, Fun, Measured,
-    NegTyp, PosTyp, Prop, Term, Unsolved, Value,
+    BoundExpr, ContextPart, Expr, FullContext, Fun, Measured, NegTyp, PosTyp, Prop, Unsolved, Value,
 };
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
@@ -61,53 +60,32 @@ impl FullContext {
         this
     }
 
-    pub fn new_evar(&self, tau: &Sort) -> (Self, Rc<Term>) {
-        let (sub, evar) = self.sub.new_evar(tau);
-        let this = Self {
-            sub,
-            var: self.var.clone(),
-        };
-        (this, evar)
-    }
-
     // This resolves value determined indices in `p`
-    pub fn check_value(
-        &self,
-        v: &Value,
-        p: &Unsolved<PosTyp>,
-        props: Vec<Rc<Prop>>,
-    ) -> ExtendedConstraint {
-        let mut xi = ExtendedConstraint::default();
+    pub fn check_value(&self, v: &Value, p: &Unsolved<PosTyp>, props: Vec<Rc<Prop>>) {
         for (inj, obj) in zip_eq(&v.inj, &p.inner.measured) {
-            xi = xi & self.check_inj(inj, obj);
+            self.check_inj(inj, obj);
         }
         p.assert_resolved();
+        self.verify_props(props);
 
         for (thunk, n) in zip_eq(&v.thunk, &p.inner.thunks) {
-            xi = xi & self.check_thunk(thunk, n);
+            self.check_thunk(thunk, n);
         }
-
-        for phi in props {
-            xi = xi.and_prop(&phi)
-        }
-        xi
     }
 
     pub fn infer_inj(&self, idx: &usize, proj: &usize) -> &Measured {
         &self.get_pos(idx).measured[*proj]
     }
 
-    pub fn check_inj(&self, inj: &Inj, obj: &Measured) -> ExtendedConstraint {
+    pub fn check_inj(&self, inj: &Inj, obj: &Measured) {
         match inj {
             Inj::Just(i, v) => {
                 let (p, props) = self.unroll_prod(obj, i);
-                self.check_value(v, &p, props)
+                self.check_value(v, &p, props);
             }
             Inj::Var(idx, proj) => {
                 let var = self.infer_inj(idx, proj);
-                assert_eq!(var, obj);
-                obj.term.instantiate(&var.term);
-                ExtendedConstraint::default()
+                self.eq_functor(var, obj);
             }
         }
     }
@@ -116,35 +94,33 @@ impl FullContext {
         &self.get_pos(idx).thunks[*proj]
     }
 
-    pub fn check_thunk(&self, thunk: &Thunk, n: &Fun<NegTyp>) -> ExtendedConstraint {
+    pub fn check_thunk(&self, thunk: &Thunk, n: &Fun<NegTyp>) {
         match thunk {
-            Thunk::Just(e) => Rc::new(Constraint::Check(e.clone(), n.clone())).extend(&[]),
+            Thunk::Just(e) => self.check_expr(e, n),
             Thunk::Var(idx, proj) => {
+                let (n, theta) = self.extract(n);
                 let m = self.infer_thunk(idx, proj);
-                Rc::new(Constraint::SubNegTyp(m, n.clone())).extend(&[])
+                self.extend_univ(theta).sub_neg_type(m, &n);
             }
         }
     }
 
     // This resolves value determined indices in `n`
     // if `n` is position independent, then the output is also position independent
-    pub fn spine(&self, n: &Fun<NegTyp>, s: &Value) -> (Fun<PosTyp>, ExtendedConstraint) {
+    pub fn spine(&self, n: &Fun<NegTyp>, s: &Value) -> Fun<PosTyp> {
         let (n, props) = self.extract_evar(n);
-        let mut xi = ExtendedConstraint::default();
 
         for (inj, obj) in zip_eq(&s.inj, &n.inner.arg.measured) {
-            xi = xi & self.check_inj(inj, obj);
+            self.check_inj(inj, obj);
         }
         n.assert_resolved();
+        self.verify_props(props);
 
         for (thunk, n) in zip_eq(&s.thunk, &n.inner.arg.thunks) {
-            xi = xi & self.check_thunk(thunk, n);
+            self.check_thunk(thunk, n);
         }
 
-        for phi in props {
-            xi = xi.and_prop(&phi)
-        }
-        (n.inner.ret.clone(), xi)
+        n.inner.ret
     }
 
     // the result is position independent
@@ -152,15 +128,14 @@ impl FullContext {
         match g {
             BoundExpr::App(idx, proj, s) => {
                 let n = self.infer_thunk(idx, proj);
-                let (p, xi) = self.spine(n, s);
-                self.verify(&xi.w);
-                p
+                self.spine(n, s)
             }
             BoundExpr::Anno(e, ret) => {
-                let fun = Rc::new(|_| {
+                let move_ret = ret.clone();
+                let fun = Rc::new(move |_: &_| {
                     let n = NegTyp {
                         arg: PosTyp::default(),
-                        ret: ret.clone(),
+                        ret: move_ret.clone(),
                     };
                     (n, vec![])
                 });
@@ -181,8 +156,7 @@ impl FullContext {
         match e {
             Expr::Return(v) => {
                 let (p, props) = self.extract_evar(p);
-                let xi = self.check_value(v, &p, props);
-                self.verify(&xi.w);
+                self.check_value(v, &p, props);
             }
             Expr::Let(g, e) => {
                 let bound_p = self.infer_bound_expr(g);

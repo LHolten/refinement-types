@@ -2,7 +2,6 @@
 
 use std::{cell::Cell, fmt::Debug, ops::Deref, rc::Rc};
 
-mod constraint;
 mod determined;
 mod subtyp;
 #[cfg(test)]
@@ -147,25 +146,6 @@ impl Deref for FullContext {
     }
 }
 
-#[derive(Default)]
-enum Constraint {
-    #[default]
-    True,
-    And(Rc<Constraint>, Rc<Constraint>),
-    Prop(Rc<Prop>),
-    Context(ContextPart, Rc<Constraint>),
-    SubNegTyp(Fun<NegTyp>, Unsolved<NegTyp>),
-    SubPosTyp(PosTyp, Fun<PosTyp>),
-    Check(Rc<Expr>, Fun<NegTyp>),
-}
-
-// This is a constraint with additional substitutions
-#[derive(Default)]
-struct ExtendedConstraint {
-    w: Rc<Constraint>,
-    r: Vec<Option<Rc<Term>>>,
-}
-
 #[derive(PartialEq, Eq, Debug)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
@@ -190,6 +170,7 @@ struct NegTyp {
     ret: Fun<PosTyp>,
 }
 
+#[allow(clippy::type_complexity)]
 struct Fun<T> {
     tau: Vec<Sort>,
     fun: Rc<dyn Fn(&[Rc<Term>]) -> (T, Vec<Rc<Prop>>)>,
@@ -221,7 +202,7 @@ impl<T> Unsolved<T> {
 }
 
 impl<T> PartialEq for Fun<T> {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         panic!()
     }
 }
@@ -234,12 +215,7 @@ impl<T> Debug for Fun<T> {
     }
 }
 
-// #[derive(PartialEq, Eq, Debug)]
-// struct ProdFunctor {
-//     measured: Vec<Measured>,
-//     thunks: Vec<Fun<NegTyp>>,
-//     recursive: usize,
-// }
+#[derive(Default)]
 struct Value {
     thunk: Vec<Thunk>,
     inj: Vec<Inj>,
