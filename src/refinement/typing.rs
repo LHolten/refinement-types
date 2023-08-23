@@ -1,8 +1,10 @@
 use std::{iter::zip, rc::Rc};
 
-use crate::refinement::{Inj, Thunk, VarContext};
+use crate::refinement::{Inj, Thunk};
 
-use super::{BoundExpr, Expr, FullContext, Fun, Measured, NegTyp, PosTyp, Prop, Unsolved, Value};
+use super::{
+    BoundExpr, Expr, Fun, Lambda, Measured, NegTyp, PosTyp, Prop, SubContext, Unsolved, Value, Var,
+};
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -17,48 +19,25 @@ where
     zip(a_iter, b_iter)
 }
 
+impl Fun<PosTyp> {
+    pub fn arrow(self, ret: Fun<PosTyp>) -> Fun<NegTyp> {
+        Fun {
+            tau: self.tau,
+            fun: Rc::new(move |args| {
+                let (arg, props) = (self.fun)(args);
+                let n = NegTyp {
+                    arg,
+                    ret: ret.clone(),
+                };
+                (n, props)
+            }),
+        }
+    }
+}
+
 // Value, Head, Expr and BoundExpr are always position independent
 // "position independent" only refers to sort indices
-impl FullContext {
-    // That is the only way to make it relocatable
-    // I don't know if we can do this by wrapping..
-    pub fn add_pos(&self, p: &Fun<PosTyp>) -> Self {
-        let (p, this) = self.extract(p);
-        this.add_pos_theta(p)
-    }
-
-    pub fn add_pos_theta(mut self, p: PosTyp) -> Self {
-        self.var = Rc::new(VarContext::Cons {
-            typ: Rc::new(p),
-            next: self.var,
-        });
-        self
-    }
-
-    // the returned type is position independent
-    pub fn get_pos(&self, x: &usize) -> &PosTyp {
-        let mut res = &self.var;
-        for _ in 0..*x {
-            let VarContext::Cons { typ: _, next } = res.as_ref() else {
-                panic!()
-            };
-            res = next;
-        }
-        let VarContext::Cons { typ, next: _ } = res.as_ref() else {
-            panic!()
-        };
-        typ
-    }
-
-    pub fn extract<T>(&self, n: &Fun<T>) -> (T, Self) {
-        let (val, sub) = self.sub.extract(n);
-        let this = Self {
-            sub,
-            var: self.var.clone(),
-        };
-        (val, this)
-    }
-
+impl SubContext {
     // This resolves value determined indices in `p`
     pub fn check_value(&self, v: &Value, p: &Unsolved<PosTyp>, props: Vec<Rc<Prop>>) {
         for (inj, obj) in zip_eq(&v.inj, &p.inner.measured) {
@@ -72,10 +51,6 @@ impl FullContext {
         }
     }
 
-    pub fn infer_inj(&self, idx: &usize, proj: &usize) -> &Measured {
-        &self.get_pos(idx).measured[*proj]
-    }
-
     pub fn check_inj(&self, inj: &Inj, obj: &Measured) {
         match inj {
             Inj::Just(i, v) => {
@@ -83,21 +58,17 @@ impl FullContext {
                 self.check_value(v, &p, props);
             }
             Inj::Var(idx, proj) => {
-                let var = self.infer_inj(idx, proj);
+                let var = idx.infer_inj(proj);
                 self.eq_functor(var, obj);
             }
         }
-    }
-
-    pub fn infer_thunk(&self, idx: &usize, proj: &usize) -> &Fun<NegTyp> {
-        &self.get_pos(idx).thunks[*proj]
     }
 
     pub fn check_thunk(&self, thunk: &Thunk, n: &Fun<NegTyp>) {
         match thunk {
             Thunk::Just(e) => self.check_expr(e, n),
             Thunk::Var(idx, proj) => {
-                let m = self.infer_thunk(idx, proj);
+                let m = idx.infer_thunk(proj);
                 let (n, this) = self.extract(n);
                 this.sub_neg_type(m, &n);
             }
@@ -126,29 +97,21 @@ impl FullContext {
     pub fn infer_bound_expr(&self, g: &BoundExpr) -> Fun<PosTyp> {
         match g {
             BoundExpr::App(idx, proj, s) => {
-                let n = self.infer_thunk(idx, proj);
+                let n = idx.infer_thunk(proj);
                 self.spine(n, s)
             }
             BoundExpr::Anno(e, ret) => {
-                let move_ret = ret.clone();
-                let fun = Rc::new(move |_: &_| {
-                    let n = NegTyp {
-                        arg: PosTyp::default(),
-                        ret: move_ret.clone(),
-                    };
-                    (n, vec![])
-                });
-                self.check_expr(e, &Fun { tau: vec![], fun });
+                self.check_expr_pos(e, ret);
                 ret.clone()
             }
         }
     }
 
     // can we make sure that `n` is always position independent????
-    pub fn check_expr(&self, e: &Expr, n: &Fun<NegTyp>) {
+    pub fn check_expr(&self, l: &Lambda, n: &Fun<NegTyp>) {
         let (n, this) = self.extract(n);
-        let this = this.add_pos_theta(n.arg);
-        this.check_expr_pos(e, &n.ret);
+        let e = (l.lamb)(&Var(Rc::new(n.arg)));
+        this.check_expr_pos(&e, &n.ret);
     }
 
     pub fn check_expr_pos(&self, e: &Expr, p: &Fun<PosTyp>) {
@@ -157,17 +120,17 @@ impl FullContext {
                 let (p, props) = self.extract_evar(p);
                 self.check_value(v, &p, props);
             }
-            Expr::Let(g, e) => {
+            Expr::Let(g, l) => {
                 let bound_p = self.infer_bound_expr(g);
-                self.add_pos(&bound_p).check_expr_pos(e, p)
+                self.check_expr(l, &bound_p.arrow(p.clone()))
             }
             Expr::Match(idx, proj, pats) => {
-                let obj = self.infer_inj(idx, proj);
+                let obj = idx.infer_inj(proj);
 
                 assert_eq!(pats.len(), obj.f_alpha.len());
-                for (i, e) in pats.iter().enumerate() {
+                for (i, l) in pats.iter().enumerate() {
                     let match_p = self.unroll_prod_univ(obj, &i);
-                    self.add_pos(&match_p).check_expr_pos(e, p);
+                    self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }
         }

@@ -1,22 +1,28 @@
 use std::rc::Rc;
 
+use crate::refinement::SubContext;
+
 use super::{
-    Expr, FullContext, Fun, Inj, InnerTerm, Measured, NegTyp, PosTyp, Prop, Sort, Term, Value,
+    Expr, Fun, Inj, InnerTerm, Lambda, Measured, NegTyp, PosTyp, Prop, Sort, Term, Value, Var,
 };
 
-fn var(idx: usize, proj: usize) -> Rc<Value> {
+fn var(idx: &Var, proj: usize) -> Rc<Value> {
     Rc::new(Value {
         thunk: vec![],
-        inj: vec![Inj::Var(idx, proj)],
+        inj: vec![Inj::Var(idx.clone(), proj)],
     })
 }
 
-fn id_unit() -> Expr {
-    Expr::Return(Rc::new(Value::default()))
+fn id_unit() -> Lambda {
+    Lambda {
+        lamb: Rc::new(|_idx| Expr::Return(Rc::new(Value::default()))),
+    }
 }
 
-fn id_fun() -> Expr {
-    Expr::Return(var(0, 0))
+fn id_fun() -> Lambda {
+    Lambda {
+        lamb: Rc::new(|idx| Expr::Return(var(idx, 0))),
+    }
 }
 
 fn unit_typ() -> Fun<PosTyp> {
@@ -109,7 +115,7 @@ fn impossible_id_typ() -> Fun<NegTyp> {
 
 #[test]
 fn check_id_typ() {
-    let ctx = FullContext::default();
+    let ctx = SubContext::default();
     eprintln!("== test1");
     ctx.check_expr(&id_unit(), &id_typ(unit_typ()));
     eprintln!();
@@ -125,7 +131,7 @@ fn check_id_typ() {
 
 #[test]
 fn checkk_id_app() {
-    let ctx = FullContext::default();
+    let ctx = SubContext::default();
     eprintln!("== test1");
     let res = ctx.spine(&forall_id_typ(), &inductive_val());
     eprintln!(

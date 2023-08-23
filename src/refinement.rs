@@ -110,35 +110,11 @@ impl Debug for Context {
     }
 }
 
-#[derive(Default)]
-enum VarContext {
-    #[default]
-    Empty,
-    Cons {
-        typ: Rc<PosTyp>,
-        next: Rc<VarContext>,
-    },
-}
-
 #[derive(Clone, Default)]
 struct SubContext {
     exis: usize,
     univ: usize,
     assume: Rc<Context>,
-}
-
-#[derive(Clone, Default)]
-struct FullContext {
-    sub: SubContext,
-    var: Rc<VarContext>,
-}
-
-impl Deref for FullContext {
-    type Target = SubContext;
-
-    fn deref(&self) -> &Self::Target {
-        &self.sub
-    }
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -209,6 +185,24 @@ impl<T> Debug for Fun<T> {
     }
 }
 
+#[derive(Clone)]
+struct Lambda {
+    lamb: Rc<dyn Fn(&Var) -> Expr>,
+}
+
+#[derive(Clone)]
+struct Var(Rc<PosTyp>);
+
+impl Var {
+    pub fn infer_inj(&self, proj: &usize) -> &Measured {
+        &self.0.measured[*proj]
+    }
+
+    pub fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
+        &self.0.thunks[*proj]
+    }
+}
+
 #[derive(Default)]
 struct Value {
     thunk: Vec<Thunk>,
@@ -218,23 +212,22 @@ struct Value {
 enum Inj {
     Just(usize, Rc<Value>),
     // second argument is projection
-    Var(usize, usize),
+    Var(Var, usize),
 }
 
-#[derive(Clone)]
 enum Thunk {
-    Just(Rc<Expr>),
-    Var(usize, usize),
+    Just(Lambda),
+    Var(Var, usize),
 }
 
 enum Expr {
     Return(Rc<Value>),
-    Let(Rc<BoundExpr>, Rc<Expr>),
-    Match(usize, usize, Vec<Expr>),
+    Let(Rc<BoundExpr>, Lambda),
+    Match(Var, usize, Vec<Lambda>),
 }
 
 enum BoundExpr {
-    App(usize, usize, Rc<Value>),
+    App(Var, usize, Rc<Value>),
     // expression that does not take any arguments, we thus only store the return type
     Anno(Rc<Expr>, Fun<PosTyp>),
 }
