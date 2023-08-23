@@ -2,9 +2,7 @@ use std::{iter::zip, rc::Rc};
 
 use crate::refinement::{Inj, Thunk, VarContext};
 
-use super::{
-    BoundExpr, ContextPart, Expr, FullContext, Fun, Measured, NegTyp, PosTyp, Prop, Unsolved, Value,
-};
+use super::{BoundExpr, Expr, FullContext, Fun, Measured, NegTyp, PosTyp, Prop, Unsolved, Value};
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -25,17 +23,16 @@ impl FullContext {
     // That is the only way to make it relocatable
     // I don't know if we can do this by wrapping..
     pub fn add_pos(&self, p: &Fun<PosTyp>) -> Self {
-        let (p, theta) = self.extract(p);
-        self.add_pos_theta(p, theta)
+        let (p, this) = self.extract(p);
+        this.add_pos_theta(p)
     }
 
-    pub fn add_pos_theta(&self, p: PosTyp, theta: Vec<ContextPart>) -> Self {
-        let mut this = self.extend_univ(theta);
-        this.var = Rc::new(VarContext::Cons {
+    pub fn add_pos_theta(mut self, p: PosTyp) -> Self {
+        self.var = Rc::new(VarContext::Cons {
             typ: Rc::new(p),
-            next: this.var,
+            next: self.var,
         });
-        this
+        self
     }
 
     // the returned type is position independent
@@ -53,11 +50,13 @@ impl FullContext {
         typ
     }
 
-    // global
-    pub fn extend_univ(&self, theta: Vec<ContextPart>) -> Self {
-        let mut this = self.clone();
-        this.sub = this.sub.extend_univ(theta);
-        this
+    pub fn extract<T>(&self, n: &Fun<T>) -> (T, Self) {
+        let (val, sub) = self.sub.extract(n);
+        let this = Self {
+            sub,
+            var: self.var.clone(),
+        };
+        (val, this)
     }
 
     // This resolves value determined indices in `p`
@@ -98,9 +97,9 @@ impl FullContext {
         match thunk {
             Thunk::Just(e) => self.check_expr(e, n),
             Thunk::Var(idx, proj) => {
-                let (n, theta) = self.extract(n);
                 let m = self.infer_thunk(idx, proj);
-                self.extend_univ(theta).sub_neg_type(m, &n);
+                let (n, this) = self.extract(n);
+                this.sub_neg_type(m, &n);
             }
         }
     }
@@ -147,8 +146,8 @@ impl FullContext {
 
     // can we make sure that `n` is always position independent????
     pub fn check_expr(&self, e: &Expr, n: &Fun<NegTyp>) {
-        let (n, theta) = self.extract(n);
-        let this = self.add_pos_theta(n.arg, theta);
+        let (n, this) = self.extract(n);
+        let this = this.add_pos_theta(n.arg);
         this.check_expr_pos(e, &n.ret);
     }
 
@@ -167,9 +166,8 @@ impl FullContext {
 
                 assert_eq!(pats.len(), obj.f_alpha.len());
                 for (i, e) in pats.iter().enumerate() {
-                    // we ignore the constraint from unrolling
-                    let (match_p, theta) = self.unroll_prod_univ(obj, &i);
-                    self.add_pos_theta(match_p, theta).check_expr_pos(e, p);
+                    let match_p = self.unroll_prod_univ(obj, &i);
+                    self.add_pos(&match_p).check_expr_pos(e, p);
                 }
             }
         }

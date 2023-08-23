@@ -2,7 +2,6 @@
 
 use std::{cell::Cell, fmt::Debug, ops::Deref, rc::Rc};
 
-mod determined;
 mod subtyp;
 #[cfg(test)]
 mod test;
@@ -87,12 +86,6 @@ impl Term {
         // TODO: if this is not empty, we could make a Prop
         assert!(matches!(old, Some(InnerTerm::EVar(_, _))));
     }
-}
-
-#[derive(Debug, Clone)]
-enum ContextPart {
-    Assume(Rc<Prop>),
-    Free,
 }
 
 #[derive(Default)]

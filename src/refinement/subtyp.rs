@@ -2,50 +2,31 @@ use std::rc::Rc;
 
 use crate::refinement::{typing::zip_eq, Context, SubContext};
 
-use super::{ContextPart, Fun, Measured, NegTyp, PosTyp, Prop, Unsolved};
+use super::{Fun, InnerTerm, Measured, NegTyp, PosTyp, Prop, Unsolved};
 
 impl SubContext {
-    pub fn extend_univ(&self, theta: Vec<ContextPart>) -> Self {
-        let mut next = self.assume.clone();
-        let mut univ = self.univ;
-        for part in theta {
-            match part {
-                ContextPart::Assume(phi) => next = Rc::new(Context::Assume { phi, next }),
-                ContextPart::Free => univ += 1,
-            }
-        }
-        Self {
-            exis: self.exis,
-            univ,
-            assume: next,
-        }
-    }
-
     // can we make this position independent into position independent??
-    pub fn extract<T>(&self, n: &Fun<T>) -> (T, Vec<ContextPart>) {
+    pub fn extract<T>(&self, n: &Fun<T>) -> (T, Self) {
         let mut this = self.clone();
         let mut args = vec![];
-        let mut theta = vec![];
         for tau in &n.tau {
-            let (tmp, uvar) = this.new_uvar(tau);
-            this = tmp;
-            args.push(uvar);
-            theta.push(ContextPart::Free);
+            args.push(InnerTerm::UVar(this.univ, *tau).share());
+            this.univ += 1;
         }
         let (inner, props) = (n.fun)(&args);
         for phi in props {
-            theta.push(ContextPart::Assume(phi))
+            let next = this.assume;
+            this.assume = Rc::new(Context::Assume { phi, next });
         }
-        (inner, theta)
+        (inner, this)
     }
 
     pub fn extract_evar<T>(&self, n: &Fun<T>) -> (Unsolved<T>, Vec<Rc<Prop>>) {
-        let mut this = self.clone();
+        let mut exis = self.exis;
         let mut args = vec![];
         for tau in &n.tau {
-            let (tmp, evar) = this.new_evar(tau);
-            this = tmp;
-            args.push(evar.clone());
+            args.push(InnerTerm::EVar(exis, *tau).share());
+            exis += 1;
         }
         let (inner, props) = (n.fun)(&args);
         let n = Unsolved { args, inner };
@@ -74,8 +55,8 @@ impl SubContext {
         self.verify_props(props);
 
         for (n, m) in zip_eq(&p.thunks, &q.inner.thunks) {
-            let (m, theta) = self.extract(m);
-            self.extend_univ(theta).sub_neg_type(n, &m);
+            let (m, this) = self.extract(m);
+            this.sub_neg_type(n, &m);
         }
     }
 
@@ -92,10 +73,10 @@ impl SubContext {
         self.verify_props(props);
 
         for (n_arg, m_arg) in zip_eq(&n.inner.arg.thunks, &m.arg.thunks) {
-            let (m_arg, theta) = self.extract(m_arg);
-            self.extend_univ(theta).sub_neg_type(n_arg, &m_arg);
+            let (m_arg, this) = self.extract(m_arg);
+            this.sub_neg_type(n_arg, &m_arg);
         }
-        let (p, theta) = self.extract(&n.inner.ret);
-        self.extend_univ(theta).sub_pos_typ(&p, &m.ret);
+        let (p, this) = self.extract(&n.inner.ret);
+        this.sub_pos_typ(&p, &m.ret);
     }
 }

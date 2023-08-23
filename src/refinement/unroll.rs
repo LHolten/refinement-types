@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{ContextPart, Measured, PosTyp, Prop, Unsolved};
+use super::{Fun, Measured, PosTyp, Prop, Unsolved};
 
 impl SubContext {
     // Solves outer variable with computation on new variables
@@ -14,30 +14,23 @@ impl SubContext {
 
         obj.term.instantiate(&beta);
 
-        let inner = PosTyp {
-            measured: g.measured,
-            thunks: g.thunks,
-        };
         let solved = Unsolved {
             args: g_beta.args,
-            inner,
+            inner: g,
         };
         (solved, props)
     }
 
-    pub fn unroll_prod_univ(&self, obj: &Measured, i: &usize) -> (PosTyp, Vec<ContextPart>) {
-        let g_beta = &obj.f_alpha[*i];
-        let (g_beta, theta) = self.extract(g_beta);
-        let (g, beta) = g_beta;
-
-        obj.term.instantiate(&beta);
-        // let eq = Rc::new(Prop::Eq(obj.term, beta));
-        // theta.push(ContextPart::Assume(eq));
-
-        let inner = PosTyp {
-            measured: g.measured,
-            thunks: g.thunks,
-        };
-        (inner, theta)
+    pub fn unroll_prod_univ(&self, obj: &Measured, i: &usize) -> Fun<PosTyp> {
+        let g_beta = obj.f_alpha[*i].clone();
+        let term = obj.term.clone();
+        Fun {
+            tau: g_beta.tau,
+            fun: Rc::new(move |args| {
+                let ((g, beta), mut props) = (g_beta.fun)(args);
+                props.push(Rc::new(Prop::Eq(term.clone(), beta)));
+                (g, props)
+            }),
+        }
     }
 }
