@@ -81,9 +81,11 @@ impl Term {
     }
 
     fn instantiate(&self, rhs: &Self) {
-        debug_assert!(rhs.borrow().inner.is_some());
-        let old = self.value.replace(rhs.borrow().inner.clone());
-        assert_eq!(old, None);
+        let val = rhs.borrow().inner.clone();
+        assert!(val.is_some());
+        let old = self.value.replace(val);
+        // TODO: if this is not empty, we could make a Prop
+        assert!(matches!(old, Some(InnerTerm::EVar(_, _))));
     }
 }
 
@@ -186,7 +188,6 @@ impl<T> Clone for Fun<T> {
 }
 
 struct Unsolved<T> {
-    // TODO: measured should probably be part of PosType
     args: Vec<Rc<Term>>,
     inner: T,
 }
@@ -251,3 +252,4 @@ enum BoundExpr {
 // - Remove EqualTerms
 // - Use deep embedding for qualified types
 // - Flatten types
+// - No longer return constraints, verified eagerly now

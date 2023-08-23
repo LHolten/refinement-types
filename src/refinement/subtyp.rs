@@ -55,7 +55,8 @@ impl SubContext {
     // This is conservative and checks equality
     // solves evar in g
     pub fn eq_functor(&self, f: &Measured, g: &Measured) {
-        assert_eq!(f.f_alpha, g.f_alpha);
+        // assert_eq!(f.f_alpha, g.f_alpha);
+        // TODO: check equal inductive types by name
         g.term.instantiate(&f.term);
     }
 
