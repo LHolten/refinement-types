@@ -39,7 +39,7 @@ impl Fun<PosTyp> {
 // "position independent" only refers to sort indices
 impl SubContext {
     // This resolves value determined indices in `p`
-    pub fn check_value(&self, v: &Value, p: &Unsolved<PosTyp>, props: Vec<Rc<Prop>>) {
+    pub fn check_value(&self, v: &Value<Var>, p: &Unsolved<PosTyp>, props: Vec<Rc<Prop>>) {
         for (inj, obj) in zip_eq(&v.inj, &p.inner.measured) {
             self.check_inj(inj, obj);
         }
@@ -51,7 +51,7 @@ impl SubContext {
         }
     }
 
-    pub fn check_inj(&self, inj: &Inj, obj: &Measured) {
+    pub fn check_inj(&self, inj: &Inj<Var>, obj: &Measured) {
         match inj {
             Inj::Just(i, v) => {
                 let (p, props) = self.unroll_prod(obj, i);
@@ -64,7 +64,7 @@ impl SubContext {
         }
     }
 
-    pub fn check_thunk(&self, thunk: &Thunk, n: &Fun<NegTyp>) {
+    pub fn check_thunk(&self, thunk: &Thunk<Var>, n: &Fun<NegTyp>) {
         match thunk {
             Thunk::Just(e) => self.check_expr(e, n),
             Thunk::Var(idx, proj) => {
@@ -77,7 +77,7 @@ impl SubContext {
 
     // This resolves value determined indices in `n`
     // if `n` is position independent, then the output is also position independent
-    pub fn spine(&self, n: &Fun<NegTyp>, s: &Value) -> Fun<PosTyp> {
+    pub fn spine(&self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
         let (n, props) = self.extract_evar(n);
 
         for (inj, obj) in zip_eq(&s.inj, &n.inner.arg.measured) {
@@ -94,7 +94,7 @@ impl SubContext {
     }
 
     // the result is position independent
-    pub fn infer_bound_expr(&self, g: &BoundExpr) -> Fun<PosTyp> {
+    pub fn infer_bound_expr(&self, g: &BoundExpr<Var>) -> Fun<PosTyp> {
         match g {
             BoundExpr::App(idx, proj, s) => {
                 let n = idx.infer_thunk(proj);
@@ -108,13 +108,13 @@ impl SubContext {
     }
 
     // can we make sure that `n` is always position independent????
-    pub fn check_expr(&self, l: &Lambda, n: &Fun<NegTyp>) {
+    pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let (n, this) = self.extract(n);
-        let e = (l.lamb)(&Var(Rc::new(n.arg)));
+        let e = (l.0)(&Var(Rc::new(n.arg)));
         this.check_expr_pos(&e, &n.ret);
     }
 
-    pub fn check_expr_pos(&self, e: &Expr, p: &Fun<PosTyp>) {
+    pub fn check_expr_pos(&self, e: &Expr<Var>, p: &Fun<PosTyp>) {
         match e {
             Expr::Return(v) => {
                 let (p, props) = self.extract_evar(p);

@@ -2,6 +2,7 @@
 
 use std::{cell::Cell, fmt::Debug, ops::Deref, rc::Rc};
 
+mod eval;
 mod subtyp;
 #[cfg(test)]
 mod test;
@@ -186,11 +187,6 @@ impl<T> Debug for Fun<T> {
 }
 
 #[derive(Clone)]
-struct Lambda {
-    lamb: Rc<dyn Fn(&Var) -> Expr>,
-}
-
-#[derive(Clone)]
 struct Var(Rc<PosTyp>);
 
 impl Var {
@@ -203,33 +199,51 @@ impl Var {
     }
 }
 
-#[derive(Default)]
-struct Value {
-    thunk: Vec<Thunk>,
-    inj: Vec<Inj>,
+impl<V> Lambda<V> {
+    pub fn inst(&self, arg: &V) -> Expr<V> {
+        (self.0)(arg)
+    }
 }
 
-enum Inj {
-    Just(usize, Rc<Value>),
+#[allow(clippy::type_complexity)]
+#[derive(Clone)]
+struct Lambda<V>(Rc<dyn Fn(&V) -> Expr<V>>);
+
+struct Value<V> {
+    thunk: Vec<Thunk<V>>,
+    inj: Vec<Inj<V>>,
+}
+
+impl<V> Default for Value<V> {
+    fn default() -> Self {
+        Self {
+            thunk: Default::default(),
+            inj: Default::default(),
+        }
+    }
+}
+
+enum Inj<V> {
+    Just(usize, Rc<Value<V>>),
     // second argument is projection
-    Var(Var, usize),
+    Var(V, usize),
 }
 
-enum Thunk {
-    Just(Lambda),
-    Var(Var, usize),
+enum Thunk<V> {
+    Just(Lambda<V>),
+    Var(V, usize),
 }
 
-enum Expr {
-    Return(Rc<Value>),
-    Let(Rc<BoundExpr>, Lambda),
-    Match(Var, usize, Vec<Lambda>),
+enum Expr<V> {
+    Return(Rc<Value<V>>),
+    Let(Rc<BoundExpr<V>>, Lambda<V>),
+    Match(V, usize, Vec<Lambda<V>>),
 }
 
-enum BoundExpr {
-    App(Var, usize, Rc<Value>),
+enum BoundExpr<V> {
+    App(V, usize, Rc<Value<V>>),
     // expression that does not take any arguments, we thus only store the return type
-    Anno(Rc<Expr>, Fun<PosTyp>),
+    Anno(Rc<Expr<V>>, Fun<PosTyp>),
 }
 
 // - Make Prod type any length and povide projections

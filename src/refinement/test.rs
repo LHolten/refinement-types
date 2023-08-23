@@ -6,23 +6,19 @@ use super::{
     Expr, Fun, Inj, InnerTerm, Lambda, Measured, NegTyp, PosTyp, Prop, Sort, Term, Value, Var,
 };
 
-fn var(idx: &Var, proj: usize) -> Rc<Value> {
+fn var(idx: &Var, proj: usize) -> Rc<Value<Var>> {
     Rc::new(Value {
         thunk: vec![],
         inj: vec![Inj::Var(idx.clone(), proj)],
     })
 }
 
-fn id_unit() -> Lambda {
-    Lambda {
-        lamb: Rc::new(|_idx| Expr::Return(Rc::new(Value::default()))),
-    }
+fn id_unit() -> Lambda<Var> {
+    Lambda(Rc::new(|_idx| Expr::Return(Rc::new(Value::default()))))
 }
 
-fn id_fun() -> Lambda {
-    Lambda {
-        lamb: Rc::new(|idx| Expr::Return(var(idx, 0))),
-    }
+fn id_fun() -> Lambda<Var> {
+    Lambda(Rc::new(|idx| Expr::Return(var(idx, 0))))
 }
 
 fn unit_typ() -> Fun<PosTyp> {
@@ -64,7 +60,7 @@ fn id_typ(arg: Fun<PosTyp>) -> Fun<NegTyp> {
     }
 }
 
-fn inductive_val() -> Value {
+fn inductive_val() -> Value<Var> {
     Value {
         thunk: vec![],
         inj: vec![Inj::Just(0, Rc::new(Value::default()))],
