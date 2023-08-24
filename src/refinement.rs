@@ -203,11 +203,20 @@ impl<V> Lambda<V> {
     pub fn inst(&self, arg: &V) -> Expr<V> {
         (self.0)(arg)
     }
+
+    pub fn new(fun: impl Fn(&V) -> Expr<V> + 'static) -> Self {
+        Self(Rc::new(fun))
+    }
 }
 
 #[allow(clippy::type_complexity)]
-#[derive(Clone)]
 struct Lambda<V>(Rc<dyn Fn(&V) -> Expr<V>>);
+
+impl<V> Clone for Lambda<V> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 struct Value<V> {
     thunk: Vec<Thunk<V>>,
@@ -235,15 +244,22 @@ enum Thunk<V> {
 }
 
 enum Expr<V> {
+    // construct a value and return it
     Return(Rc<Value<V>>),
-    Let(Rc<BoundExpr<V>>, Lambda<V>),
+
+    // execute an expression and bind the result in the continuation
+    Let(BoundExpr<V>, Lambda<V>),
+
+    // match on some inductive type and choose a branch
     Match(V, usize, Vec<Lambda<V>>),
 }
 
 enum BoundExpr<V> {
+    // apply a function to some arguments
     App(V, usize, Rc<Value<V>>),
-    // expression that does not take any arguments, we thus only store the return type
-    Anno(Rc<Expr<V>>, Fun<PosTyp>),
+
+    // define a set of (mutually recursive) functions
+    Anno(Lambda<V>, Vec<Fun<NegTyp>>),
 }
 
 // - Make Prod type any length and povide projections

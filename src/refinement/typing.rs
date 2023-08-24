@@ -100,9 +100,19 @@ impl SubContext {
                 let n = idx.infer_thunk(proj);
                 self.spine(n, s)
             }
-            BoundExpr::Anno(e, ret) => {
-                self.check_expr_pos(e, ret);
-                ret.clone()
+            BoundExpr::Anno(e, negs) => {
+                let negs = negs.clone();
+                let pos = move || PosTyp {
+                    measured: vec![],
+                    thunks: negs.clone(),
+                };
+                let arg = Var(Rc::new((pos)()));
+                let p = Fun {
+                    tau: vec![],
+                    fun: Rc::new(move |_| ((pos)(), vec![])),
+                };
+                self.check_expr_pos(&e.inst(&arg), &p);
+                p
             }
         }
     }
@@ -110,7 +120,7 @@ impl SubContext {
     // can we make sure that `n` is always position independent????
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let (n, this) = self.extract(n);
-        let e = (l.0)(&Var(Rc::new(n.arg)));
+        let e = l.inst(&Var(Rc::new(n.arg)));
         this.check_expr_pos(&e, &n.ret);
     }
 

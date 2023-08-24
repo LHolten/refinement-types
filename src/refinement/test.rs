@@ -21,11 +21,11 @@ fn id_fun() -> Lambda<Var> {
     Lambda(Rc::new(|idx| Expr::Return(var(idx, 0))))
 }
 
-fn unit_typ() -> Fun<PosTyp> {
+pub(super) fn unit_typ() -> Fun<PosTyp> {
     unqualified(PosTyp::default)
 }
 
-fn unqualified<T>(val: impl Fn() -> T + 'static) -> Fun<T> {
+pub(super) fn unqualified<T>(val: impl Fn() -> T + 'static) -> Fun<T> {
     Fun {
         tau: vec![],
         fun: Rc::new(move |_| ((val)(), vec![])),
