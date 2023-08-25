@@ -1,22 +1,28 @@
 #![allow(unused_macros)]
 
 macro_rules! add_tau {
-    ($tau:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$tail:tt)*) => {
-        add_tau!($tau; $($tail),*)
+    ($tau:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
+        add_tau!($tau; $($($tail)*)?)
     };
-    ($tau:expr; $var:ident $(,$tail:tt)*) => {
+    ($tau:expr; ($($l:tt)*) == ($($r:tt)*) $(,$($tail:tt)*)?) => {
+        add_tau!($tau; $($($tail)*)?)
+    };
+    ($tau:expr; $var:ident $(,$($tail:tt)*)?) => {
         $tau.push($crate::refinement::Sort::Nat);
-        add_tau!($tau; $($tail),*)
+        add_tau!($tau; $($($tail)*)?)
     };
     ($tau:expr;) => {}
 }
 
 macro_rules! add_part {
-    ($inj:expr; $thunk:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$tail:tt)*) => {
-        $thunk.push(neg_typ!($($tts)*));
-        add_part!($inj; $thunk; $($tail),*)
+    ($pos:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
+        $pos.thunks.push(neg_typ!(($($arg)*) -> ($($ret)*)));
+        add_part!($pos; $($($tail)*)?)
     };
-    ($inj:expr; $thunk:expr; $var:expr $(,$tail:tt)*) => {
+    ($pos:expr; ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
+        add_part!($pos; $($($tail)*)?)
+    };
+    ($pos:expr; $var:expr $(,$($tail:tt)*)?) => {
         let fun = $crate::refinement::Fun {
             tau: vec![],
             fun: ::std::rc::Rc::new(move |_| ((unqual!(), $crate::refinement::InnerTerm::Zero.share()), vec![])),
@@ -25,18 +31,36 @@ macro_rules! add_part {
             f_alpha: vec![fun],
             term: $var.clone(),
         };
-        $inj.push(measure);
-        add_part!($inj; $thunk; $($tail),*)
+        $pos.measured.push(measure);
+        add_part!($pos; $($($tail)*)?)
     };
-    ($inj:expr; $thunk:expr;) => {}
+    ($pos:expr;) => {}
+}
+
+macro_rules! add_prop {
+    ($props:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
+        add_prop!($props; $($($tail)*)?)
+    };
+    ($props:expr; ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
+        let prop = $crate::refinement::Prop::Eq($l.clone(), $r.clone());
+        $props.push(::std::rc::Rc::new(prop));
+        add_prop!($props; $($($tail)*)?)
+    };
+    ($props:expr; $var:expr $(,$($tail:tt)*)?) => {
+        add_prop!($props; $($($tail)*)?)
+    };
+    ($props:expr;) => {}
 }
 
 macro_rules! list_var {
-    ($($prev:ident)*; ($($arg:tt)*) -> ($($ret:tt)*) $($rem:tt)*) => {
-        list_var!($($prev)*; $($rem)*)
+    ($($prev:ident)*; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
+        list_var!($($prev)*; $($($tail)*)?)
     };
-    ($($prev:ident)*; $var:ident $($rem:tt)*) => {
-        list_var!($($prev)* $var; $($rem)*)
+    ($($prev:ident)*; ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
+        list_var!($($prev)*; $($($tail)*)?)
+    };
+    ($($prev:ident)*; $var:ident $(,$($tail:tt)*)?) => {
+        list_var!($($prev)* $var; $($($tail)*)?)
     };
     ($($prev:ident)*;) => {
         [$($prev),*]
@@ -49,12 +73,16 @@ macro_rules! neg_typ {
         let mut tau = vec![];
         add_tau!(tau; $($arg)*);
         $crate::refinement::Fun { tau, fun: ::std::rc::Rc::new(|args| {
-            let list_var!(;$($arg)*) = args else { panic!() };
+            // NOTE: this is a memory leak, but it is only for tests
+            let list_var!(;$($arg)*) = Vec::leak(args.to_owned()) else { panic!() };
             let neg = $crate::refinement::NegTyp {
                 arg: unqual!($($arg)*),
                 ret: pos_typ!($($ret)*),
             };
-            (neg, vec![])
+            #[allow(unused_mut)]
+            let mut prop = vec![];
+            add_prop!(prop; $($arg)*);
+            (neg, prop)
         }) }
     }};
 }
@@ -65,9 +93,13 @@ macro_rules! pos_typ {
         let mut tau = vec![];
         add_tau!(tau; $($part)*);
         $crate::refinement::Fun { tau, fun: ::std::rc::Rc::new(|args| {
-            let list_var!(;$($part)*) = args else { panic!() };
+            // NOTE: this is a memory leak, but it is only for tests
+            let list_var!(;$($part)*) = Vec::leak(args.to_owned()) else { panic!() };
             let pos = unqual!($($part)*);
-            (pos, vec![])
+            #[allow(unused_mut)]
+            let mut prop = vec![];
+            add_prop!(prop; $($part)*);
+            (pos, prop)
         }) }
     }};
 }
@@ -79,7 +111,7 @@ macro_rules! unqual {
             measured: vec![],
             thunks: vec![],
         };
-        add_part!(pos.measured; pos.thunks; $($part)*);
+        add_part!(pos; $($part)*);
         pos
     }};
 }

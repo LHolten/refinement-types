@@ -85,7 +85,7 @@ fn check_id_typ() {
     ctx.check_expr(&id_fun(), &neg_typ!((a) -> (b)));
     eprintln!();
     eprintln!("== test3");
-    ctx.check_expr(&id_fun(), &forall_id_typ());
+    ctx.check_expr(&id_fun(), &neg_typ!((a) -> (b, (a) == (b))));
     eprintln!();
     // eprintln!("== test4");
     // ctx.check_expr(&id_fun(), &impossible_id_typ())
