@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{Expr, Fun, Inj, InnerTerm, Lambda, NegTyp, PosTyp, Prop, Sort, Term, Value, Var};
+use super::{Fun, Inj, InnerTerm, Lambda, NegTyp, PosTyp, Prop, Sort, Term, Value, Var};
 
 fn var(idx: &Var, proj: usize) -> Rc<Value<Var>> {
     Rc::new(Value {
@@ -12,11 +12,11 @@ fn var(idx: &Var, proj: usize) -> Rc<Value<Var>> {
 }
 
 fn id_unit() -> Lambda<Var> {
-    Lambda(Rc::new(|_idx| Expr::Return(Rc::new(Value::default()))))
+    parse_lambda!(Var; _val => return ())
 }
 
 fn id_fun() -> Lambda<Var> {
-    Lambda(Rc::new(|idx| Expr::Return(var(idx, 0))))
+    parse_lambda!(Var; val => return (val.0))
 }
 
 pub(super) fn unqualified<T>(val: impl Fn() -> T + 'static) -> Fun<T> {

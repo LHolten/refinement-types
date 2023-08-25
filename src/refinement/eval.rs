@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use super::{BoundExpr, Expr, Inj, Lambda, Thunk, Value};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Eval {
     inj: Vec<(usize, Eval)>,
     thunks: Vec<Lambda<Eval>>,
@@ -86,29 +86,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn match_test() {
+        let expr = parse_lambda! { Eval; val =>
+            match val.0
+            {_thing => return ()}
+        };
+        let val = Eval {
+            inj: vec![(0, Eval::default())],
+            thunks: vec![],
+        };
+        Rc::new(expr.inst(&val)).eval();
+    }
+
+    #[test]
     fn diverge() {
-        let bind = BoundExpr::Anno(
-            Lambda::<Eval>::new(|rec| {
-                let rec = rec.clone();
-                Expr::Return(Rc::new(Value {
-                    thunk: vec![Thunk::Just(Lambda::new(move |_| {
-                        Expr::Tail(rec.clone(), 0, Rc::new(Value::default()))
-                    }))],
-                    inj: vec![],
-                }))
-            }),
-            vec![neg_typ!(() -> ())],
-        );
-        bind.eval();
-        let e = Expr::Let(
-            bind,
-            Lambda::<Eval>::new(|inf| {
-                Expr::Let(
-                    BoundExpr::App(inf.clone(), 0, Rc::new(Value::default())),
-                    Lambda::<Eval>::new(|res| Expr::Match(res.clone(), 0, vec![])),
-                )
-            }),
-        );
-        Rc::new(e).eval();
+        let expr = parse_expr! {Eval;
+            let funcs: (() -> ()) = (return ({_a => tail funcs.0 ()}));
+            tail funcs.0 ()
+        };
+        Rc::new(expr).eval();
     }
 }

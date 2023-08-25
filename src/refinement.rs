@@ -4,6 +4,8 @@ use std::{cell::Cell, fmt::Debug, ops::Deref, rc::Rc};
 
 #[macro_use]
 mod parse;
+#[macro_use]
+mod parse_expr;
 
 mod eval;
 mod subtyp;
@@ -207,7 +209,7 @@ impl<V> Lambda<V> {
         (self.0)(arg)
     }
 
-    pub fn new(fun: impl Fn(&V) -> Expr<V> + 'static) -> Self {
+    pub fn new<F: Fn(&V) -> Expr<V> + 'static>(fun: F) -> Self {
         Self(Rc::new(fun))
     }
 }
