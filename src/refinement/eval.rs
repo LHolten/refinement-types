@@ -46,6 +46,10 @@ impl Expr<Eval> {
                     let (idx, val) = var.get_inj(proj);
                     self = Rc::new(e[*idx].inst(val))
                 }
+                Expr::Tail(var, proj, arg) => {
+                    let arg = Eval::from_val(arg);
+                    self = Rc::new(var.get_thunk(proj).inst(&arg));
+                }
             }
         }
     }
@@ -89,9 +93,12 @@ mod tests {
     #[test]
     fn diverge() {
         let bind = BoundExpr::Anno(
-            Lambda::<Eval>::new(|arg| {
+            Lambda::<Eval>::new(|rec| {
+                let rec = rec.clone();
                 Expr::Return(Rc::new(Value {
-                    thunk: vec![Thunk::Var(arg.clone(), 0)],
+                    thunk: vec![Thunk::Just(Lambda::new(move |_| {
+                        Expr::Tail(rec.clone(), 0, Rc::new(Value::default()))
+                    }))],
                     inj: vec![],
                 }))
             }),

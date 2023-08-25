@@ -252,6 +252,9 @@ enum Expr<V> {
 
     // match on some inductive type and choose a branch
     Match(V, usize, Vec<Lambda<V>>),
+
+    // tail call, can be used for loops
+    Tail(V, usize, Rc<Value<V>>),
 }
 
 enum BoundExpr<V> {

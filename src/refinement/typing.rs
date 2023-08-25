@@ -143,6 +143,12 @@ impl SubContext {
                     self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }
+            Expr::Tail(idx, proj, s) => {
+                let n = idx.infer_thunk(proj);
+                let q = self.spine(n, s);
+                let (q, this) = self.extract(&q);
+                this.sub_pos_typ(&q, p);
+            }
         }
     }
 }
