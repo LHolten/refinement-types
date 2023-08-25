@@ -83,11 +83,6 @@ impl BoundExpr<Eval> {
 mod tests {
     use std::rc::Rc;
 
-    use crate::refinement::{
-        test::{unit_typ, unqualified},
-        NegTyp, PosTyp,
-    };
-
     use super::*;
 
     #[test]
@@ -102,10 +97,7 @@ mod tests {
                     inj: vec![],
                 }))
             }),
-            vec![unqualified(|| NegTyp {
-                arg: PosTyp::default(),
-                ret: unit_typ(),
-            })],
+            vec![neg_typ!(() -> ())],
         );
         bind.eval();
         let e = Expr::Let(

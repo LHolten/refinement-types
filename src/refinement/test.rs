@@ -2,9 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{
-    Expr, Fun, Inj, InnerTerm, Lambda, Measured, NegTyp, PosTyp, Prop, Sort, Term, Value, Var,
-};
+use super::{Expr, Fun, Inj, InnerTerm, Lambda, NegTyp, PosTyp, Prop, Sort, Term, Value, Var};
 
 fn var(idx: &Var, proj: usize) -> Rc<Value<Var>> {
     Rc::new(Value {
@@ -19,10 +17,6 @@ fn id_unit() -> Lambda<Var> {
 
 fn id_fun() -> Lambda<Var> {
     Lambda(Rc::new(|idx| Expr::Return(var(idx, 0))))
-}
-
-pub(super) fn unit_typ() -> Fun<PosTyp> {
-    unqualified(PosTyp::default)
 }
 
 pub(super) fn unqualified<T>(val: impl Fn() -> T + 'static) -> Fun<T> {
@@ -46,20 +40,6 @@ fn exists(fun: impl Fn(Rc<Term>) -> PosTyp + 'static) -> Fun<PosTyp> {
     }
 }
 
-fn id_typ(arg: Fun<PosTyp>) -> Fun<NegTyp> {
-    Fun {
-        tau: arg.tau.clone(),
-        fun: Rc::new(move |args| {
-            let (tmp, props) = (arg.fun)(args);
-            let n = NegTyp {
-                arg: tmp,
-                ret: arg.clone(),
-            };
-            (n, props)
-        }),
-    }
-}
-
 fn inductive_val() -> Value<Var> {
     Value {
         thunk: vec![],
@@ -67,27 +47,13 @@ fn inductive_val() -> Value<Var> {
     }
 }
 
-fn inductive_typ(idx: &Rc<Term>) -> PosTyp {
-    PosTyp {
-        measured: vec![Measured {
-            f_alpha: vec![unqualified(|| (PosTyp::default(), InnerTerm::Zero.share()))],
-            term: idx.clone(),
-        }],
-        thunks: vec![],
-    }
-}
-
-fn existential_typ() -> Fun<PosTyp> {
-    exists(|idx| inductive_typ(&idx))
-}
-
 fn forall_id_typ() -> Fun<NegTyp> {
     forall(|idx| NegTyp {
-        arg: inductive_typ(&idx),
+        arg: unqual!(&idx),
         ret: Fun {
             tau: vec![Sort::Nat],
             fun: Rc::new(move |idx2| {
-                let p = inductive_typ(&idx2[0]);
+                let p = unqual!(&idx2[0]);
                 let prop = Prop::Eq(idx.clone(), idx2[0].clone());
                 (p, vec![Rc::new(prop)])
             }),
@@ -101,8 +67,8 @@ fn impossible_id_typ() -> Fun<NegTyp> {
         fun: Rc::new(|args| {
             let args_1 = args[1].clone();
             let n = NegTyp {
-                arg: inductive_typ(&args[0]),
-                ret: unqualified(move || inductive_typ(&args_1)),
+                arg: unqual!(&args[0]),
+                ret: unqualified(move || unqual!(&args_1)),
             };
             (n, vec![])
         }),
@@ -113,10 +79,10 @@ fn impossible_id_typ() -> Fun<NegTyp> {
 fn check_id_typ() {
     let ctx = SubContext::default();
     eprintln!("== test1");
-    ctx.check_expr(&id_unit(), &id_typ(unit_typ()));
+    ctx.check_expr(&id_unit(), &neg_typ!(() -> ()));
     eprintln!();
     eprintln!("== test2");
-    ctx.check_expr(&id_fun(), &id_typ(existential_typ()));
+    ctx.check_expr(&id_fun(), &neg_typ!((a) -> (b)));
     eprintln!();
     eprintln!("== test3");
     ctx.check_expr(&id_fun(), &forall_id_typ());

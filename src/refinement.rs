@@ -2,6 +2,9 @@
 
 use std::{cell::Cell, fmt::Debug, ops::Deref, rc::Rc};
 
+#[macro_use]
+mod parse;
+
 mod eval;
 mod subtyp;
 #[cfg(test)]
