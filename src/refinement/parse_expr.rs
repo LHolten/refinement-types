@@ -12,12 +12,11 @@ macro_rules! parse_expr {
     ($ty:ty; let $var:ident = $fun:ident.$num:literal ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
         let tail = parse_lambda!($ty; $var => $($tail)*);
-        let bound = $crate::refinement::BoundExpr::App($fun, $num, val);
+        let bound = $crate::refinement::BoundExpr::App($fun.clone(), $num, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
     ($ty:ty; let $var:ident: ($($pos:tt)*) = ($($val:tt)*); $($tail:tt)*) => {{
-        let val = parse_expr!($ty; $($val)*);
-        let val = ::std::rc::Rc::new(val);
+        let val = parse_value!($ty; $($val)*);
         let tail = parse_lambda!($ty; $var => $($tail)*);
         let typ = pos_typ!($($pos)*);
         let bound = $crate::refinement::BoundExpr::Anno(val, typ);
@@ -61,7 +60,7 @@ macro_rules! add_value {
     ($ty:ty; $accum:expr; { $($branch:tt)* } $(,$($tail:tt)*)?) => {
         let lambda = parse_lambda!($ty; $($branch)*);
         $accum.thunk.push($crate::refinement::Thunk::Just(lambda));
-        add_value!($ty; $accum; $(,$($tail:tt)*)?)
+        add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr;)  => {};
 }

@@ -86,7 +86,7 @@ impl BoundExpr<Eval> {
                 let arg = Res::from_val(arg);
                 var.get_thunk(proj).inst_arg(&arg).eval()
             }
-            BoundExpr::Anno(e, _pos) => e.clone().eval(),
+            BoundExpr::Anno(val, _pos) => Res::from_val(val),
         }
     }
 }
@@ -113,9 +113,26 @@ mod tests {
     #[test]
     fn diverge() {
         let expr = parse_expr! {Eval;
-            let rec: () = (return ());
+            let rec: () = ();
             tail rec ()
         };
         Rc::new(expr).eval();
+    }
+
+    fn testing() {
+        parse_expr! {Eval;
+            let funcs: (
+                (_) -> (_),
+                () -> ()
+            ) = (
+                {x => return (x.0)},
+                {_x => return ()}
+            );
+            let _diverge: (() -> ()) = (
+                {rec => tail rec ()}
+            );
+            let _unit = funcs.1 ();
+            return ()
+        };
     }
 }

@@ -96,7 +96,7 @@ impl SubContext {
                 self.spine(n, s)
             }
             BoundExpr::Anno(e, p) => {
-                self.check_expr_pos(e, p);
+                self.check_value(e, p);
                 p.clone()
             }
         }

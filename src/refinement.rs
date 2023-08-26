@@ -220,7 +220,7 @@ enum BoundExpr<V> {
     // apply a function to some arguments
     App(V, usize, Rc<Value<V>>),
 
-    Anno(Rc<Expr<V>>, Fun<PosTyp>),
+    Anno(Rc<Value<V>>, Fun<PosTyp>),
 }
 
 // - Make Prod type any length and povide projections
