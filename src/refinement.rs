@@ -145,6 +145,7 @@ impl<T> Deref for Solved<T> {
 struct Var {
     args: Vec<(Rc<Term>, Measured)>,
     inner: Rc<PosTyp>,
+    rec: Fun<NegTyp>,
 }
 
 impl Var {
@@ -212,15 +213,14 @@ enum Expr<V> {
     Match(V, usize, Vec<Lambda<V>>),
 
     // tail call, can be used for loops
-    Tail(V, usize, Rc<Value<V>>),
+    Tail(V, Rc<Value<V>>),
 }
 
 enum BoundExpr<V> {
     // apply a function to some arguments
     App(V, usize, Rc<Value<V>>),
 
-    // define a set of (mutually recursive) functions
-    Anno(Lambda<V>, Vec<Fun<NegTyp>>),
+    Anno(Rc<Expr<V>>, Fun<PosTyp>),
 }
 
 // - Make Prod type any length and povide projections

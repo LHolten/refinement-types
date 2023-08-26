@@ -15,20 +15,21 @@ macro_rules! parse_expr {
         let bound = $crate::refinement::BoundExpr::App($fun, $num, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; let $var:ident: ($($neg:tt)*) = ($($val:tt)*); $($tail:tt)*) => {{
-        let val = parse_lambda!($ty; $var => $($val)*);
+    ($ty:ty; let $var:ident: ($($pos:tt)*) = ($($val:tt)*); $($tail:tt)*) => {{
+        let val = parse_expr!($ty; $($val)*);
+        let val = ::std::rc::Rc::new(val);
         let tail = parse_lambda!($ty; $var => $($tail)*);
-        let typ = unqual!($($neg)*);
-        let bound = $crate::refinement::BoundExpr::Anno(val, typ.thunks);
+        let typ = pos_typ!($($pos)*);
+        let bound = $crate::refinement::BoundExpr::Anno(val, typ);
         $crate::refinement::Expr::<$ty>::Let(bound, tail)
     }};
     ($ty:ty; return ($($val:tt)*)) => {{
         let val = parse_value!($ty; $($val)*);
         $crate::refinement::Expr::Return(val)
     }};
-    ($ty:ty; tail $fun:ident.$num:literal ($($val:tt)*)) => {{
+    ($ty:ty; tail $fun:ident ($($val:tt)*)) => {{
         let val = parse_value!($ty; $($val)*);
-        $crate::refinement::Expr::Tail($fun.clone(), $num, val)
+        $crate::refinement::Expr::Tail($fun.clone(), val)
     }};
     ($ty:ty; match $fun:ident.$num:literal $({ $($branch:tt)* })* ) => {{
         let branches = vec![$(

@@ -95,22 +95,9 @@ impl SubContext {
                 let n = idx.infer_thunk(proj);
                 self.spine(n, s)
             }
-            BoundExpr::Anno(e, negs) => {
-                let pos = PosTyp {
-                    thunks: negs.clone(),
-                    prop: vec![],
-                };
-                let arg = Var {
-                    args: vec![],
-                    inner: Rc::new(pos.clone()),
-                };
-                let p = Fun {
-                    tau: vec![],
-                    measured: vec![],
-                    fun: Rc::new(move |_| pos.clone()),
-                };
-                self.check_expr_pos(&e.inst(&arg), &p);
-                p
+            BoundExpr::Anno(e, p) => {
+                self.check_expr_pos(e, p);
+                p.clone()
             }
         }
     }
@@ -121,6 +108,7 @@ impl SubContext {
         let var = Var {
             args: zip_eq(neg.terms, n.measured.clone()).collect(),
             inner: Rc::new(neg.inner.arg),
+            rec: n.clone(),
         };
         let e = l.inst(&var);
         this.check_expr_pos(&e, &neg.inner.ret);
@@ -144,8 +132,8 @@ impl SubContext {
                     self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }
-            Expr::Tail(idx, proj, s) => {
-                let n = idx.infer_thunk(proj);
+            Expr::Tail(idx, s) => {
+                let n = &idx.rec;
                 let res = self.spine(n, s);
                 self.sub_pos_typ(&res, p);
             }

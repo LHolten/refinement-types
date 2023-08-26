@@ -2,22 +2,46 @@ use std::rc::Rc;
 
 use super::{BoundExpr, Expr, Inj, Lambda, Thunk, Value};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct Eval {
-    inj: Vec<(usize, Eval)>,
+    res: Res,
+    rec: Lambda<Eval>,
+}
+
+#[derive(Clone, Default)]
+struct Res {
+    inj: Vec<(usize, Res)>,
     thunks: Vec<Lambda<Eval>>,
 }
 
+impl Res {
+    fn make_eval(&self, rec: &Lambda<Eval>) -> Eval {
+        Eval {
+            res: self.clone(),
+            rec: rec.clone(),
+        }
+    }
+}
+
+impl Lambda<Eval> {
+    fn inst_arg(&self, arg: &Res) -> Rc<Expr<Eval>> {
+        let arg = arg.make_eval(self);
+        Rc::new(self.inst(&arg))
+    }
+}
+
 impl Eval {
-    pub fn get_thunk(&self, proj: &usize) -> &Lambda<Eval> {
-        &self.thunks[*proj]
+    fn get_thunk(&self, proj: &usize) -> &Lambda<Eval> {
+        &self.res.thunks[*proj]
     }
 
-    pub fn get_inj(&self, proj: &usize) -> &(usize, Eval) {
-        &self.inj[*proj]
+    fn get_inj(&self, proj: &usize) -> &(usize, Res) {
+        &self.res.inj[*proj]
     }
+}
 
-    pub fn from_val(val: &Value<Self>) -> Self {
+impl Res {
+    pub fn from_val(val: &Value<Eval>) -> Self {
         let inj = val.inj.iter().map(|inj| match inj {
             Inj::Just(idx, val) => (*idx, Self::from_val(val)),
             Inj::Var(var, proj) => var.get_inj(proj).clone(),
@@ -34,21 +58,21 @@ impl Eval {
 }
 
 impl Expr<Eval> {
-    pub fn eval(mut self: Rc<Self>) -> Eval {
+    pub fn eval(mut self: Rc<Self>) -> Res {
         loop {
             match self.as_ref() {
-                Expr::Return(val) => return Eval::from_val(val),
+                Expr::Return(val) => return Res::from_val(val),
                 Expr::Let(bind, e) => {
                     let arg = bind.eval();
-                    self = Rc::new(e.inst(&arg))
+                    self = e.inst_arg(&arg);
                 }
                 Expr::Match(var, proj, e) => {
                     let (idx, val) = var.get_inj(proj);
-                    self = Rc::new(e[*idx].inst(val))
+                    self = e[*idx].inst_arg(val);
                 }
-                Expr::Tail(var, proj, arg) => {
-                    let arg = Eval::from_val(arg);
-                    self = Rc::new(var.get_thunk(proj).inst(&arg));
+                Expr::Tail(var, arg) => {
+                    let arg = Res::from_val(arg);
+                    self = var.rec.inst_arg(&arg);
                 }
             }
         }
@@ -56,25 +80,13 @@ impl Expr<Eval> {
 }
 
 impl BoundExpr<Eval> {
-    pub fn eval(&self) -> Eval {
+    pub fn eval(&self) -> Res {
         match self {
             BoundExpr::App(var, proj, arg) => {
-                let arg = Eval::from_val(arg);
-                let e = var.get_thunk(proj).inst(&arg);
-                Rc::new(e).eval()
+                let arg = Res::from_val(arg);
+                var.get_thunk(proj).inst_arg(&arg).eval()
             }
-            BoundExpr::Anno(e, negs) => {
-                let arg = Eval {
-                    inj: vec![],
-                    thunks: (0..negs.len())
-                        .map(|proj| {
-                            let this = BoundExpr::Anno(e.clone(), negs.clone());
-                            Lambda(Rc::new(move |arg| this.eval().get_thunk(&proj).inst(arg)))
-                        })
-                        .collect(),
-                };
-                Rc::new(e.inst(&arg)).eval()
-            }
+            BoundExpr::Anno(e, _pos) => e.clone().eval(),
         }
     }
 }
@@ -91,18 +103,18 @@ mod tests {
             match val.0
             {_thing => return ()}
         };
-        let val = Eval {
-            inj: vec![(0, Eval::default())],
+        let val = Res {
+            inj: vec![(0, Res::default())],
             thunks: vec![],
         };
-        Rc::new(expr.inst(&val)).eval();
+        expr.inst_arg(&val).eval();
     }
 
     #[test]
     fn diverge() {
         let expr = parse_expr! {Eval;
-            let funcs: (() -> ()) = (return ({_a => tail funcs.0 ()}));
-            tail funcs.0 ()
+            let rec: () = (return ());
+            tail rec ()
         };
         Rc::new(expr).eval();
     }
