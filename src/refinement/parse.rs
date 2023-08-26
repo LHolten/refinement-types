@@ -20,12 +20,14 @@ macro_rules! add_part {
         add_part!($pos; $($($tail)*)?)
     };
     ($pos:expr; ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
+        let prop = $crate::refinement::Prop::Eq($l.clone(), $r.clone());
+        $pos.prop.push(prop);
         add_part!($pos; $($($tail)*)?)
     };
     ($pos:expr; $var:expr $(,$($tail:tt)*)?) => {
         let fun = $crate::refinement::Fun {
             tau: vec![],
-            fun: ::std::rc::Rc::new(move |_| ((unqual!(), $crate::refinement::InnerTerm::Zero.share()), vec![])),
+            fun: ::std::rc::Rc::new(move |_| (unqual!(), $crate::refinement::InnerTerm::Zero.share())),
         };
         let measure = $crate::refinement::Measured {
             f_alpha: vec![fun],
@@ -35,21 +37,6 @@ macro_rules! add_part {
         add_part!($pos; $($($tail)*)?)
     };
     ($pos:expr;) => {}
-}
-
-macro_rules! add_prop {
-    ($props:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
-        add_prop!($props; $($($tail)*)?)
-    };
-    ($props:expr; ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
-        let prop = $crate::refinement::Prop::Eq($l.clone(), $r.clone());
-        $props.push(::std::rc::Rc::new(prop));
-        add_prop!($props; $($($tail)*)?)
-    };
-    ($props:expr; $var:expr $(,$($tail:tt)*)?) => {
-        add_prop!($props; $($($tail)*)?)
-    };
-    ($props:expr;) => {}
 }
 
 macro_rules! list_var {
@@ -75,15 +62,11 @@ macro_rules! neg_typ {
         $crate::refinement::Fun { tau, fun: ::std::rc::Rc::new(|args| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(;$($arg)*) = Vec::leak(args.to_owned()) else { panic!() };
-            let neg = $crate::refinement::NegTyp {
+            $crate::refinement::NegTyp {
                 arg: unqual!($($arg)*),
                 ret: pos_typ!($($ret)*),
-            };
-            #[allow(unused_mut)]
-            let mut prop = vec![];
-            add_prop!(prop; $($arg)*);
-            (neg, prop)
-        }) }
+            }
+        })}
     }};
 }
 
@@ -95,12 +78,8 @@ macro_rules! pos_typ {
         $crate::refinement::Fun { tau, fun: ::std::rc::Rc::new(|args| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(;$($part)*) = Vec::leak(args.to_owned()) else { panic!() };
-            let pos = unqual!($($part)*);
-            #[allow(unused_mut)]
-            let mut prop = vec![];
-            add_prop!(prop; $($part)*);
-            (pos, prop)
-        }) }
+            unqual!($($part)*)
+        })}
     }};
 }
 
@@ -110,6 +89,7 @@ macro_rules! unqual {
         let mut pos = $crate::refinement::PosTyp {
             measured: vec![],
             thunks: vec![],
+            prop: vec![],
         };
         add_part!(pos; $($part)*);
         pos

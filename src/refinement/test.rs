@@ -22,21 +22,21 @@ fn id_fun() -> Lambda<Var> {
 pub(super) fn unqualified<T>(val: impl Fn() -> T + 'static) -> Fun<T> {
     Fun {
         tau: vec![],
-        fun: Rc::new(move |_| ((val)(), vec![])),
+        fun: Rc::new(move |_| (val)()),
     }
 }
 
 fn forall(fun: impl Fn(Rc<Term>) -> NegTyp + 'static) -> Fun<NegTyp> {
     Fun {
         tau: vec![Sort::Nat],
-        fun: Rc::new(move |args| ((fun)(args[0].clone()), vec![])),
+        fun: Rc::new(move |args| (fun)(args[0].clone())),
     }
 }
 
 fn exists(fun: impl Fn(Rc<Term>) -> PosTyp + 'static) -> Fun<PosTyp> {
     Fun {
         tau: vec![Sort::Nat],
-        fun: Rc::new(move |args| ((fun)(args[0].clone()), vec![])),
+        fun: Rc::new(move |args| (fun)(args[0].clone())),
     }
 }
 
@@ -53,9 +53,9 @@ fn forall_id_typ() -> Fun<NegTyp> {
         ret: Fun {
             tau: vec![Sort::Nat],
             fun: Rc::new(move |idx2| {
-                let p = unqual!(&idx2[0]);
-                let prop = Prop::Eq(idx.clone(), idx2[0].clone());
-                (p, vec![Rc::new(prop)])
+                let mut p = unqual!(&idx2[0]);
+                p.prop.push(Prop::Eq(idx.clone(), idx2[0].clone()));
+                p
             }),
         },
     })
@@ -66,11 +66,10 @@ fn impossible_id_typ() -> Fun<NegTyp> {
         tau: vec![Sort::Nat, Sort::Nat],
         fun: Rc::new(|args| {
             let args_1 = args[1].clone();
-            let n = NegTyp {
+            NegTyp {
                 arg: unqual!(&args[0]),
                 ret: unqualified(move || unqual!(&args_1)),
-            };
-            (n, vec![])
+            }
         }),
     }
 }

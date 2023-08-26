@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::{Prop, SubContext};
 
 impl SubContext {
@@ -9,7 +7,7 @@ impl SubContext {
         eprintln!("=> {:?}", phi);
     }
 
-    pub fn verify_props(&self, props: Vec<Rc<Prop>>) {
+    pub fn verify_props(&self, props: Vec<Prop>) {
         eprintln!("{:?}", &self.assume);
         eprintln!("=> {:?}", props)
     }

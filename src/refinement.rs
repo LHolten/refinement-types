@@ -99,7 +99,7 @@ enum Context {
     #[default]
     Empty,
     Assume {
-        phi: Rc<Prop>,
+        phi: Prop,
         next: Rc<Context>,
     },
 }
@@ -123,7 +123,7 @@ struct SubContext {
     assume: Rc<Context>,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
 }
@@ -133,6 +133,7 @@ enum Prop {
 struct PosTyp {
     measured: Vec<Measured>,
     thunks: Vec<Fun<NegTyp>>,
+    prop: Vec<Prop>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -147,10 +148,32 @@ struct NegTyp {
     ret: Fun<PosTyp>,
 }
 
+trait ListProp {
+    fn props(&self) -> &[Prop];
+}
+
+impl ListProp for PosTyp {
+    fn props(&self) -> &[Prop] {
+        &self.prop
+    }
+}
+
+impl ListProp for NegTyp {
+    fn props(&self) -> &[Prop] {
+        self.arg.props()
+    }
+}
+
+impl ListProp for (PosTyp, Rc<Term>) {
+    fn props(&self) -> &[Prop] {
+        self.0.props()
+    }
+}
+
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
     tau: Vec<Sort>,
-    fun: Rc<dyn Fn(&[Rc<Term>]) -> (T, Vec<Rc<Prop>>)>,
+    fun: Rc<dyn Fn(&[Rc<Term>]) -> T>,
 }
 
 impl<T> Clone for Fun<T> {

@@ -7,7 +7,7 @@ use super::{Fun, Measured, PosTyp, Prop, Unsolved};
 impl SubContext {
     // Solves outer variable with computation on new variables
     // returns PosTyp that contains new variables unsolved
-    pub fn unroll_prod(&self, obj: &Measured, i: &usize) -> (Unsolved<PosTyp>, Vec<Rc<Prop>>) {
+    pub fn unroll_prod(&self, obj: &Measured, i: &usize) -> (Unsolved<PosTyp>, Vec<Prop>) {
         let g_beta = &obj.f_alpha[*i];
         let (g_beta, props) = self.extract_evar(g_beta);
         let (g, beta) = g_beta.inner;
@@ -27,9 +27,9 @@ impl SubContext {
         Fun {
             tau: g_beta.tau,
             fun: Rc::new(move |args| {
-                let ((g, beta), mut props) = (g_beta.fun)(args);
-                props.push(Rc::new(Prop::Eq(term.clone(), beta)));
-                (g, props)
+                let (mut g, beta) = (g_beta.fun)(args);
+                g.prop.push(Prop::Eq(term.clone(), beta));
+                g
             }),
         }
     }

@@ -2,33 +2,37 @@ use std::rc::Rc;
 
 use crate::refinement::{typing::zip_eq, Context, SubContext};
 
-use super::{Fun, InnerTerm, Measured, NegTyp, PosTyp, Prop, Unsolved};
+use super::{Fun, InnerTerm, ListProp, Measured, NegTyp, PosTyp, Prop, Unsolved};
 
 impl SubContext {
     // can we make this position independent into position independent??
-    pub fn extract<T>(&self, n: &Fun<T>) -> (T, Self) {
+    pub fn extract<T: ListProp>(&self, n: &Fun<T>) -> (T, Self) {
         let mut this = self.clone();
         let mut args = vec![];
         for tau in &n.tau {
             args.push(InnerTerm::UVar(this.univ, *tau).share());
             this.univ += 1;
         }
-        let (inner, props) = (n.fun)(&args);
-        for phi in props {
+        let inner = (n.fun)(&args);
+        for phi in inner.props() {
             let next = this.assume;
-            this.assume = Rc::new(Context::Assume { phi, next });
+            this.assume = Rc::new(Context::Assume {
+                phi: phi.clone(),
+                next,
+            });
         }
         (inner, this)
     }
 
-    pub fn extract_evar<T>(&self, n: &Fun<T>) -> (Unsolved<T>, Vec<Rc<Prop>>) {
+    pub fn extract_evar<T: ListProp>(&self, n: &Fun<T>) -> (Unsolved<T>, Vec<Prop>) {
         let mut exis = self.exis;
         let mut args = vec![];
         for tau in &n.tau {
             args.push(InnerTerm::EVar(exis, *tau).share());
             exis += 1;
         }
-        let (inner, props) = (n.fun)(&args);
+        let inner = (n.fun)(&args);
+        let props = inner.props().to_owned();
         let n = Unsolved { args, inner };
         (n, props)
     }

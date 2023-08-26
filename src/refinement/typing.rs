@@ -23,13 +23,9 @@ impl Fun<PosTyp> {
     pub fn arrow(self, ret: Fun<PosTyp>) -> Fun<NegTyp> {
         Fun {
             tau: self.tau,
-            fun: Rc::new(move |args| {
-                let (arg, props) = (self.fun)(args);
-                let n = NegTyp {
-                    arg,
-                    ret: ret.clone(),
-                };
-                (n, props)
+            fun: Rc::new(move |args| NegTyp {
+                arg: (self.fun)(args),
+                ret: ret.clone(),
             }),
         }
     }
@@ -39,7 +35,7 @@ impl Fun<PosTyp> {
 // "position independent" only refers to sort indices
 impl SubContext {
     // This resolves value determined indices in `p`
-    pub fn check_value(&self, v: &Value<Var>, p: &Unsolved<PosTyp>, props: Vec<Rc<Prop>>) {
+    pub fn check_value(&self, v: &Value<Var>, p: &Unsolved<PosTyp>, props: Vec<Prop>) {
         for (inj, obj) in zip_eq(&v.inj, &p.inner.measured) {
             self.check_inj(inj, obj);
         }
@@ -105,11 +101,12 @@ impl SubContext {
                 let pos = move || PosTyp {
                     measured: vec![],
                     thunks: negs.clone(),
+                    prop: vec![],
                 };
                 let arg = Var(Rc::new((pos)()));
                 let p = Fun {
                     tau: vec![],
-                    fun: Rc::new(move |_| ((pos)(), vec![])),
+                    fun: Rc::new(move |_| (pos)()),
                 };
                 self.check_expr_pos(&e.inst(&arg), &p);
                 p
