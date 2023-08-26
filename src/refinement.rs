@@ -129,7 +129,7 @@ impl<T> Debug for Fun<T> {
 }
 
 pub struct Solved<T> {
-    args: Vec<Rc<Term>>,
+    terms: Vec<Rc<Term>>,
     inner: T,
 }
 

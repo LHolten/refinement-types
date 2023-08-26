@@ -70,8 +70,7 @@ impl SubContext {
             Thunk::Just(e) => self.check_expr(e, n),
             Thunk::Var(idx, proj) => {
                 let m = idx.infer_thunk(proj);
-                let (n, this) = self.extract(n);
-                this.sub_neg_type(m, &n);
+                self.sub_neg_type(m, n);
             }
         }
     }
@@ -97,7 +96,6 @@ impl SubContext {
                 self.spine(n, s)
             }
             BoundExpr::Anno(e, negs) => {
-                let negs = negs.clone();
                 let pos = PosTyp {
                     thunks: negs.clone(),
                     prop: vec![],
@@ -121,7 +119,7 @@ impl SubContext {
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let (neg, this) = self.extract(n);
         let var = Var {
-            args: zip_eq(neg.args, n.measured.clone()).collect(),
+            args: zip_eq(neg.terms, n.measured.clone()).collect(),
             inner: Rc::new(neg.inner.arg),
         };
         let e = l.inst(&var);
@@ -148,9 +146,8 @@ impl SubContext {
             }
             Expr::Tail(idx, proj, s) => {
                 let n = idx.infer_thunk(proj);
-                let q = self.spine(n, s);
-                let (q, this) = self.extract(&q);
-                this.sub_pos_typ(&q, p);
+                let res = self.spine(n, s);
+                self.sub_pos_typ(&res, p);
             }
         }
     }
