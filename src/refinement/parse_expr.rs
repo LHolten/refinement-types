@@ -26,9 +26,9 @@ macro_rules! parse_expr {
         let val = parse_value!($ty; $($val)*);
         $crate::refinement::Expr::Return(val)
     }};
-    ($ty:ty; tail $fun:ident ($($val:tt)*)) => {{
+    ($ty:ty; loop $fun:ident = ($($val:tt)*)) => {{
         let val = parse_value!($ty; $($val)*);
-        $crate::refinement::Expr::Tail($fun.clone(), val)
+        $crate::refinement::Expr::Loop($fun.clone(), val)
     }};
     ($ty:ty; match $fun:ident.$num:literal $({ $($branch:tt)* })* ) => {{
         let branches = vec![$(
@@ -51,11 +51,11 @@ macro_rules! add_value {
     ($ty:ty; $accum:expr; $idx:literal($($val:tt)*) $(,$($tail:tt)*)?) => {
         let val = parse_value!($ty; $($val)*);
         $accum.inj.push($crate::refinement::Inj::Just($idx, val));
-        add_value!($ty; $accum; $(,$($tail:tt)*)?)
+        add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr; $var:ident.$num:literal $(,$($tail:tt)*)?) => {
         $accum.inj.push($crate::refinement::Inj::Var($var.clone(), $num));
-        add_value!($ty; $accum; $(,$($tail:tt)*)?)
+        add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr; { $($branch:tt)* } $(,$($tail:tt)*)?) => {
         let lambda = parse_lambda!($ty; $($branch)*);

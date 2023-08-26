@@ -70,7 +70,7 @@ impl Expr<Eval> {
                     let (idx, val) = var.get_inj(proj);
                     self = e[*idx].inst_arg(val);
                 }
-                Expr::Tail(var, arg) => {
+                Expr::Loop(var, arg) => {
                     let arg = Res::from_val(arg);
                     self = var.rec.inst_arg(&arg);
                 }
@@ -95,6 +95,8 @@ impl BoundExpr<Eval> {
 mod tests {
     use std::rc::Rc;
 
+    use crate::refinement::{SubContext, Var};
+
     use super::*;
 
     #[test]
@@ -114,25 +116,36 @@ mod tests {
     fn diverge() {
         let expr = parse_expr! {Eval;
             let rec: () = ();
-            tail rec ()
+            loop rec = ()
         };
         Rc::new(expr).eval();
     }
 
+    #[test]
     fn testing() {
-        parse_expr! {Eval;
+        let e = parse_expr! {Var;
             let funcs: (
-                (_) -> (_),
+                (a) -> (b, (a) == (b)),
                 () -> ()
             ) = (
-                {x => return (x.0)},
+                {x =>
+                    let tmp: (_) = (x.0);
+                    return (tmp.0)},
                 {_x => return ()}
             );
             let _diverge: (() -> ()) = (
-                {rec => tail rec ()}
+                {rec => loop rec = ()}
             );
             let _unit = funcs.1 ();
-            return ()
+
+            let data: (_) = (0());
+
+            match data.0
+            // {x => loop unit = ()}
+            {_y => return () }
         };
+
+        let ctx = SubContext::default();
+        ctx.check_expr_pos(&e, &pos_typ!())
     }
 }

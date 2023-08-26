@@ -132,7 +132,7 @@ impl SubContext {
                     self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }
-            Expr::Tail(idx, s) => {
+            Expr::Loop(idx, s) => {
                 let n = &idx.rec;
                 let res = self.spine(n, s);
                 self.sub_pos_typ(&res, p);
