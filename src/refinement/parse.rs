@@ -12,7 +12,7 @@ macro_rules! add_tau {
         let fun = $crate::refinement::Fun {
             tau: vec![],
             measured: vec![],
-            fun: ::std::rc::Rc::new(move |_| (unqual!(), $crate::refinement::InnerTerm::Zero.share())),
+            fun: ::std::rc::Rc::new(move |_| (unqual!(), ::std::rc::Rc::new($crate::refinement::Term::Zero))),
         };
         $fun.measured.push($crate::refinement::Measured {
             f_alpha: vec![fun],

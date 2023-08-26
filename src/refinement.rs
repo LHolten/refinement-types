@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{cell::Cell, fmt::Debug, ops::Deref, rc::Rc};
+use std::{fmt::Debug, ops::Deref, rc::Rc};
 
 #[macro_use]
 mod parse;
@@ -23,75 +23,10 @@ enum Sort {
 
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Clone)]
-enum InnerTerm {
+enum Term {
     UVar(usize, Sort),
-    EVar(usize, Sort),
     Prop(Rc<Prop>),
     Zero,
-}
-
-#[repr(transparent)]
-struct Term {
-    value: Cell<Option<InnerTerm>>,
-}
-
-struct TermRef<'a> {
-    term: &'a Cell<Option<InnerTerm>>,
-    inner: Option<InnerTerm>,
-}
-
-impl Deref for TermRef<'_> {
-    type Target = InnerTerm;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner.as_ref().unwrap()
-    }
-}
-
-impl Drop for TermRef<'_> {
-    fn drop(&mut self) {
-        let old = self.term.replace(self.inner.take());
-        assert_eq!(old, None);
-    }
-}
-
-impl PartialEq for Term {
-    fn eq(&self, other: &Self) -> bool {
-        *self.borrow() == *other.borrow()
-    }
-}
-
-impl Eq for Term {}
-
-impl Debug for Term {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.borrow().fmt(f)
-    }
-}
-
-impl InnerTerm {
-    fn share(self) -> Rc<Term> {
-        Rc::new(Term {
-            value: Cell::new(Some(self)),
-        })
-    }
-}
-
-impl Term {
-    fn borrow(&self) -> TermRef {
-        TermRef {
-            term: &self.value,
-            inner: self.value.take(),
-        }
-    }
-
-    fn instantiate(&self, rhs: &Self) {
-        let val = rhs.borrow().inner.clone();
-        assert!(val.is_some());
-        let old = self.value.replace(val);
-        // TODO: if this is not empty, we could make a Prop
-        assert!(matches!(old, Some(InnerTerm::EVar(_, _))));
-    }
 }
 
 #[derive(Default)]
@@ -118,7 +53,6 @@ impl Debug for Context {
 
 #[derive(Clone, Default)]
 struct SubContext {
-    exis: usize,
     univ: usize,
     assume: Rc<Context>,
 }
@@ -160,12 +94,6 @@ impl ListProp for PosTyp {
 impl ListProp for NegTyp {
     fn props(&self) -> &[Prop] {
         self.arg.props()
-    }
-}
-
-impl ListProp for (PosTyp, Rc<Term>) {
-    fn props(&self) -> &[Prop] {
-        self.0.props()
     }
 }
 
@@ -223,10 +151,6 @@ impl Var {
     pub fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Measured) {
         &self.args[*proj]
     }
-
-    // pub fn infer_inj(&self, proj: &usize) -> &Measured {
-    //     &self.measured[*proj]
-    // }
 
     pub fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
         &self.inner.thunks[*proj]

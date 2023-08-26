@@ -2,14 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{Fun, Inj, InnerTerm, Lambda, NegTyp, Sort, Value, Var};
-
-fn var(idx: &Var, proj: usize) -> Rc<Value<Var>> {
-    Rc::new(Value {
-        thunk: vec![],
-        inj: vec![Inj::Var(idx.clone(), proj)],
-    })
-}
+use super::{Fun, Lambda, NegTyp, Sort, Term, Value, Var};
 
 fn id_unit() -> Lambda<Var> {
     parse_lambda!(Var; _val => return ())
@@ -50,7 +43,7 @@ fn checkk_id_app() {
     let res = ctx.spine(&forall_id_typ(), &inductive_val());
     eprintln!(
         "(res.fun)(UVar(100, Nat)) = {:?}",
-        (res.fun)(&[InnerTerm::UVar(100, Sort::Nat).share()])
+        (res.fun)(&[Rc::new(Term::UVar(100, Sort::Nat))])
     );
     // assert_eq!((res.fun)(&[]).0, inductive_typ(&InnerTerm::Zero.share()));
     // eprintln!();

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::{typing::zip_eq, Context, SubContext};
 
-use super::{Fun, InnerTerm, ListProp, NegTyp, PosTyp, Solved};
+use super::{Fun, ListProp, NegTyp, PosTyp, Solved, Term};
 
 impl SubContext {
     // can we make this position independent into position independent??
@@ -10,7 +10,7 @@ impl SubContext {
         let mut this = self.clone();
         let mut args = vec![];
         for tau in &n.tau {
-            args.push(InnerTerm::UVar(this.univ, *tau).share());
+            args.push(Rc::new(Term::UVar(this.univ, *tau)));
             this.univ += 1;
         }
         let solved = Solved {
