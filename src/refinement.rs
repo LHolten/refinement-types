@@ -129,17 +129,16 @@ enum Prop {
 }
 
 // PosType is product like, it can contain any number of items
-#[derive(PartialEq, Eq, Debug, Default)]
+#[derive(PartialEq, Eq, Debug, Default, Clone)]
 struct PosTyp {
-    measured: Vec<Measured>,
     thunks: Vec<Fun<NegTyp>>,
     prop: Vec<Prop>,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 struct Measured {
+    // how to calculate the result term from each branch terms
     f_alpha: Vec<Fun<(PosTyp, Rc<Term>)>>,
-    term: Rc<Term>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -172,6 +171,7 @@ impl ListProp for (PosTyp, Rc<Term>) {
 
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
+    measured: Vec<Measured>,
     tau: Vec<Sort>,
     fun: Rc<dyn Fn(&[Rc<Term>]) -> T>,
 }
@@ -181,22 +181,8 @@ impl<T> Clone for Fun<T> {
         Self {
             tau: self.tau.clone(),
             fun: self.fun.clone(),
+            measured: self.measured.clone(),
         }
-    }
-}
-
-struct Unsolved<T> {
-    args: Vec<Rc<Term>>,
-    inner: T,
-}
-
-impl<T> Unsolved<T> {
-    fn assert_resolved(&self) {
-        let res = self
-            .args
-            .iter()
-            .all(|arg| !matches!(*arg.borrow(), InnerTerm::EVar(_, _)));
-        assert!(res)
     }
 }
 
@@ -214,22 +200,42 @@ impl<T> Debug for Fun<T> {
     }
 }
 
+pub struct Solved<T> {
+    args: Vec<Rc<Term>>,
+    inner: T,
+}
+
+impl<T> Deref for Solved<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[derive(Clone)]
-struct Var(Rc<PosTyp>);
+struct Var {
+    args: Vec<(Rc<Term>, Measured)>,
+    inner: Rc<PosTyp>,
+}
 
 impl Var {
-    pub fn infer_inj(&self, proj: &usize) -> &Measured {
-        &self.0.measured[*proj]
+    pub fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Measured) {
+        &self.args[*proj]
     }
 
+    // pub fn infer_inj(&self, proj: &usize) -> &Measured {
+    //     &self.measured[*proj]
+    // }
+
     pub fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
-        &self.0.thunks[*proj]
+        &self.inner.thunks[*proj]
     }
 }
 
 impl<V> Lambda<V> {
-    pub fn inst(&self, arg: &V) -> Expr<V> {
-        (self.0)(arg)
+    pub fn inst(&self, var: &V) -> Expr<V> {
+        (self.0)(var)
     }
 
     pub fn new<F: Fn(&V) -> Expr<V> + 'static>(fun: F) -> Self {

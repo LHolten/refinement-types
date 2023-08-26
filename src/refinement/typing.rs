@@ -2,9 +2,7 @@ use std::{iter::zip, rc::Rc};
 
 use crate::refinement::{Inj, Thunk};
 
-use super::{
-    BoundExpr, Expr, Fun, Lambda, Measured, NegTyp, PosTyp, Prop, SubContext, Unsolved, Value, Var,
-};
+use super::{BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, SubContext, Term, Value, Var};
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -27,7 +25,29 @@ impl Fun<PosTyp> {
                 arg: (self.fun)(args),
                 ret: ret.clone(),
             }),
+            measured: self.measured,
         }
+    }
+}
+
+impl Value<Var> {
+    fn calc_args<T>(&self, typ: &Fun<T>) -> Vec<Rc<Term>> {
+        let mut res = vec![];
+        for (inj, obj) in zip_eq(&self.inj, &typ.measured) {
+            match inj {
+                Inj::Just(idx, val) => {
+                    let f_alpha = &obj.f_alpha[*idx];
+                    let args = val.calc_args(f_alpha);
+                    let (_pos, arg) = (f_alpha.fun)(&args);
+                    res.push(arg);
+                }
+                Inj::Var(idx, proj) => {
+                    let (arg, _obj) = idx.infer_inj(proj);
+                    res.push(arg.clone())
+                }
+            }
+        }
+        res
     }
 }
 
@@ -35,28 +55,13 @@ impl Fun<PosTyp> {
 // "position independent" only refers to sort indices
 impl SubContext {
     // This resolves value determined indices in `p`
-    pub fn check_value(&self, v: &Value<Var>, p: &Unsolved<PosTyp>, props: Vec<Prop>) {
-        for (inj, obj) in zip_eq(&v.inj, &p.inner.measured) {
-            self.check_inj(inj, obj);
-        }
-        p.assert_resolved();
-        self.verify_props(props);
+    pub fn check_value(&self, v: &Value<Var>, p: &Fun<PosTyp>) {
+        let p_args = v.calc_args(p);
+        let pos = (p.fun)(&p_args);
+        self.verify_props(pos.prop);
 
-        for (thunk, n) in zip_eq(&v.thunk, &p.inner.thunks) {
+        for (thunk, n) in zip_eq(&v.thunk, &pos.thunks) {
             self.check_thunk(thunk, n);
-        }
-    }
-
-    pub fn check_inj(&self, inj: &Inj<Var>, obj: &Measured) {
-        match inj {
-            Inj::Just(i, v) => {
-                let (p, props) = self.unroll_prod(obj, i);
-                self.check_value(v, &p, props);
-            }
-            Inj::Var(idx, proj) => {
-                let var = idx.infer_inj(proj);
-                self.eq_functor(var, obj);
-            }
         }
     }
 
@@ -74,19 +79,14 @@ impl SubContext {
     // This resolves value determined indices in `n`
     // if `n` is position independent, then the output is also position independent
     pub fn spine(&self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
-        let (n, props) = self.extract_evar(n);
+        let n_args = s.calc_args(n);
+        let neg = (n.fun)(&n_args);
+        self.verify_props(neg.arg.prop);
 
-        for (inj, obj) in zip_eq(&s.inj, &n.inner.arg.measured) {
-            self.check_inj(inj, obj);
-        }
-        n.assert_resolved();
-        self.verify_props(props);
-
-        for (thunk, n) in zip_eq(&s.thunk, &n.inner.arg.thunks) {
+        for (thunk, n) in zip_eq(&s.thunk, &neg.arg.thunks) {
             self.check_thunk(thunk, n);
         }
-
-        n.inner.ret
+        neg.ret
     }
 
     // the result is position independent
@@ -98,15 +98,18 @@ impl SubContext {
             }
             BoundExpr::Anno(e, negs) => {
                 let negs = negs.clone();
-                let pos = move || PosTyp {
-                    measured: vec![],
+                let pos = PosTyp {
                     thunks: negs.clone(),
                     prop: vec![],
                 };
-                let arg = Var(Rc::new((pos)()));
+                let arg = Var {
+                    args: vec![],
+                    inner: Rc::new(pos.clone()),
+                };
                 let p = Fun {
                     tau: vec![],
-                    fun: Rc::new(move |_| (pos)()),
+                    measured: vec![],
+                    fun: Rc::new(move |_| pos.clone()),
                 };
                 self.check_expr_pos(&e.inst(&arg), &p);
                 p
@@ -116,27 +119,30 @@ impl SubContext {
 
     // can we make sure that `n` is always position independent????
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
-        let (n, this) = self.extract(n);
-        let e = l.inst(&Var(Rc::new(n.arg)));
-        this.check_expr_pos(&e, &n.ret);
+        let (neg, this) = self.extract(n);
+        let var = Var {
+            args: zip_eq(neg.args, n.measured.clone()).collect(),
+            inner: Rc::new(neg.inner.arg),
+        };
+        let e = l.inst(&var);
+        this.check_expr_pos(&e, &neg.inner.ret);
     }
 
     pub fn check_expr_pos(&self, e: &Expr<Var>, p: &Fun<PosTyp>) {
         match e {
             Expr::Return(v) => {
-                let (p, props) = self.extract_evar(p);
-                self.check_value(v, &p, props);
+                self.check_value(v, p);
             }
             Expr::Let(g, l) => {
                 let bound_p = self.infer_bound_expr(g);
                 self.check_expr(l, &bound_p.arrow(p.clone()))
             }
             Expr::Match(idx, proj, pats) => {
-                let obj = idx.infer_inj(proj);
+                let (term, obj) = idx.infer_inj(proj);
 
                 assert_eq!(pats.len(), obj.f_alpha.len());
                 for (i, l) in pats.iter().enumerate() {
-                    let match_p = self.unroll_prod_univ(obj, &i);
+                    let match_p = self.unroll_prod_univ(term, obj, &i);
                     self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }

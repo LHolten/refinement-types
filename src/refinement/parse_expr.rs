@@ -49,7 +49,7 @@ macro_rules! parse_value {
 
 macro_rules! add_value {
     ($ty:ty; $accum:expr; $idx:literal($($val:tt)*) $(,$($tail:tt)*)?) => {
-        let mut val = parse_value!($ty; $($val)*);
+        let val = parse_value!($ty; $($val)*);
         $accum.inj.push($crate::refinement::Inj::Just($idx, val));
         add_value!($ty; $accum; $(,$($tail:tt)*)?)
     };

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{Fun, Inj, InnerTerm, Lambda, NegTyp, PosTyp, Prop, Sort, Term, Value, Var};
+use super::{Fun, Inj, InnerTerm, Lambda, NegTyp, Sort, Value, Var};
 
 fn var(idx: &Var, proj: usize) -> Rc<Value<Var>> {
     Rc::new(Value {
@@ -19,59 +19,12 @@ fn id_fun() -> Lambda<Var> {
     parse_lambda!(Var; val => return (val.0))
 }
 
-pub(super) fn unqualified<T>(val: impl Fn() -> T + 'static) -> Fun<T> {
-    Fun {
-        tau: vec![],
-        fun: Rc::new(move |_| (val)()),
-    }
-}
-
-fn forall(fun: impl Fn(Rc<Term>) -> NegTyp + 'static) -> Fun<NegTyp> {
-    Fun {
-        tau: vec![Sort::Nat],
-        fun: Rc::new(move |args| (fun)(args[0].clone())),
-    }
-}
-
-fn exists(fun: impl Fn(Rc<Term>) -> PosTyp + 'static) -> Fun<PosTyp> {
-    Fun {
-        tau: vec![Sort::Nat],
-        fun: Rc::new(move |args| (fun)(args[0].clone())),
-    }
-}
-
-fn inductive_val() -> Value<Var> {
-    Value {
-        thunk: vec![],
-        inj: vec![Inj::Just(0, Rc::new(Value::default()))],
-    }
+fn inductive_val() -> Rc<Value<Var>> {
+    parse_value!(Var; 0())
 }
 
 fn forall_id_typ() -> Fun<NegTyp> {
-    forall(|idx| NegTyp {
-        arg: unqual!(&idx),
-        ret: Fun {
-            tau: vec![Sort::Nat],
-            fun: Rc::new(move |idx2| {
-                let mut p = unqual!(&idx2[0]);
-                p.prop.push(Prop::Eq(idx.clone(), idx2[0].clone()));
-                p
-            }),
-        },
-    })
-}
-
-fn impossible_id_typ() -> Fun<NegTyp> {
-    Fun {
-        tau: vec![Sort::Nat, Sort::Nat],
-        fun: Rc::new(|args| {
-            let args_1 = args[1].clone();
-            NegTyp {
-                arg: unqual!(&args[0]),
-                ret: unqualified(move || unqual!(&args_1)),
-            }
-        }),
-    }
+    neg_typ!((a) -> (b, (a) == (b)))
 }
 
 #[test]
@@ -81,7 +34,7 @@ fn check_id_typ() {
     ctx.check_expr(&id_unit(), &neg_typ!(() -> ()));
     eprintln!();
     eprintln!("== test2");
-    ctx.check_expr(&id_fun(), &neg_typ!((a) -> (b)));
+    ctx.check_expr(&id_fun(), &neg_typ!((_) -> (_)));
     eprintln!();
     eprintln!("== test3");
     ctx.check_expr(&id_fun(), &neg_typ!((a) -> (b, (a) == (b))));
