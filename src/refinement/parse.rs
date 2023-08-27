@@ -22,13 +22,22 @@ macro_rules! add_tau {
     ($fun:expr;) => {}
 }
 
+macro_rules! parse_term {
+    ($var:ident.$num:literal) => {
+        $var.get_term($num)
+    };
+    ($t:expr) => {
+        $t.clone()
+    };
+}
+
 macro_rules! add_part {
     ($pos:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
         $pos.thunks.push(neg_typ!(($($arg)*) -> ($($ret)*)));
         add_part!($pos; $($($tail)*)?)
     };
-    ($pos:expr; ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
-        let prop = $crate::refinement::Prop::Eq($l.clone(), $r.clone());
+    ($pos:expr; ($($l:tt)*) == ($($r:tt)*) $(,$($tail:tt)*)?) => {
+        let prop = $crate::refinement::Prop::Eq(parse_term!($($l)*), parse_term!($($r)*));
         $pos.prop.push(prop);
         add_part!($pos; $($($tail)*)?)
     };

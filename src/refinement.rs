@@ -25,7 +25,7 @@ enum Sort {
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Term {
     UVar(usize, Sort),
-    Prop(Rc<Prop>),
+    Inj(usize, Vec<Term>),
     Zero,
 }
 
@@ -146,6 +146,12 @@ struct Var {
     args: Vec<(Rc<Term>, Measured)>,
     inner: Rc<PosTyp>,
     rec: Fun<NegTyp>,
+}
+
+impl Var {
+    fn get_term(&self, proj: usize) -> Rc<Term> {
+        self.infer_inj(&proj).0.clone()
+    }
 }
 
 impl Var {

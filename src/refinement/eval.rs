@@ -1,11 +1,17 @@
 use std::rc::Rc;
 
-use super::{BoundExpr, Expr, Inj, Lambda, Thunk, Value};
+use super::{BoundExpr, Expr, Inj, Lambda, Term, Thunk, Value};
 
 #[derive(Clone)]
 struct Eval {
     res: Res,
     rec: Lambda<Eval>,
+}
+
+impl Eval {
+    fn get_term(&self, proj: usize) -> Rc<Term> {
+        Rc::new(self.res.get_term(proj))
+    }
 }
 
 #[derive(Clone, Default)]
@@ -20,6 +26,11 @@ impl Res {
             res: self.clone(),
             rec: rec.clone(),
         }
+    }
+
+    fn get_term(&self, proj: usize) -> Term {
+        let (idx, ref val) = self.inj[proj];
+        Term::Inj(idx, (0..val.inj.len()).map(|i| val.get_term(i)).collect())
     }
 }
 
@@ -129,7 +140,7 @@ mod tests {
                 () -> ()
             ) = (
                 {x =>
-                    let tmp: (_) = (x.0);
+                    let tmp: (y, (y) == (x.0)) = (x.0);
                     return (tmp.0)},
                 {_x => return ()}
             );
