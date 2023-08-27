@@ -9,7 +9,7 @@ impl SubContext {
         let mut this = self.clone();
         let mut terms = vec![];
         for tau in &n.tau {
-            terms.push(Rc::new(Term::UVar(this.univ, *tau)));
+            terms.push(Rc::new(Term::UVar(this.univ, tau.clone())));
             this.univ += 1;
         }
         let solved = Solved {

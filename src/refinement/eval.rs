@@ -10,7 +10,7 @@ struct Eval {
 
 impl Eval {
     fn get_term(&self, proj: usize) -> Rc<Term> {
-        Rc::new(self.res.get_term(proj))
+        self.res.get_term(proj)
     }
 }
 
@@ -28,9 +28,10 @@ impl Res {
         }
     }
 
-    fn get_term(&self, proj: usize) -> Term {
+    fn get_term(&self, proj: usize) -> Rc<Term> {
         let (idx, ref val) = self.inj[proj];
-        Term::Inj(idx, (0..val.inj.len()).map(|i| val.get_term(i)).collect())
+        let res = Term::Inj(idx, (0..val.inj.len()).map(|i| val.get_term(i)).collect());
+        Rc::new(res)
     }
 }
 

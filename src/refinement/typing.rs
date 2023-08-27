@@ -2,7 +2,7 @@ use std::{iter::zip, rc::Rc};
 
 use crate::refinement::{Inj, Thunk};
 
-use super::{BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, SubContext, Term, Value, Var};
+use super::{BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, Var};
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -25,7 +25,6 @@ impl Fun<PosTyp> {
                 arg: (self.fun)(args),
                 ret: ret.clone(),
             }),
-            measured: self.measured,
         }
     }
 }
@@ -33,12 +32,12 @@ impl Fun<PosTyp> {
 impl Value<Var> {
     fn calc_args<T>(&self, typ: &Fun<T>) -> Vec<Rc<Term>> {
         let mut res = vec![];
-        for (inj, obj) in zip_eq(&self.inj, &typ.measured) {
+        for (inj, tau) in zip_eq(&self.inj, &typ.tau) {
             match inj {
                 Inj::Just(idx, val) => {
-                    let f_alpha = &obj.f_alpha[*idx];
-                    let args = val.calc_args(f_alpha);
-                    let (_pos, arg) = (f_alpha.fun)(&args);
+                    let Sort::Sum(variants) = tau else { panic!() };
+                    let args = val.calc_args(&variants[*idx]);
+                    let arg = Rc::new(Term::Inj(*idx, args));
                     res.push(arg);
                 }
                 Inj::Var(idx, proj) => {
@@ -106,7 +105,7 @@ impl SubContext {
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let (neg, this) = self.extract(n);
         let var = Var {
-            args: zip_eq(neg.terms, n.measured.clone()).collect(),
+            args: zip_eq(neg.terms, n.tau.clone()).collect(),
             inner: Rc::new(neg.inner.arg),
             rec: n.clone(),
         };
@@ -124,11 +123,12 @@ impl SubContext {
                 self.check_expr(l, &bound_p.arrow(p.clone()))
             }
             Expr::Match(idx, proj, pats) => {
-                let (term, obj) = idx.infer_inj(proj);
+                let (term, tau) = idx.infer_inj(proj);
+                let Sort::Sum(variants) = tau else { panic!() };
 
-                assert_eq!(pats.len(), obj.f_alpha.len());
+                assert_eq!(pats.len(), variants.len());
                 for (i, l) in pats.iter().enumerate() {
-                    let match_p = self.unroll_prod_univ(term, obj, &i);
+                    let match_p = self.unroll_prod_univ(term, variants, i);
                     self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }

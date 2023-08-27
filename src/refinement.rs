@@ -15,17 +15,18 @@ mod typing;
 mod unroll;
 mod verify;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Sort {
     Bool,
     Nat,
+    Sum(Vec<Fun<PosTyp>>),
 }
 
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Term {
     UVar(usize, Sort),
-    Inj(usize, Vec<Term>),
+    Inj(usize, Vec<Rc<Term>>),
     Zero,
 }
 
@@ -60,6 +61,7 @@ struct SubContext {
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
+    MeasureEq(Measure, [Rc<Term>; 2]),
 }
 
 // PosType is product like, it can contain any number of items
@@ -70,9 +72,8 @@ struct PosTyp {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
-struct Measured {
-    // how to calculate the result term from each branch terms
-    f_alpha: Vec<Fun<(PosTyp, Rc<Term>)>>,
+struct Measure {
+    // alpha: Rc<dyn Fn(&Rc<Term>) -> ()>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -99,7 +100,6 @@ impl ListProp for NegTyp {
 
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
-    measured: Vec<Measured>,
     tau: Vec<Sort>,
     fun: Rc<dyn Fn(&[Rc<Term>]) -> T>,
 }
@@ -109,7 +109,6 @@ impl<T> Clone for Fun<T> {
         Self {
             tau: self.tau.clone(),
             fun: self.fun.clone(),
-            measured: self.measured.clone(),
         }
     }
 }
@@ -143,7 +142,7 @@ impl<T> Deref for Solved<T> {
 
 #[derive(Clone)]
 struct Var {
-    args: Vec<(Rc<Term>, Measured)>,
+    args: Vec<(Rc<Term>, Sort)>,
     inner: Rc<PosTyp>,
     rec: Fun<NegTyp>,
 }
@@ -155,7 +154,7 @@ impl Var {
 }
 
 impl Var {
-    pub fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Measured) {
+    pub fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Sort) {
         &self.args[*proj]
     }
 

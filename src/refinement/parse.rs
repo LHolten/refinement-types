@@ -8,15 +8,8 @@ macro_rules! add_tau {
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; $var:pat $(,$($tail:tt)*)?) => {
-        $fun.tau.push($crate::refinement::Sort::Nat);
-        let fun = $crate::refinement::Fun {
-            tau: vec![],
-            measured: vec![],
-            fun: ::std::rc::Rc::new(move |_| (unqual!(), ::std::rc::Rc::new($crate::refinement::Term::Zero))),
-        };
-        $fun.measured.push($crate::refinement::Measured {
-            f_alpha: vec![fun],
-        });
+        let variant = pos_typ!();
+        $fun.tau.push($crate::refinement::Sort::Sum(vec![variant]));
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr;) => {}
@@ -67,7 +60,6 @@ macro_rules! neg_typ {
         #[allow(unused_mut)]
         let mut fun = $crate::refinement::Fun {
             tau: vec![],
-            measured: vec![],
             fun: ::std::rc::Rc::new(|args| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(=> $($arg)*) = Vec::leak(args.to_owned()) else { panic!() };
@@ -86,7 +78,6 @@ macro_rules! pos_typ {
         #[allow(unused_mut)]
         let mut fun = $crate::refinement::Fun {
             tau: vec![],
-            measured: vec![],
             fun: ::std::rc::Rc::new(|args| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(=> $($part)*) = Vec::leak(args.to_owned()) else { panic!() };
