@@ -1,7 +1,7 @@
 #![allow(unused_macros)]
 
 macro_rules! parse_lambda {
-    ($ty:ty; $var:ident => $($expr:tt)*) => {
+    ($ty:ty; $var:pat => $($expr:tt)*) => {
         $crate::refinement::Lambda::new(|tmp: &$ty| {
             let $var = Box::leak(Box::new(tmp.clone()));
             parse_expr!($ty; $($expr)*)})

@@ -134,10 +134,9 @@ mod tests {
     }
 
     #[test]
-    #[allow(non_snake_case)]
     fn testing() {
+        #[allow(non_snake_case)]
         let MyBool = inductive!(_ = () | ()).leak();
-        let List = inductive!(List = () | (Nat, List)).leak();
 
         let e = parse_expr! {Var;
             let funcs: (
@@ -160,5 +159,29 @@ mod tests {
 
         let ctx = SubContext::default();
         ctx.check_expr_pos(&e, &pos_typ!())
+    }
+
+    #[test]
+    fn zip_lists() {
+        #[allow(non_snake_case)]
+        let List = inductive!(List = () | (Nat, List)).leak();
+        #[allow(non_snake_case)]
+        let ZippedList = inductive!(ZippedList = () | (Nat, Nat, ZippedList)).leak();
+
+        let func = parse_lambda!(Var;
+            inputs =>
+                let rec: ((List, List) -> (ZippedList)) = ({args => loop inputs = (args.0, args.1)});
+                match inputs.0
+                    {_ => return (0())}
+                    {cons_l => match inputs.1
+                        {_ => return (0())}
+                        {cons_r =>
+                            let tail = rec.0 (cons_l.1, cons_r.1);
+                            return (1(cons_l.0, cons_r.0, tail.0))
+                        }
+                    }
+        );
+        let ctx = SubContext::default();
+        ctx.check_expr(&func, &neg_typ!((List, List) -> (ZippedList)))
     }
 }
