@@ -2,7 +2,9 @@ use std::{iter::zip, rc::Rc};
 
 use crate::refinement::{Inj, Thunk};
 
-use super::{BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, Var};
+use super::{
+    BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, RecSort, Sort, SubContext, Term, Value, Var,
+};
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -35,7 +37,9 @@ impl Value<Var> {
         for (inj, tau) in zip_eq(&self.inj, &typ.tau) {
             match inj {
                 Inj::Just(idx, val) => {
-                    let Sort::Sum(variants) = tau else { panic!() };
+                    let Sort::Sum(variants) = tau.unroll() else {
+                        panic!()
+                    };
                     let args = val.calc_args(&variants[*idx]);
                     let arg = Rc::new(Term::Inj(*idx, args));
                     res.push(arg);
@@ -105,7 +109,7 @@ impl SubContext {
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let (neg, this) = self.extract(n);
         let var = Var {
-            args: zip_eq(neg.terms, n.tau.clone()).collect(),
+            args: zip_eq(neg.terms, n.tau.iter().map(RecSort::unroll)).collect(),
             inner: Rc::new(neg.inner.arg),
             rec: n.clone(),
         };

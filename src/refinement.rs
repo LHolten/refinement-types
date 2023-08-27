@@ -22,6 +22,22 @@ enum Sort {
     Sum(Vec<Fun<PosTyp>>),
 }
 
+#[derive(Clone)]
+struct RecSort {
+    fun: Rc<dyn Fn(&RecSort) -> Sort>,
+}
+
+impl RecSort {
+    fn unroll(&self) -> Sort {
+        (self.fun)(self)
+    }
+
+    #[cfg(test)]
+    fn leak(self) -> &'static Self {
+        Box::leak(Box::new(self))
+    }
+}
+
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Term {
@@ -100,7 +116,7 @@ impl ListProp for NegTyp {
 
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
-    tau: Vec<Sort>,
+    tau: Vec<RecSort>,
     fun: Rc<dyn Fn(&[Rc<Term>]) -> T>,
 }
 

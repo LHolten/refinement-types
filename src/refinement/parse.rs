@@ -8,12 +8,12 @@ macro_rules! add_tau {
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; $var:ident:$ty:tt $(,$($tail:tt)*)?) => {
-        let tau = parse_ind!($ty);
+        let tau = inductive!(_ = $ty);
         $fun.tau.push(tau);
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; $ty:tt $(,$($tail:tt)*)?) => {
-        let tau = parse_ind!($ty);
+        let tau = inductive!(_ = $ty);
         $fun.tau.push(tau);
         add_tau!($fun; $($($tail)*)?)
     };
@@ -111,7 +111,18 @@ macro_rules! unqual {
     }};
 }
 
-macro_rules! parse_ind {
+macro_rules! inductive {
+    ($var:pat = $($ty:tt)*) => {
+        $crate::refinement::RecSort{
+            fun: ::std::rc::Rc::new(|tmp| {
+                let $var = tmp.clone().leak();
+                sum_typ!($($ty)*)
+            })
+        }
+    };
+}
+
+macro_rules! sum_typ {
     (Nat) => {
         $crate::refinement::Sort::Nat
     };
@@ -122,6 +133,6 @@ macro_rules! parse_ind {
         $crate::refinement::Sort::Sum(parts)
     }};
     ($custom:expr) => {
-        $custom.clone()
+        $custom.unroll()
     }
 }

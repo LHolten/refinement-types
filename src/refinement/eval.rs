@@ -134,9 +134,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn testing() {
-        #[allow(non_snake_case)]
-        let MyBool = Box::leak(Box::new(parse_ind!(() | ())));
+        let MyBool = inductive!(_ = () | ()).leak();
+        let List = inductive!(List = () | (Nat, List)).leak();
 
         let e = parse_expr! {Var;
             let funcs: (
