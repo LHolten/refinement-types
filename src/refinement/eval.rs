@@ -184,4 +184,19 @@ mod tests {
         let ctx = SubContext::default();
         ctx.check_expr(&func, &neg_typ!((List, List) -> (ZippedList)))
     }
+
+    #[test]
+    fn last_item() {
+        #[allow(non_snake_case)]
+        let Boxes = inductive!(Boxes = (Nat) | (Boxes)).leak();
+
+        let func = parse_lambda!(Var;
+            list => match list.0
+                {last => return (last.0)}
+                {boxed => loop list = (boxed.0)}
+        );
+
+        let ctx = SubContext::default();
+        ctx.check_expr(&func, &neg_typ!((Boxes) -> (Nat)))
+    }
 }
