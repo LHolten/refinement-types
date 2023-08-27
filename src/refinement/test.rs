@@ -17,7 +17,7 @@ fn inductive_val() -> Rc<Value<Var>> {
 }
 
 fn forall_id_typ() -> Fun<NegTyp> {
-    neg_typ!((a) -> (b, (a) == (b)))
+    neg_typ!((a:Nat) -> (b:Nat, (a) == (b)))
 }
 
 #[test]
@@ -27,10 +27,10 @@ fn check_id_typ() {
     ctx.check_expr(&id_unit(), &neg_typ!(() -> ()));
     eprintln!();
     eprintln!("== test2");
-    ctx.check_expr(&id_fun(), &neg_typ!((_) -> (_)));
+    ctx.check_expr(&id_fun(), &neg_typ!((Nat) -> (Nat)));
     eprintln!();
     eprintln!("== test3");
-    ctx.check_expr(&id_fun(), &neg_typ!((a) -> (b, (a) == (b))));
+    ctx.check_expr(&id_fun(), &neg_typ!((a:Nat) -> (b:Nat, (a) == (b))));
     eprintln!();
     // eprintln!("== test4");
     // ctx.check_expr(&id_fun(), &impossible_id_typ())

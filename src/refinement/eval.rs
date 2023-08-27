@@ -135,25 +135,25 @@ mod tests {
 
     #[test]
     fn testing() {
+        #[allow(non_snake_case)]
+        let MyBool = Box::leak(Box::new(parse_ind!(() | ())));
+
         let e = parse_expr! {Var;
             let funcs: (
-                (a) -> (b, (a) == (b)),
+                (Nat) -> (Nat),
                 () -> ()
             ) = (
                 {x =>
-                    let tmp: (y, (y) == (x.0)) = (x.0);
+                    let tmp: (a:Nat, (a) == (x.0)) = (x.0);
                     return (tmp.0)},
                 {_x => return ()}
             );
-            let _diverge: (() -> ()) = (
-                {rec => loop rec = ()}
-            );
-            let _unit = funcs.1 ();
 
-            let data: (_) = (0());
+            let _res = funcs.1 ();
+            let data: (MyBool) = (1());
 
             match data.0
-            // {x => loop unit = ()}
+            {unit => loop unit = ()}
             {_y => return () }
         };
 

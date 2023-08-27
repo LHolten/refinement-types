@@ -7,9 +7,14 @@ macro_rules! add_tau {
     ($fun:expr; ($($l:tt)*) == ($($r:tt)*) $(,$($tail:tt)*)?) => {
         add_tau!($fun; $($($tail)*)?)
     };
-    ($fun:expr; $var:pat $(,$($tail:tt)*)?) => {
-        let variant = pos_typ!();
-        $fun.tau.push($crate::refinement::Sort::Sum(vec![variant]));
+    ($fun:expr; $var:ident:$ty:tt $(,$($tail:tt)*)?) => {
+        let tau = parse_ind!($ty);
+        $fun.tau.push(tau);
+        add_tau!($fun; $($($tail)*)?)
+    };
+    ($fun:expr; $ty:tt $(,$($tail:tt)*)?) => {
+        let tau = parse_ind!($ty);
+        $fun.tau.push(tau);
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr;) => {}
@@ -34,7 +39,10 @@ macro_rules! add_part {
         $pos.prop.push(prop);
         add_part!($pos; $($($tail)*)?)
     };
-    ($pos:expr; $var:pat $(,$($tail:tt)*)?) => {
+    ($pos:expr; $var:ident:$ty:tt $(,$($tail:tt)*)?) => {
+        add_part!($pos; $($($tail)*)?)
+    };
+    ($pos:expr; $ty:tt $(,$($tail:tt)*)?) => {
         add_part!($pos; $($($tail)*)?)
     };
     ($pos:expr;) => {}
@@ -47,8 +55,11 @@ macro_rules! list_var {
     ($($prev:pat)* => ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
         list_var!($($prev)* => $($($tail)*)?)
     };
-    ($($prev:pat)* => $var:pat $(,$($tail:tt)*)?) => {
+    ($($prev:pat)* => $var:ident:$ty:tt $(,$($tail:tt)*)?) => {
         list_var!($($prev)* $var => $($($tail)*)?)
+    };
+    ($($prev:pat)* => $ty:tt $(,$($tail:tt)*)?) => {
+        list_var!($($prev)* _ => $($($tail)*)?)
     };
     ($($prev:pat)* =>) => {
         [$($prev),*]
@@ -98,4 +109,19 @@ macro_rules! unqual {
         add_part!(pos; $($part)*);
         pos
     }};
+}
+
+macro_rules! parse_ind {
+    (Nat) => {
+        $crate::refinement::Sort::Nat
+    };
+    ($(( $($part:tt)* ))|*) => {{
+        let parts = vec![$(
+            pos_typ!($($part)*)
+        ),*];
+        $crate::refinement::Sort::Sum(parts)
+    }};
+    ($custom:expr) => {
+        $custom.clone()
+    }
 }
