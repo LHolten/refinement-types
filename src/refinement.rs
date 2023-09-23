@@ -13,37 +13,76 @@ mod subtyp;
 mod test;
 mod typing;
 mod unroll;
+mod util;
 mod verify;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub use typing::Var;
+
+use self::util::Opaque;
+
+// pub fn zero() -> Rc<Term> {
+//     thread_local!(static ZERO: Rc<Term> = Rc::new(Term::Nat(0)));
+//     ZERO.with(Rc::clone)
+// }
+
+// pub fn prop_true() -> Rc<Prop> {
+//     thread_local!(static TRUE: Rc<Prop> = Rc::new(Prop::True));
+//     TRUE.with(Rc::clone)
+// }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Sort {
     Bool,
     Nat,
-    Sum(Vec<Fun<PosTyp>>),
 }
 
-#[derive(Clone)]
-struct RecSort {
-    fun: Rc<dyn Fn(&RecSort) -> Sort>,
-}
-
-impl RecSort {
-    fn unroll(&self) -> Sort {
-        (self.fun)(self)
-    }
-
-    #[cfg(test)]
-    fn leak(self) -> &'static Self {
-        Box::leak(Box::new(self))
-    }
-}
+type RsrFun = dyn FnOnce(&mut Heap) -> Vec<Rc<Term>>;
 
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Term {
     UVar(usize, Sort),
-    Inj(usize, Vec<Rc<Term>>),
-    Zero,
+    Nat(usize),
+    /// The value read from a pointer
+    Owned(Rc<Term>),
+    /// Sum type based on a descriminator
+    Cond(Rc<Term>),
+}
+
+#[derive(Clone, Debug, Default)]
+struct Heap {
+    alloc: Vec<Resource>,
+    prop: Vec<Prop>,
+}
+
+impl Heap {
+    /// all uses of `alloc` are recorded as resources
+    fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
+        let res = Term::Owned(ptr.clone());
+        self.alloc.push(Resource::Single {
+            location: ptr.clone(),
+            tau,
+        });
+        Rc::new(res)
+    }
+
+    /// using switch will make resources locked behind the value of a term
+    fn switch(&mut self, val: Rc<Term>, branches: Vec<Rc<RsrFun>>) -> Rc<Term> {
+        let res = branches.into_iter().map(Opaque).collect();
+        self.alloc.push(Resource::Cond(val.clone(), res));
+        Rc::new(Term::Cond(val))
+    }
+
+    fn assert_eq(&mut self, x: Rc<Term>, y: Rc<Term>) {
+        self.prop.push(Prop::Eq(x, y));
+    }
+}
+
+/// a single resource
+#[derive(Clone, Debug)]
+enum Resource {
+    Single { location: Rc<Term>, tau: Sort },
+    Cond(Rc<Term>, Vec<Opaque<RsrFun>>),
 }
 
 #[derive(Default)]
@@ -72,24 +111,24 @@ impl Debug for Context {
 struct SubContext {
     univ: usize,
     assume: Rc<Context>,
+    heap: Heap,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
     MeasureEq(Measure, [Rc<Term>; 2]),
+    True,
 }
-
 // PosType is product like, it can contain any number of items
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
 struct PosTyp {
     thunks: Vec<Fun<NegTyp>>,
-    prop: Vec<Prop>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 struct Measure {
-    // alpha: Rc<dyn Fn(&Rc<Term>) -> ()>,
+    // alpha: Rc<dyn Fn(usize, &[Rc<Term>]) -> Rc<Term>>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -98,26 +137,37 @@ struct NegTyp {
     ret: Fun<PosTyp>,
 }
 
-trait ListProp {
-    fn props(&self) -> &[Prop];
-}
-
-impl ListProp for PosTyp {
-    fn props(&self) -> &[Prop] {
-        &self.prop
-    }
-}
-
-impl ListProp for NegTyp {
-    fn props(&self) -> &[Prop] {
-        self.arg.props()
-    }
-}
+// stores resources
+struct Owned(Rc<dyn Fn(Rc<Term>) -> Rc<Term>>);
 
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
-    tau: Vec<RecSort>,
-    fun: Rc<dyn Fn(&[Rc<Term>]) -> T>,
+    tau: Vec<Sort>,
+    fun: Rc<dyn Fn(&[Rc<Term>], &mut Heap) -> T>,
+}
+
+struct WithHeap<T> {
+    heap: Heap,
+    typ: T,
+}
+
+impl<T> Deref for WithHeap<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.typ
+    }
+}
+
+impl<T> Fun<T> {
+    fn with_terms(&self, terms: &[Rc<Term>]) -> WithHeap<T> {
+        assert_eq!(self.tau.len(), terms.len());
+        let mut heap = Heap::default();
+        WithHeap {
+            typ: (self.fun)(terms, &mut heap),
+            heap,
+        }
+    }
 }
 
 impl<T> Clone for Fun<T> {
@@ -156,29 +206,6 @@ impl<T> Deref for Solved<T> {
     }
 }
 
-#[derive(Clone)]
-struct Var {
-    args: Vec<(Rc<Term>, Sort)>,
-    inner: Rc<PosTyp>,
-    rec: Fun<NegTyp>,
-}
-
-impl Var {
-    fn get_term(&self, proj: usize) -> Rc<Term> {
-        self.infer_inj(&proj).0.clone()
-    }
-}
-
-impl Var {
-    pub fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Sort) {
-        &self.args[*proj]
-    }
-
-    pub fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
-        &self.inner.thunks[*proj]
-    }
-}
-
 impl<V> Lambda<V> {
     pub fn inst(&self, var: &V) -> Expr<V> {
         (self.0)(var)
@@ -213,7 +240,7 @@ impl<V> Default for Value<V> {
 }
 
 enum Inj<V> {
-    Just(usize, Rc<Value<V>>),
+    Just(usize),
     // second argument is projection
     Var(V, usize),
 }
@@ -224,21 +251,21 @@ enum Thunk<V> {
 }
 
 enum Expr<V> {
-    // construct a value and return it
+    /// construct a value and return it
     Return(Rc<Value<V>>),
 
-    // execute an expression and bind the result in the continuation
+    /// execute an expression and bind the result in the continuation
     Let(BoundExpr<V>, Lambda<V>),
 
-    // match on some inductive type and choose a branch
+    /// match on some inductive type and choose a branch
     Match(V, usize, Vec<Lambda<V>>),
 
-    // loop back to an assigment
+    /// loop back to an assigment
     Loop(V, Rc<Value<V>>),
 }
 
 enum BoundExpr<V> {
-    // apply a function to some arguments
+    /// apply a function to some arguments
     App(V, usize, Rc<Value<V>>),
 
     Anno(Rc<Value<V>>, Fun<PosTyp>),

@@ -16,7 +16,7 @@ impl Eval {
 
 #[derive(Clone, Default)]
 struct Res {
-    inj: Vec<(usize, Res)>,
+    inj: Vec<usize>,
     thunks: Vec<Lambda<Eval>>,
 }
 
@@ -29,8 +29,8 @@ impl Res {
     }
 
     fn get_term(&self, proj: usize) -> Rc<Term> {
-        let (idx, ref val) = self.inj[proj];
-        let res = Term::Inj(idx, (0..val.inj.len()).map(|i| val.get_term(i)).collect());
+        let idx = self.inj[proj];
+        let res = Term::Nat(idx);
         Rc::new(res)
     }
 }
@@ -47,7 +47,7 @@ impl Eval {
         &self.res.thunks[*proj]
     }
 
-    fn get_inj(&self, proj: &usize) -> &(usize, Res) {
+    fn get_inj(&self, proj: &usize) -> &usize {
         &self.res.inj[*proj]
     }
 }
@@ -55,8 +55,8 @@ impl Eval {
 impl Res {
     pub fn from_val(val: &Value<Eval>) -> Self {
         let inj = val.inj.iter().map(|inj| match inj {
-            Inj::Just(idx, val) => (*idx, Self::from_val(val)),
-            Inj::Var(var, proj) => var.get_inj(proj).clone(),
+            Inj::Just(idx) => *idx,
+            Inj::Var(var, proj) => *var.get_inj(proj),
         });
         let thunks = val.thunk.iter().map(|thun| match thun {
             Thunk::Just(lamb) => lamb.clone(),
@@ -79,8 +79,8 @@ impl Expr<Eval> {
                     self = e.inst_arg(&arg);
                 }
                 Expr::Match(var, proj, e) => {
-                    let (idx, val) = var.get_inj(proj);
-                    self = e[*idx].inst_arg(val);
+                    let idx = var.get_inj(proj);
+                    self = e[*idx].inst_arg(&Default::default());
                 }
                 Expr::Loop(var, arg) => {
                     let arg = Res::from_val(arg);
@@ -118,7 +118,7 @@ mod tests {
             {_thing => return ()}
         };
         let val = Res {
-            inj: vec![(0, Res::default())],
+            inj: vec![0],
             thunks: vec![],
         };
         expr.inst_arg(&val).eval();
@@ -133,70 +133,74 @@ mod tests {
         Rc::new(expr).eval();
     }
 
-    #[test]
-    fn testing() {
-        #[allow(non_snake_case)]
-        let MyBool = inductive!(_ = () | ()).leak();
+    // #[test]
+    // fn testing() {
+    //     #[allow(non_snake_case)]
+    //     let MyBool = inductive!(_ = () | ()).leak();
 
-        let e = parse_expr! {Var;
-            let funcs: (
-                (Nat) -> (Nat),
-                () -> ()
-            ) = (
-                {x =>
-                    let tmp: (a:Nat, (a) == (x.0)) = (x.0);
-                    return (tmp.0)},
-                {_x => return ()}
-            );
+    //     let e = parse_expr! {Var;
+    //         let funcs: (
+    //             (Nat) -> (Nat),
+    //             () -> ()
+    //         ) = (
+    //             {x =>
+    //                 let tmp: (a:Nat, (a) == (x.0)) = (x.0);
+    //                 return (tmp.0)},
+    //             {_x => return ()}
+    //         );
 
-            let _res = funcs.1 ();
-            let data: (MyBool) = (1());
+    //         let _res = funcs.1 ();
+    //         let data: (MyBool) = (1);
 
-            match data.0
-            {unit => loop unit = ()}
-            {_y => return () }
-        };
+    //         match data.0
+    //         {unit => loop unit = ()}
+    //         {_y => return () }
+    //     };
 
-        let ctx = SubContext::default();
-        ctx.check_expr_pos(&e, &pos_typ!())
-    }
+    //     let ctx = SubContext::default();
+    //     ctx.check_expr_pos(&e, &pos_typ!())
+    // }
 
-    #[test]
-    fn zip_lists() {
-        #[allow(non_snake_case)]
-        let List = inductive!(List = () | (Nat, List)).leak();
-        #[allow(non_snake_case)]
-        let ZippedList = inductive!(ZippedList = () | (Nat, Nat, ZippedList)).leak();
+    // #[test]
+    // fn zip_lists() {
+    //     #[allow(non_snake_case)]
+    //     let List = pos_typ!(List = ptr:Nat, (ptr @ () | ptr @ (Nat, List)));
+    //     #[allow(non_snake_case)]
+    //     let ZippedList = |ptr: &Rc<Term>| {
+    //         inductive!(ZippedList if ptr = () | (Nat, Nat, ptr:Nat, ZippedList(ptr))).leak()
+    //     };
 
-        let func = parse_lambda!(Var;
-            inputs =>
-                let rec: ((List, List) -> (ZippedList)) = ({args => loop inputs = (args.0, args.1)});
-                match inputs.0
-                    {_ => return (0())}
-                    {cons_l => match inputs.1
-                        {_ => return (0())}
-                        {cons_r =>
-                            let tail = rec.0 (cons_l.1, cons_r.1);
-                            return (1(cons_l.0, cons_r.0, tail.0))
-                        }
-                    }
-        );
-        let ctx = SubContext::default();
-        ctx.check_expr(&func, &neg_typ!((List, List) -> (ZippedList)))
-    }
+    //     let store_cons = pos_typ!(ptr:Nat, ZippedList(ptr)).write();
 
-    #[test]
-    fn last_item() {
-        #[allow(non_snake_case)]
-        let Boxes = inductive!(Boxes = (Nat) | (Boxes)).leak();
+    //     let func = parse_lambda!(Var;
+    //         inputs =>
+    //             let rec: ((l:Nat, List(l), r:Nat, List(r)) -> (ptr:Nat, ZippedList(ptr))) = ({args => loop inputs = (args.0, args.1)});
+    //             match inputs.0
+    //                 {_ => return (0)}
+    //                 {cons_l => match inputs.1
+    //                     {_ => return (0)}
+    //                     {cons_r =>
+    //                         let tail = rec.0 (cons_l.1, cons_r.1);
+    //                         return (1) // (cons_l.0, cons_r.0, tail.0)
+    //                     }
+    //                 }
+    //     );
+    //     let ctx = SubContext::default();
+    //     ctx.check_expr(&func, &neg_typ!((List, List) -> (ZippedList)))
+    // }
 
-        let func = parse_lambda!(Var;
-            list => match list.0
-                {last => return (last.0)}
-                {boxed => loop list = (boxed.0)}
-        );
+    // #[test]
+    // fn last_item() {
+    //     #[allow(non_snake_case)]
+    //     let Boxes = inductive!(Boxes = (Nat) | (Boxes)).leak();
 
-        let ctx = SubContext::default();
-        ctx.check_expr(&func, &neg_typ!((Boxes) -> (Nat)))
-    }
+    //     let func = parse_lambda!(Var;
+    //         list => match list.0
+    //             {last => return (last.0)}
+    //             {boxed => loop list = (boxed.0)}
+    //     );
+
+    //     let ctx = SubContext::default();
+    //     ctx.check_expr(&func, &neg_typ!((Boxes) -> (Nat)))
+    // }
 }

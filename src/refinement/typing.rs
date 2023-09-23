@@ -3,8 +3,31 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::{Inj, Thunk};
 
 use super::{
-    BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, RecSort, Sort, SubContext, Term, Value, Var,
+    BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, WithHeap,
 };
+
+#[derive(Clone)]
+pub struct Var {
+    args: Vec<(Rc<Term>, Sort)>,
+    inner: Rc<PosTyp>,
+    rec: Fun<NegTyp>,
+}
+
+impl Var {
+    fn get_term(&self, proj: usize) -> Rc<Term> {
+        self.infer_inj(&proj).0.clone()
+    }
+}
+
+impl Var {
+    fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Sort) {
+        &self.args[*proj]
+    }
+
+    fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
+        &self.inner.thunks[*proj]
+    }
+}
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -20,28 +43,47 @@ where
 }
 
 impl Fun<PosTyp> {
+    pub fn write_i32() -> Fun<NegTyp> {
+        Fun {
+            tau: vec![Sort::Nat, Sort::Nat],
+            fun: Rc::new(move |terms, heap| {
+                let [ptr, val] = terms else { panic!() };
+                heap.owned(ptr, Sort::Nat);
+
+                let (ptr, val) = (ptr.clone(), val.clone());
+                NegTyp {
+                    arg: PosTyp { thunks: vec![] },
+                    ret: Fun {
+                        tau: vec![],
+                        fun: Rc::new(move |_, heap| {
+                            let res = heap.owned(&ptr, Sort::Nat);
+                            heap.assert_eq(res, val.clone());
+                            PosTyp { thunks: vec![] }
+                        }),
+                    },
+                }
+            }),
+        }
+    }
+
     pub fn arrow(self, ret: Fun<PosTyp>) -> Fun<NegTyp> {
         Fun {
             tau: self.tau,
-            fun: Rc::new(move |args| NegTyp {
-                arg: (self.fun)(args),
+            fun: Rc::new(move |args, heap| NegTyp {
+                arg: (self.fun)(args, heap),
                 ret: ret.clone(),
             }),
         }
     }
 }
 
-impl Value<Var> {
-    fn calc_args<T>(&self, typ: &Fun<T>) -> Vec<Rc<Term>> {
+impl SubContext {
+    fn calc_args(&self, val: &Value<Var>) -> Vec<Rc<Term>> {
         let mut res = vec![];
-        for (inj, tau) in zip_eq(&self.inj, &typ.tau) {
+        for inj in &val.inj {
             match inj {
-                Inj::Just(idx, val) => {
-                    let Sort::Sum(variants) = tau.unroll() else {
-                        panic!()
-                    };
-                    let args = val.calc_args(&variants[*idx]);
-                    let arg = Rc::new(Term::Inj(*idx, args));
+                Inj::Just(idx) => {
+                    let arg = Rc::new(Term::Nat(*idx));
                     res.push(arg);
                 }
                 Inj::Var(idx, proj) => {
@@ -52,18 +94,14 @@ impl Value<Var> {
         }
         res
     }
-}
 
-// Value, Head, Expr and BoundExpr are always position independent
-// "position independent" only refers to sort indices
-impl SubContext {
     // This resolves value determined indices in `p`
     pub fn check_value(&self, v: &Value<Var>, p: &Fun<PosTyp>) {
-        let p_args = v.calc_args(p);
-        let pos = (p.fun)(&p_args);
-        self.verify_props(pos.prop);
+        let p_args = self.calc_args(v);
+        let WithHeap { heap, typ } = p.with_terms(&p_args);
+        self.verify_props(heap);
 
-        for (thunk, n) in zip_eq(&v.thunk, &pos.thunks) {
+        for (thunk, n) in zip_eq(&v.thunk, &typ.thunks) {
             self.check_thunk(thunk, n);
         }
     }
@@ -78,38 +116,21 @@ impl SubContext {
         }
     }
 
-    // This resolves value determined indices in `n`
-    // if `n` is position independent, then the output is also position independent
     pub fn spine(&self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
-        let n_args = s.calc_args(n);
-        let neg = (n.fun)(&n_args);
-        self.verify_props(neg.arg.prop);
+        let n_args = self.calc_args(s);
+        let WithHeap { heap, typ } = n.with_terms(&n_args);
+        self.verify_props(heap);
 
-        for (thunk, n) in zip_eq(&s.thunk, &neg.arg.thunks) {
+        for (thunk, n) in zip_eq(&s.thunk, &typ.arg.thunks) {
             self.check_thunk(thunk, n);
         }
-        neg.ret
+        typ.ret
     }
 
-    // the result is position independent
-    pub fn infer_bound_expr(&self, g: &BoundExpr<Var>) -> Fun<PosTyp> {
-        match g {
-            BoundExpr::App(idx, proj, s) => {
-                let n = idx.infer_thunk(proj);
-                self.spine(n, s)
-            }
-            BoundExpr::Anno(e, p) => {
-                self.check_value(e, p);
-                p.clone()
-            }
-        }
-    }
-
-    // can we make sure that `n` is always position independent????
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let (neg, this) = self.extract(n);
         let var = Var {
-            args: zip_eq(neg.terms, n.tau.iter().map(RecSort::unroll)).collect(),
+            args: zip_eq(neg.terms, n.tau.clone()).collect(),
             inner: Rc::new(neg.inner.arg),
             rec: n.clone(),
         };
@@ -123,16 +144,23 @@ impl SubContext {
                 self.check_value(v, p);
             }
             Expr::Let(g, l) => {
-                let bound_p = self.infer_bound_expr(g);
+                let bound_p = match g {
+                    BoundExpr::App(idx, proj, s) => {
+                        let n = idx.infer_thunk(proj);
+                        self.spine(n, s)
+                    }
+                    BoundExpr::Anno(e, p) => {
+                        self.check_value(e, p);
+                        p.clone()
+                    }
+                };
                 self.check_expr(l, &bound_p.arrow(p.clone()))
             }
             Expr::Match(idx, proj, pats) => {
-                let (term, tau) = idx.infer_inj(proj);
-                let Sort::Sum(variants) = tau else { panic!() };
+                let (term, _tau) = idx.infer_inj(proj);
 
-                assert_eq!(pats.len(), variants.len());
                 for (i, l) in pats.iter().enumerate() {
-                    let match_p = self.unroll_prod_univ(term, variants, i);
+                    let match_p = self.unroll_prod_univ(term, i);
                     self.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }

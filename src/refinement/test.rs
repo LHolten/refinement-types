@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::refinement::SubContext;
+use crate::refinement::{Heap, SubContext};
 
 use super::{Fun, Lambda, NegTyp, Sort, Term, Value, Var};
 
@@ -13,7 +13,7 @@ fn id_fun() -> Lambda<Var> {
 }
 
 fn inductive_val() -> Rc<Value<Var>> {
-    parse_value!(Var; 0())
+    parse_value!(Var; 0)
 }
 
 fn forall_id_typ() -> Fun<NegTyp> {
@@ -41,10 +41,11 @@ fn checkk_id_app() {
     let ctx = SubContext::default();
     eprintln!("== test1");
     let res = ctx.spine(&forall_id_typ(), &inductive_val());
-    eprintln!(
-        "(res.fun)(UVar(100, Nat)) = {:?}",
-        (res.fun)(&[Rc::new(Term::UVar(100, Sort::Nat))])
-    );
+
+    let mut heap = Heap::default();
+    let res = (res.fun)(&[Rc::new(Term::UVar(100, Sort::Nat))], &mut heap);
+    eprintln!("res = {:?}", res);
+    eprintln!("heap = {:?}", heap);
     // assert_eq!((res.fun)(&[]).0, inductive_typ(&InnerTerm::Zero.share()));
     // eprintln!();
     // eprintln!("== test2");
