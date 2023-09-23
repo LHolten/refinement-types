@@ -58,10 +58,10 @@ macro_rules! add_tau {
     (@start $fun:expr; ($($tail:tt)*)) => {
         add_tau!($fun; $($tail)*)
     };
-    ($fun:expr; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
+    ($fun:expr; $arg:tt -> $ret:tt $(,$($tail:tt)*)?) => {
         add_tau!($fun; $($($tail)*)?)
     };
-    ($fun:expr; ($($l:tt)*) == ($($r:tt)*) $(,$($tail:tt)*)?) => {
+    ($fun:expr; $l:tt == $r:tt $(,$($tail:tt)*)?) => {
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; $var:ident:Nat $(,$($tail:tt)*)?) => {
@@ -79,7 +79,7 @@ macro_rules! list_var {
     (@start ($($tail:tt)*)) => {
         list_var!(=> $($tail)*)
     };
-    ($($prev:pat)* => ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
+    ($($prev:pat)* => $arg:tt -> $ret:tt $(,$($tail:tt)*)?) => {
         list_var!($($prev)* => $($($tail)*)?)
     };
     ($($prev:pat)* => ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
@@ -109,7 +109,7 @@ macro_rules! neg_typ {
             let list_var!(@start $arg) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $arg_bound);
             $crate::refinement::NegTyp {
-                arg: funcs!(heap; $arg),
+                arg: funcs!($arg),
                 ret: pos_typ!($($ret)*),
             }
         })};
@@ -130,7 +130,7 @@ macro_rules! pos_typ {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $part) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $bound);
-            funcs!(heap; $part)
+            funcs!($part)
         })};
         add_tau!(@start fun; $part);
         fun
@@ -139,7 +139,7 @@ macro_rules! pos_typ {
 
 /// a postive type from only functions
 macro_rules! funcs {
-    ($heap:ident; $part:tt) => {{
+    ($part:tt) => {{
         #[allow(unused_mut)]
         let mut pos = $crate::refinement::PosTyp {
             thunks: vec![],
@@ -157,28 +157,20 @@ macro_rules! bounds {
         $heap.assert_eq($l, $r);
         bounds!($heap; $($($tail)*)?);
     };
-    ($heap:ident; let $var:ident = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {
-        let $var = $heap.owned($val, $crate::refinement::Sort::Nat);
+    ($heap:ident; let $var:pat = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {
+        let tmp = $heap.owned($val, $crate::refinement::Sort::Nat);
+        let $var = Box::leak(Box::new(tmp));
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident;) => {}
-}
-
-macro_rules! parse_term {
-    ($var:ident.$num:literal) => {
-        $var.get_term($num)
-    };
-    ($t:expr) => {
-        $t.clone()
-    };
 }
 
 macro_rules! add_part {
     (@start $pos:tt; ($($tail:tt)*)) => {
         add_part!($pos; $($tail)*)
     };
-    ($pos:tt; ($($arg:tt)*) -> ($($ret:tt)*) $(,$($tail:tt)*)?) => {
-        $pos.thunks.push(neg_typ!(($($arg)*) -> ($($ret)*)));
+    ($pos:tt; $arg:tt $(where $bound:tt)? -> $ret:tt $(where $bound2:tt)? $(,$($tail:tt)*)?) => {
+        $pos.thunks.push(neg_typ!($arg $(where $bound)? -> $ret $(where $bound2)?));
         add_part!($pos; $($($tail)*)?)
     };
     ($pos:tt; $var:ident:Nat $(,$($tail:tt)*)?) => {

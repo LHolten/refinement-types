@@ -7,6 +7,7 @@ mod parse_typ;
 #[macro_use]
 mod parse_expr;
 
+mod builtin;
 mod eval;
 mod subtyp;
 #[cfg(test)]
@@ -18,7 +19,7 @@ mod verify;
 
 pub use typing::Var;
 
-use self::util::Opaque;
+use self::{builtin::Builtin, util::Opaque};
 
 // pub fn zero() -> Rc<Term> {
 //     thread_local!(static ZERO: Rc<Term> = Rc::new(Term::Nat(0)));
@@ -250,6 +251,11 @@ enum Thunk<V> {
     Var(V, usize),
 }
 
+enum FuncRef<V> {
+    Local(V, usize),
+    Builtin(Builtin),
+}
+
 enum Expr<V> {
     /// construct a value and return it
     Return(Rc<Value<V>>),
@@ -266,7 +272,7 @@ enum Expr<V> {
 
 enum BoundExpr<V> {
     /// apply a function to some arguments
-    App(V, usize, Rc<Value<V>>),
+    App(FuncRef<V>, Rc<Value<V>>),
 
     Anno(Rc<Value<V>>, Fun<PosTyp>),
 }

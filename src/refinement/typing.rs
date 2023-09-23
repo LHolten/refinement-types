@@ -3,7 +3,7 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::{Inj, Thunk};
 
 use super::{
-    BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, WithHeap,
+    BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, WithHeap,
 };
 
 #[derive(Clone)]
@@ -26,6 +26,15 @@ impl Var {
 
     fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
         &self.inner.thunks[*proj]
+    }
+}
+
+impl FuncRef<Var> {
+    fn infer_thunk(&self) -> Fun<NegTyp> {
+        match self {
+            FuncRef::Local(var, proj) => var.inner.thunks[*proj].clone(),
+            FuncRef::Builtin(builtin) => builtin.infer(),
+        }
     }
 }
 
@@ -145,9 +154,9 @@ impl SubContext {
             }
             Expr::Let(g, l) => {
                 let bound_p = match g {
-                    BoundExpr::App(idx, proj, s) => {
-                        let n = idx.infer_thunk(proj);
-                        self.spine(n, s)
+                    BoundExpr::App(func, s) => {
+                        let n = func.infer_thunk();
+                        self.spine(&n, s)
                     }
                     BoundExpr::Anno(e, p) => {
                         self.check_value(e, p);

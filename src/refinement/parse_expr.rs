@@ -9,10 +9,27 @@ macro_rules! parse_lambda {
 }
 
 macro_rules! parse_expr {
-    ($ty:ty; let $var:ident = $fun:ident.$num:literal ($($val:tt)*); $($tail:tt)*) => {{
+    ($ty:ty; let $var:pat = $fun:ident.$num:literal ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
         let tail = parse_lambda!($ty; $var => $($tail)*);
-        let bound = $crate::refinement::BoundExpr::App($fun.clone(), $num, val);
+        let func = $crate::refinement::FuncRef::Local($fun.clone(), $num);
+        let bound = $crate::refinement::BoundExpr::App(func, val);
+        $crate::refinement::Expr::Let(bound, tail)
+    }};
+    ($ty:ty; $var:ident.$num1:tt[0] = $val:ident.$num:tt; $($tail:tt)*) => {{
+        let val = parse_value!($ty; $var.$num1, $val.$num);
+        let tail = parse_lambda!($ty; _ => $($tail)*);
+        let func = $crate::refinement::builtin::Builtin::Write;
+        let func = $crate::refinement::FuncRef::Builtin(func);
+        let bound = $crate::refinement::BoundExpr::App(func, val);
+        $crate::refinement::Expr::Let(bound, tail)
+    }};
+    ($ty:ty; let $var:pat = $val:ident.$num:tt[0]; $($tail:tt)*) => {{
+        let val = parse_value!($ty; $val.$num);
+        let tail = parse_lambda!($ty; $var => $($tail)*);
+        let func = $crate::refinement::builtin::Builtin::Read;
+        let func = $crate::refinement::FuncRef::Builtin(func);
+        let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
     ($ty:ty; let $var:ident: $pos:tt = ($($val:tt)*); $($tail:tt)*) => {{

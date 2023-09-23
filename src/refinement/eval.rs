@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{BoundExpr, Expr, Inj, Lambda, Term, Thunk, Value};
+use super::{builtin::Builtin, BoundExpr, Expr, FuncRef, Inj, Lambda, Term, Thunk, Value};
 
 #[derive(Clone)]
 struct Eval {
@@ -20,7 +20,19 @@ struct Res {
     thunks: Vec<Lambda<Eval>>,
 }
 
+#[derive(Default)]
+struct Memory {
+    data: Vec<usize>,
+}
+
 impl Res {
+    fn new(val: usize) -> Self {
+        Self {
+            inj: vec![val],
+            thunks: vec![],
+        }
+    }
+
     fn make_eval(&self, rec: &Lambda<Eval>) -> Eval {
         Eval {
             res: self.clone(),
@@ -69,34 +81,48 @@ impl Res {
     }
 }
 
-impl Expr<Eval> {
-    pub fn eval(mut self: Rc<Self>) -> Res {
+impl Memory {
+    pub fn eval(&mut self, mut expr: Rc<Expr<Eval>>) -> Res {
         loop {
-            match self.as_ref() {
+            match expr.as_ref() {
                 Expr::Return(val) => return Res::from_val(val),
                 Expr::Let(bind, e) => {
-                    let arg = bind.eval();
-                    self = e.inst_arg(&arg);
+                    let arg = self.eval_bind(bind);
+                    expr = e.inst_arg(&arg);
                 }
                 Expr::Match(var, proj, e) => {
                     let idx = var.get_inj(proj);
-                    self = e[*idx].inst_arg(&Default::default());
+                    expr = e[*idx].inst_arg(&Default::default());
                 }
                 Expr::Loop(var, arg) => {
                     let arg = Res::from_val(arg);
-                    self = var.rec.inst_arg(&arg);
+                    expr = var.rec.inst_arg(&arg);
                 }
             }
         }
     }
-}
 
-impl BoundExpr<Eval> {
-    pub fn eval(&self) -> Res {
-        match self {
-            BoundExpr::App(var, proj, arg) => {
+    pub fn eval_bind(&mut self, e: &BoundExpr<Eval>) -> Res {
+        match e {
+            BoundExpr::App(func, arg) => {
                 let arg = Res::from_val(arg);
-                var.get_thunk(proj).inst_arg(&arg).eval()
+                match func {
+                    FuncRef::Local(var, proj) => {
+                        let func = var.get_thunk(proj).inst_arg(&arg);
+                        self.eval(func)
+                    }
+                    FuncRef::Builtin(builtin) => match builtin {
+                        Builtin::Read => {
+                            let [ptr] = *arg.inj else { panic!() };
+                            Res::new(self.data[ptr])
+                        }
+                        Builtin::Write => {
+                            let [ptr, val] = *arg.inj else { panic!() };
+                            self.data[ptr] = val;
+                            Res::default()
+                        }
+                    },
+                }
             }
             BoundExpr::Anno(val, _pos) => Res::from_val(val),
         }
@@ -107,8 +133,6 @@ impl BoundExpr<Eval> {
 mod tests {
     use std::rc::Rc;
 
-    use crate::refinement::{SubContext, Var};
-
     use super::*;
 
     #[test]
@@ -117,11 +141,9 @@ mod tests {
             match val.0
             {_thing => return ()}
         };
-        let val = Res {
-            inj: vec![0],
-            thunks: vec![],
-        };
-        expr.inst_arg(&val).eval();
+        let val = Res::new(0);
+        let expr = expr.inst_arg(&val);
+        Memory::default().eval(expr);
     }
 
     #[test]
@@ -130,7 +152,17 @@ mod tests {
             let rec: () = ();
             loop rec = ()
         };
-        Rc::new(expr).eval();
+        let expr = Rc::new(expr);
+        Memory::default().eval(expr);
+    }
+
+    #[test]
+    fn increment() {
+        parse_lambda! {Eval; ptr =>
+            let x = ptr.0[0];
+            ptr.0[0] = x.0;
+            return ()
+        };
     }
 
     // #[test]
