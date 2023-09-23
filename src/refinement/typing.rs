@@ -57,7 +57,7 @@ impl Fun<PosTyp> {
                         tau: vec![],
                         fun: Rc::new(move |_, heap| {
                             let res = heap.owned(&ptr, Sort::Nat);
-                            heap.assert_eq(res, val.clone());
+                            heap.assert_eq(&res, &val);
                             PosTyp { thunks: vec![] }
                         }),
                     },

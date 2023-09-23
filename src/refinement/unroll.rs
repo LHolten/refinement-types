@@ -11,7 +11,7 @@ impl SubContext {
             tau: vec![], // no arguments
             fun: Rc::new(move |_terms, heap| {
                 let beta = Rc::new(Term::Nat(i));
-                heap.assert_eq(term.clone(), beta);
+                heap.assert_eq(&term, &beta);
                 PosTyp {
                     thunks: vec![], // no thunks
                 }

@@ -15,10 +15,10 @@ macro_rules! parse_expr {
         let bound = $crate::refinement::BoundExpr::App($fun.clone(), $num, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; let $var:ident: ($($pos:tt)*) = ($($val:tt)*); $($tail:tt)*) => {{
+    ($ty:ty; let $var:ident: $pos:tt = ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
         let tail = parse_lambda!($ty; $var => $($tail)*);
-        let typ = pos_typ!($($pos)*);
+        let typ = pos_typ!($pos);
         let bound = $crate::refinement::BoundExpr::Anno(val, typ);
         $crate::refinement::Expr::<$ty>::Let(bound, tail)
     }};

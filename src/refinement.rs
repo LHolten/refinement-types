@@ -3,7 +3,7 @@
 use std::{fmt::Debug, ops::Deref, rc::Rc};
 
 #[macro_use]
-mod parse;
+mod parse_typ;
 #[macro_use]
 mod parse_expr;
 
@@ -73,8 +73,8 @@ impl Heap {
         Rc::new(Term::Cond(val))
     }
 
-    fn assert_eq(&mut self, x: Rc<Term>, y: Rc<Term>) {
-        self.prop.push(Prop::Eq(x, y));
+    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
+        self.prop.push(Prop::Eq(x.clone(), y.clone()));
     }
 }
 
