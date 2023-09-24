@@ -50,14 +50,14 @@ fn checkk_id_app() {
 fn increment() {
     let ctx = SubContext::default();
     let lamb = parse_lambda! {Var; ptr =>
-        let x = ptr.0[0];
-        // let x: (Nat) = (10);
+        // let x = ptr.0[0];
+        let x: (v:Nat) where {v == 10} = (10);
         ptr.0[0] = x.0;
         return ()
     };
     let typ = neg_typ!(
         (ptr:Nat) where {let old = ptr[0]}
-            -> () where {let new = ptr[0]; new == old}
+            -> () where {let new = ptr[0]; new == 10}
     );
     ctx.check_expr(&lamb, &typ);
 }

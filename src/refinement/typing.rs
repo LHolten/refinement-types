@@ -125,7 +125,7 @@ impl SubContext {
             Expr::Return(v) => {
                 self.check_value(v, p);
                 // leaking resources is not allowed
-                assert!(self.alloc.is_empty());
+                assert!(self.alloc.is_empty(), "can not leak memory");
             }
             Expr::Let(g, l) => {
                 let bound_p = match g {
