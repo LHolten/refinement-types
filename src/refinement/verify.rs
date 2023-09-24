@@ -53,11 +53,13 @@ impl SubContext {
                     // Yay, verification succeeded
                 }
                 SatResult::Unknown => todo!(),
-                SatResult::Sat => panic!(),
+                SatResult::Sat => {
+                    eprintln!("{:?}", &self.assume);
+                    eprintln!("=> {:?}", prop);
+                    panic!("failed to verify")
+                }
             }
         }
-
-        eprintln!("{:?}", &self.assume);
     }
 }
 

@@ -153,8 +153,8 @@ macro_rules! bounds {
     (@start $heap:ident; {$($tail:tt)*}) => {
         bounds!($heap; $($tail)*);
     };
-    ($heap:ident; $l:ident == $r:ident $(;$($tail:tt)*)?) => {
-        $heap.assert_eq($l, $r);
+    ($heap:ident; $l:tt == $r:tt $(;$($tail:tt)*)?) => {
+        $heap.assert_eq(term!($l), term!($r));
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; let $var:pat = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {
@@ -163,6 +163,15 @@ macro_rules! bounds {
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident;) => {}
+}
+
+macro_rules! term {
+    ($name:ident) => {
+        $name
+    };
+    ($val:literal) => {
+        &::std::rc::Rc::new($crate::refinement::Term::Nat($val))
+    };
 }
 
 macro_rules! add_part {

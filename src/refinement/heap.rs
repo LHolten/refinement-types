@@ -1,6 +1,6 @@
-use std::rc::Rc;
+use std::{mem::take, rc::Rc};
 
-use super::{Prop, Sort, SubContext, Term};
+use super::{Context, Prop, Sort, SubContext, Term};
 
 /// a single resource
 #[derive(Clone, Debug)]
@@ -46,18 +46,27 @@ impl Heap for HeapConsume<'_> {
     }
 
     fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
-        self.0.verify_props(&[Prop::Eq(x.clone(), y.clone())]);
+        self.verify_props(&[Prop::Eq(x.clone(), y.clone())]);
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub(super) struct HeapProduce {
-    pub univ: u32,
-    pub alloc: Vec<Resource>,
-    pub prop: Vec<Prop>,
+pub(super) struct HeapProduce<'a>(pub &'a mut SubContext);
+
+impl<'a> std::ops::DerefMut for HeapProduce<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
 }
 
-impl Heap for HeapProduce {
+impl<'a> std::ops::Deref for HeapProduce<'a> {
+    type Target = SubContext;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl Heap for HeapProduce<'_> {
     /// all uses of `alloc` are recorded as resources
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
         let val = Rc::new(Term::UVar(self.univ, tau));
@@ -70,6 +79,8 @@ impl Heap for HeapProduce {
     }
 
     fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
-        self.prop.push(Prop::Eq(x.clone(), y.clone()));
+        let phi = Prop::Eq(x.clone(), y.clone());
+        let next = take(&mut self.assume);
+        self.assume = Rc::new(Context::Assume { phi, next });
     }
 }

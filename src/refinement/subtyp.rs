@@ -1,15 +1,14 @@
-use std::{mem::take, rc::Rc};
+use std::rc::Rc;
 
 use crate::refinement::{
     heap::{HeapConsume, HeapProduce},
     typing::zip_eq,
-    Context, SubContext,
+    SubContext,
 };
 
 use super::{Fun, NegTyp, PosTyp, Solved, Term};
 
 impl SubContext {
-    /// This also sets the heap in the new context
     pub fn extract<T>(&self, n: &Fun<T>) -> (Solved<T>, Self) {
         let mut this = self.clone();
         let mut terms = vec![];
@@ -18,22 +17,8 @@ impl SubContext {
             this.univ += 1;
         }
 
-        let mut heap = HeapProduce {
-            univ: this.univ,
-            alloc: take(&mut this.alloc),
-            prop: vec![],
-        };
+        let mut heap = HeapProduce(&mut this);
         let typ = (n.fun)(&terms, &mut heap);
-        this.alloc = heap.alloc;
-
-        for phi in heap.prop {
-            // self.solver.assert(ast)
-            let next = this.assume;
-            this.assume = Rc::new(Context::Assume {
-                phi: phi.clone(),
-                next,
-            });
-        }
 
         let solved = Solved { inner: typ, terms };
         (solved, this)
