@@ -4,4 +4,5 @@
 // mod untyped;
 // mod gadt;
 mod refinement;
+mod solver;
 // mod sequent;

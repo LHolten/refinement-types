@@ -3,7 +3,7 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::{Inj, Thunk};
 
 use super::{
-    BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, WithHeap,
+    BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, WithProp,
 };
 
 #[derive(Clone)]
@@ -52,32 +52,10 @@ where
 }
 
 impl Fun<PosTyp> {
-    pub fn write_i32() -> Fun<NegTyp> {
-        Fun {
-            tau: vec![Sort::Nat, Sort::Nat],
-            fun: Rc::new(move |terms, heap| {
-                let [ptr, val] = terms else { panic!() };
-                heap.owned(ptr, Sort::Nat);
-
-                let (ptr, val) = (ptr.clone(), val.clone());
-                NegTyp {
-                    arg: PosTyp { thunks: vec![] },
-                    ret: Fun {
-                        tau: vec![],
-                        fun: Rc::new(move |_, heap| {
-                            let res = heap.owned(&ptr, Sort::Nat);
-                            heap.assert_eq(&res, &val);
-                            PosTyp { thunks: vec![] }
-                        }),
-                    },
-                }
-            }),
-        }
-    }
-
     pub fn arrow(self, ret: Fun<PosTyp>) -> Fun<NegTyp> {
         Fun {
             tau: self.tau,
+            alloc: self.alloc,
             fun: Rc::new(move |args, heap| NegTyp {
                 arg: (self.fun)(args, heap),
                 ret: ret.clone(),
@@ -105,10 +83,10 @@ impl SubContext {
     }
 
     // This resolves value determined indices in `p`
-    pub fn check_value(&self, v: &Value<Var>, p: &Fun<PosTyp>) {
+    pub fn check_value(&mut self, v: &Value<Var>, p: &Fun<PosTyp>) {
         let p_args = self.calc_args(v);
-        let WithHeap { heap, typ } = p.with_terms(&p_args);
-        self.verify_props(heap);
+        let WithProp { prop, typ } = p.with_terms(&mut self.alloc, &p_args);
+        self.verify_props(&prop);
 
         for (thunk, n) in zip_eq(&v.thunk, &typ.thunks) {
             self.check_thunk(thunk, n);
@@ -125,10 +103,10 @@ impl SubContext {
         }
     }
 
-    pub fn spine(&self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
+    pub fn spine(&mut self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
         let n_args = self.calc_args(s);
-        let WithHeap { heap, typ } = n.with_terms(&n_args);
-        self.verify_props(heap);
+        let WithProp { prop, typ } = n.with_terms(&mut self.alloc, &n_args);
+        self.verify_props(&prop);
 
         for (thunk, n) in zip_eq(&s.thunk, &typ.arg.thunks) {
             self.check_thunk(thunk, n);
@@ -137,7 +115,7 @@ impl SubContext {
     }
 
     pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
-        let (neg, this) = self.extract(n);
+        let (neg, mut this) = self.extract(n);
         let var = Var {
             args: zip_eq(neg.terms, n.tau.clone()).collect(),
             inner: Rc::new(neg.inner.arg),
@@ -147,10 +125,12 @@ impl SubContext {
         this.check_expr_pos(&e, &neg.inner.ret);
     }
 
-    pub fn check_expr_pos(&self, e: &Expr<Var>, p: &Fun<PosTyp>) {
+    pub fn check_expr_pos(&mut self, e: &Expr<Var>, p: &Fun<PosTyp>) {
         match e {
             Expr::Return(v) => {
                 self.check_value(v, p);
+                // leaking resources is not allowed
+                assert!(self.alloc.is_empty());
             }
             Expr::Let(g, l) => {
                 let bound_p = match g {
@@ -169,8 +149,10 @@ impl SubContext {
                 let (term, _tau) = idx.infer_inj(proj);
 
                 for (i, l) in pats.iter().enumerate() {
-                    let match_p = self.unroll_prod_univ(term, i);
-                    self.check_expr(l, &match_p.arrow(p.clone()));
+                    // we want to preserve resources between branches
+                    let this = self.clone();
+                    let match_p = this.unroll_prod_univ(term, i);
+                    this.check_expr(l, &match_p.arrow(p.clone()));
                 }
             }
             Expr::Loop(idx, s) => {

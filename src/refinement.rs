@@ -1,6 +1,11 @@
 #![allow(dead_code)]
 
-use std::{fmt::Debug, ops::Deref, rc::Rc};
+use std::{
+    fmt::Debug,
+    mem::take,
+    ops::{Deref, Not},
+    rc::Rc,
+};
 
 #[macro_use]
 mod parse_typ;
@@ -18,18 +23,14 @@ mod util;
 mod verify;
 
 pub use typing::Var;
+use z3::{
+    ast::{Ast, Int},
+    SatResult,
+};
 
-use self::{builtin::Builtin, util::Opaque};
+use crate::solver::solver;
 
-// pub fn zero() -> Rc<Term> {
-//     thread_local!(static ZERO: Rc<Term> = Rc::new(Term::Nat(0)));
-//     ZERO.with(Rc::clone)
-// }
-
-// pub fn prop_true() -> Rc<Prop> {
-//     thread_local!(static TRUE: Rc<Prop> = Rc::new(Prop::True));
-//     TRUE.with(Rc::clone)
-// }
+use self::builtin::Builtin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Sort {
@@ -42,12 +43,15 @@ type RsrFun = dyn FnOnce(&mut Heap) -> Vec<Rc<Term>>;
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Term {
-    UVar(usize, Sort),
+    UVar(u32, Sort),
     Nat(usize),
-    /// The value read from a pointer
-    Owned(Rc<Term>),
-    /// Sum type based on a descriminator
-    Cond(Rc<Term>),
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+enum Prop {
+    Eq(Rc<Term>, Rc<Term>),
+    // MeasureEq(Measure, [Rc<Term>; 2]),
+    // True,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -59,20 +63,31 @@ struct Heap {
 impl Heap {
     /// all uses of `alloc` are recorded as resources
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
-        let res = Term::Owned(ptr.clone());
-        self.alloc.push(Resource::Single {
-            location: ptr.clone(),
-            tau,
-        });
-        Rc::new(res)
+        //TODO: use the actual propositions from SubContext?
+        let mut found = None;
+        for (idx, alloc) in self.alloc.iter().enumerate() {
+            let s = solver();
+            let is_loc = Int::from(alloc.ptr.as_ref())._eq(&Int::from(ptr.as_ref()));
+            match s.check_assumptions(&[is_loc.not()]) {
+                SatResult::Unsat => {
+                    // we now know that `alloc.ptr` == `ptr`
+                    found = Some(idx);
+                    break;
+                }
+                SatResult::Unknown => panic!(),
+                SatResult::Sat => {} // `alloc.ptr` might not be `ptr`, continue
+            }
+        }
+        let resource = self.alloc.swap_remove(found.unwrap());
+        resource.value
     }
 
     /// using switch will make resources locked behind the value of a term
-    fn switch(&mut self, val: Rc<Term>, branches: Vec<Rc<RsrFun>>) -> Rc<Term> {
-        let res = branches.into_iter().map(Opaque).collect();
-        self.alloc.push(Resource::Cond(val.clone(), res));
-        Rc::new(Term::Cond(val))
-    }
+    // fn switch(&mut self, val: Rc<Term>, branches: Vec<Rc<RsrFun>>) -> Rc<Term> {
+    //     let res = branches.into_iter().map(Opaque).collect();
+    //     self.alloc.push(Resource::Cond(val.clone(), res));
+    //     Rc::new(Term::Cond(val))
+    // }
 
     fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
         self.prop.push(Prop::Eq(x.clone(), y.clone()));
@@ -81,10 +96,15 @@ impl Heap {
 
 /// a single resource
 #[derive(Clone, Debug)]
-enum Resource {
-    Single { location: Rc<Term>, tau: Sort },
-    Cond(Rc<Term>, Vec<Opaque<RsrFun>>),
+struct Resource {
+    ptr: Rc<Term>,
+    value: Rc<Term>,
 }
+// enum Resource {
+//     Single {
+//     },
+//     Cond(Rc<Term>, Vec<Opaque<RsrFun>>),
+// }
 
 #[derive(Default)]
 enum Context {
@@ -110,17 +130,11 @@ impl Debug for Context {
 
 #[derive(Clone, Default)]
 struct SubContext {
-    univ: usize,
+    univ: u32,
     assume: Rc<Context>,
-    heap: Heap,
+    alloc: Vec<Resource>,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
-enum Prop {
-    Eq(Rc<Term>, Rc<Term>),
-    MeasureEq(Measure, [Rc<Term>; 2]),
-    True,
-}
 // PosType is product like, it can contain any number of items
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
 struct PosTyp {
@@ -138,21 +152,27 @@ struct NegTyp {
     ret: Fun<PosTyp>,
 }
 
-// stores resources
-struct Owned(Rc<dyn Fn(Rc<Term>) -> Rc<Term>>);
+#[derive(Debug, Clone)]
+struct ResSort {
+    tau: Sort,
+    ptr: Rc<Term>,
+}
 
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
+    // the arguments that are expected to be in scope
     tau: Vec<Sort>,
+    // the resources that are expected to be in scope
+    alloc: Vec<ResSort>,
     fun: Rc<dyn Fn(&[Rc<Term>], &mut Heap) -> T>,
 }
 
-struct WithHeap<T> {
-    heap: Heap,
+struct WithProp<T> {
+    prop: Vec<Prop>,
     typ: T,
 }
 
-impl<T> Deref for WithHeap<T> {
+impl<T> Deref for WithProp<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -161,12 +181,18 @@ impl<T> Deref for WithHeap<T> {
 }
 
 impl<T> Fun<T> {
-    fn with_terms(&self, terms: &[Rc<Term>]) -> WithHeap<T> {
+    /// instantiate with terms and resources from the heap
+    fn with_terms(&self, alloc: &mut Vec<Resource>, terms: &[Rc<Term>]) -> WithProp<T> {
+        let mut heap = Heap {
+            alloc: take(alloc),
+            prop: vec![],
+        };
         assert_eq!(self.tau.len(), terms.len());
-        let mut heap = Heap::default();
-        WithHeap {
-            typ: (self.fun)(terms, &mut heap),
-            heap,
+        let typ = (self.fun)(terms, &mut heap);
+        *alloc = heap.alloc;
+        WithProp {
+            prop: heap.prop,
+            typ,
         }
     }
 }
@@ -175,6 +201,7 @@ impl<T> Clone for Fun<T> {
     fn clone(&self) -> Self {
         Self {
             tau: self.tau.clone(),
+            alloc: self.alloc.clone(),
             fun: self.fun.clone(),
         }
     }
