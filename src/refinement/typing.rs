@@ -2,9 +2,7 @@ use std::{iter::zip, rc::Rc};
 
 use crate::refinement::{Inj, Thunk};
 
-use super::{
-    BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value, WithProp,
-};
+use super::{BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value};
 
 #[derive(Clone)]
 pub struct Var {
@@ -55,7 +53,6 @@ impl Fun<PosTyp> {
     pub fn arrow(self, ret: Fun<PosTyp>) -> Fun<NegTyp> {
         Fun {
             tau: self.tau,
-            alloc: self.alloc,
             fun: Rc::new(move |args, heap| NegTyp {
                 arg: (self.fun)(args, heap),
                 ret: ret.clone(),
@@ -85,8 +82,7 @@ impl SubContext {
     // This resolves value determined indices in `p`
     pub fn check_value(&mut self, v: &Value<Var>, p: &Fun<PosTyp>) {
         let p_args = self.calc_args(v);
-        let WithProp { prop, typ } = p.with_terms(&mut self.alloc, &p_args);
-        self.verify_props(&prop);
+        let typ = self.with_terms(p, &p_args);
 
         for (thunk, n) in zip_eq(&v.thunk, &typ.thunks) {
             self.check_thunk(thunk, n);
@@ -105,8 +101,7 @@ impl SubContext {
 
     pub fn spine(&mut self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
         let n_args = self.calc_args(s);
-        let WithProp { prop, typ } = n.with_terms(&mut self.alloc, &n_args);
-        self.verify_props(&prop);
+        let typ = self.with_terms(n, &n_args);
 
         for (thunk, n) in zip_eq(&s.thunk, &typ.arg.thunks) {
             self.check_thunk(thunk, n);

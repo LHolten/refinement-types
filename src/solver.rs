@@ -9,7 +9,7 @@ pub fn ctx() -> &'static Context {
 
 pub fn solver() -> &'static Solver<'static> {
     thread_local! {
-        static SOLVER: &'static Solver<'static> = Box::leak(Box::new(Solver::new_for_logic(ctx(), "uflia").unwrap()));
+        static SOLVER: &'static Solver<'static> = Box::leak(Box::new(Solver::new_for_logic(ctx(), "QF_UFLIA").unwrap()));
     }
     SOLVER.with(Clone::clone)
 }

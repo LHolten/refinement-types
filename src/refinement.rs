@@ -1,11 +1,6 @@
 #![allow(dead_code)]
 
-use std::{
-    fmt::Debug,
-    mem::take,
-    ops::{Deref, Not},
-    rc::Rc,
-};
+use std::{fmt::Debug, ops::Deref, rc::Rc};
 
 #[macro_use]
 mod parse_typ;
@@ -14,6 +9,7 @@ mod parse_expr;
 
 mod builtin;
 mod eval;
+mod heap;
 mod subtyp;
 #[cfg(test)]
 mod test;
@@ -23,12 +19,8 @@ mod util;
 mod verify;
 
 pub use typing::Var;
-use z3::{
-    ast::{Ast, Int},
-    SatResult,
-};
 
-use crate::solver::solver;
+use self::heap::{Heap, Resource};
 
 use self::builtin::Builtin;
 
@@ -37,8 +29,6 @@ enum Sort {
     Bool,
     Nat,
 }
-
-type RsrFun = dyn FnOnce(&mut Heap) -> Vec<Rc<Term>>;
 
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -53,58 +43,6 @@ enum Prop {
     // MeasureEq(Measure, [Rc<Term>; 2]),
     // True,
 }
-
-#[derive(Clone, Debug, Default)]
-struct Heap {
-    alloc: Vec<Resource>,
-    prop: Vec<Prop>,
-}
-
-impl Heap {
-    /// all uses of `alloc` are recorded as resources
-    fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
-        //TODO: use the actual propositions from SubContext?
-        let mut found = None;
-        for (idx, alloc) in self.alloc.iter().enumerate() {
-            let s = solver();
-            let is_loc = Int::from(alloc.ptr.as_ref())._eq(&Int::from(ptr.as_ref()));
-            match s.check_assumptions(&[is_loc.not()]) {
-                SatResult::Unsat => {
-                    // we now know that `alloc.ptr` == `ptr`
-                    found = Some(idx);
-                    break;
-                }
-                SatResult::Unknown => panic!(),
-                SatResult::Sat => {} // `alloc.ptr` might not be `ptr`, continue
-            }
-        }
-        let resource = self.alloc.swap_remove(found.unwrap());
-        resource.value
-    }
-
-    /// using switch will make resources locked behind the value of a term
-    // fn switch(&mut self, val: Rc<Term>, branches: Vec<Rc<RsrFun>>) -> Rc<Term> {
-    //     let res = branches.into_iter().map(Opaque).collect();
-    //     self.alloc.push(Resource::Cond(val.clone(), res));
-    //     Rc::new(Term::Cond(val))
-    // }
-
-    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
-        self.prop.push(Prop::Eq(x.clone(), y.clone()));
-    }
-}
-
-/// a single resource
-#[derive(Clone, Debug)]
-struct Resource {
-    ptr: Rc<Term>,
-    value: Rc<Term>,
-}
-// enum Resource {
-//     Single {
-//     },
-//     Cond(Rc<Term>, Vec<Opaque<RsrFun>>),
-// }
 
 #[derive(Default)]
 enum Context {
@@ -162,46 +100,13 @@ struct ResSort {
 struct Fun<T> {
     // the arguments that are expected to be in scope
     tau: Vec<Sort>,
-    // the resources that are expected to be in scope
-    alloc: Vec<ResSort>,
-    fun: Rc<dyn Fn(&[Rc<Term>], &mut Heap) -> T>,
-}
-
-struct WithProp<T> {
-    prop: Vec<Prop>,
-    typ: T,
-}
-
-impl<T> Deref for WithProp<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.typ
-    }
-}
-
-impl<T> Fun<T> {
-    /// instantiate with terms and resources from the heap
-    fn with_terms(&self, alloc: &mut Vec<Resource>, terms: &[Rc<Term>]) -> WithProp<T> {
-        let mut heap = Heap {
-            alloc: take(alloc),
-            prop: vec![],
-        };
-        assert_eq!(self.tau.len(), terms.len());
-        let typ = (self.fun)(terms, &mut heap);
-        *alloc = heap.alloc;
-        WithProp {
-            prop: heap.prop,
-            typ,
-        }
-    }
+    fun: Rc<dyn Fn(&[Rc<Term>], &mut dyn Heap) -> T>,
 }
 
 impl<T> Clone for Fun<T> {
     fn clone(&self) -> Self {
         Self {
             tau: self.tau.clone(),
-            alloc: self.alloc.clone(),
             fun: self.fun.clone(),
         }
     }

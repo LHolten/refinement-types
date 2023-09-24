@@ -1,6 +1,6 @@
 use z3::{
     ast::{Ast, Bool, Int},
-    SatResult,
+    SatResult, Solver,
 };
 
 use crate::{
@@ -33,15 +33,20 @@ impl From<&Prop> for Bool<'_> {
 
 impl SubContext {
     pub fn is_always_eq(&self, l: &Term, r: &Term) -> bool {
-        // This is where we need to use SMT
+        let s = self.assume.assume();
+        let cond = Int::from(l)._eq(&Int::from(r));
+
+        match s.check_assumptions(&[cond.not()]) {
+            SatResult::Unsat => true,
+            SatResult::Unknown => todo!(),
+            SatResult::Sat => false,
+        }
         // eprintln!("{:?}", &self.assume);
         // eprintln!("=> {:?}", phi);
-        todo!()
     }
 
     pub fn verify_props(&self, props: &[Prop]) {
-        self.assume.assume();
-        let s = solver();
+        let s = self.assume.assume();
         for prop in props {
             match s.check_assumptions(&[Bool::from(prop).not()]) {
                 SatResult::Unsat => {
@@ -57,13 +62,17 @@ impl SubContext {
 }
 
 impl Context {
-    pub fn assume(&self) {
-        let s = solver();
+    pub fn assume(&self) -> &'static Solver<'static> {
         match self {
-            Context::Empty => s.reset(),
+            Context::Empty => {
+                let s = solver();
+                s.reset();
+                s
+            }
             Context::Assume { phi, next } => {
-                next.assume();
+                let s = next.assume();
                 s.assert(&Bool::from(phi));
+                s
             }
         }
     }

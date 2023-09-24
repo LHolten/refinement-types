@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::refinement::{Heap, SubContext};
+use crate::refinement::{heap::HeapConsume, SubContext};
 
 use super::{Fun, Lambda, NegTyp, Sort, Term, Value, Var};
 
@@ -38,14 +38,13 @@ fn check_id_typ() {
 
 #[test]
 fn checkk_id_app() {
-    let ctx = SubContext::default();
+    let mut ctx = SubContext::default();
     eprintln!("== test1");
     let res = ctx.spine(&forall_id_typ(), &inductive_val());
 
-    let mut heap = Heap::default();
+    let mut heap = HeapConsume(&mut ctx);
     let res = (res.fun)(&[Rc::new(Term::UVar(100, Sort::Nat))], &mut heap);
     eprintln!("res = {:?}", res);
-    eprintln!("heap = {:?}", heap);
     // assert_eq!((res.fun)(&[]).0, inductive_typ(&InnerTerm::Zero.share()));
     // eprintln!();
     // eprintln!("== test2");
