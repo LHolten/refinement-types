@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use crate::refinement::{
     heap::{HeapConsume, HeapProduce},
-    typing::zip_eq,
     SubContext,
 };
 
@@ -33,20 +32,13 @@ impl SubContext {
 
     pub fn sub_pos_typ(&self, q: &Fun<PosTyp>, p: &Fun<PosTyp>) {
         let (q, mut this) = self.extract(q);
-        let typ = this.with_terms(p, &q.terms);
-
-        for (n, m) in zip_eq(&q.thunks, &typ.thunks) {
-            this.sub_neg_type(n, m);
-        }
+        let PosTyp = this.with_terms(p, &q.terms);
     }
 
     pub fn sub_neg_type(&self, n: &Fun<NegTyp>, m: &Fun<NegTyp>) {
         let (m, mut this) = self.extract(m);
         let typ = this.with_terms(n, &m.terms);
 
-        for (n_arg, m_arg) in zip_eq(&typ.arg.thunks, &m.arg.thunks) {
-            this.sub_neg_type(n_arg, m_arg);
-        }
         this.sub_pos_typ(&typ.ret, &m.ret);
     }
 }

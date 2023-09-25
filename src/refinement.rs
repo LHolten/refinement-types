@@ -66,23 +66,29 @@ impl Debug for Context {
     }
 }
 
+#[derive(Clone)]
+struct Cond {
+    arg: Rc<Term>,
+    branch: Vec<Rc<dyn Fn(&mut dyn Heap)>>,
+}
+
+#[derive(Clone)]
+struct FuncDef {
+    ptr: Rc<Term>,
+    typ: Fun<NegTyp>,
+}
+
 #[derive(Clone, Default)]
 struct SubContext {
     univ: u32,
     assume: Rc<Context>,
     alloc: Vec<Resource>,
+    cond: Vec<Cond>,
+    funcs: Vec<FuncDef>,
 }
 
-// PosType is product like, it can contain any number of items
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
-struct PosTyp {
-    thunks: Vec<Fun<NegTyp>>,
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
-struct Measure {
-    // alpha: Rc<dyn Fn(usize, &[Rc<Term>]) -> Rc<Term>>,
-}
+struct PosTyp;
 
 #[derive(PartialEq, Eq, Debug)]
 struct NegTyp {
@@ -159,14 +165,12 @@ impl<V> Clone for Lambda<V> {
 }
 
 struct Value<V> {
-    thunk: Vec<Thunk<V>>,
     inj: Vec<Inj<V>>,
 }
 
 impl<V> Default for Value<V> {
     fn default() -> Self {
         Self {
-            thunk: Default::default(),
             inj: Default::default(),
         }
     }
@@ -175,11 +179,6 @@ impl<V> Default for Value<V> {
 enum Inj<V> {
     Just(usize),
     // second argument is projection
-    Var(V, usize),
-}
-
-enum Thunk<V> {
-    Just(Lambda<V>),
     Var(V, usize),
 }
 
@@ -216,3 +215,5 @@ enum BoundExpr<V> {
 // - Use deep embedding for qualified types
 // - Flatten types
 // - No longer return constraints, verified eagerly now
+// - Add support for mutable memory using resources
+// - model functions as pointers

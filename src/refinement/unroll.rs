@@ -12,9 +12,7 @@ impl SubContext {
             fun: Rc::new(move |_terms, heap| {
                 let beta = Rc::new(Term::Nat(i));
                 heap.assert_eq(&term, &beta);
-                PosTyp {
-                    thunks: vec![], // no thunks
-                }
+                PosTyp {}
             }),
         }
     }

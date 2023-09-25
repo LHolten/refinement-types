@@ -1,6 +1,6 @@
 use std::{iter::zip, rc::Rc};
 
-use crate::refinement::{Inj, Thunk};
+use crate::refinement::Inj;
 
 use super::{BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value};
 
@@ -20,19 +20,6 @@ impl Var {
 impl Var {
     fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Sort) {
         &self.args[*proj]
-    }
-
-    fn infer_thunk(&self, proj: &usize) -> &Fun<NegTyp> {
-        &self.inner.thunks[*proj]
-    }
-}
-
-impl FuncRef<Var> {
-    fn infer_thunk(&self) -> Fun<NegTyp> {
-        match self {
-            FuncRef::Local(var, proj) => var.inner.thunks[*proj].clone(),
-            FuncRef::Builtin(builtin) => builtin.infer(),
-        }
     }
 }
 
@@ -62,6 +49,24 @@ impl Fun<PosTyp> {
 }
 
 impl SubContext {
+    pub fn infer_fptr(&self, fptr: &Term) -> Fun<NegTyp> {
+        let mut func_iter = self.funcs.iter();
+        let found = func_iter.find(|func| self.is_always_eq(&func.ptr, fptr));
+        let found = found.expect("argument must be a function");
+        found.typ.clone()
+    }
+
+    fn infer_func(&self, func: &FuncRef<Var>) -> Fun<NegTyp> {
+        match func {
+            FuncRef::Local(var, proj) => {
+                let (fptr, tau) = &var.args[*proj];
+                assert_eq!(*tau, Sort::Nat);
+                self.infer_fptr(fptr)
+            }
+            FuncRef::Builtin(builtin) => builtin.infer(),
+        }
+    }
+
     fn calc_args(&self, val: &Value<Var>) -> Vec<Rc<Term>> {
         let mut res = vec![];
         for inj in &val.inj {
@@ -82,30 +87,12 @@ impl SubContext {
     // This resolves value determined indices in `p`
     pub fn check_value(&mut self, v: &Value<Var>, p: &Fun<PosTyp>) {
         let p_args = self.calc_args(v);
-        let typ = self.with_terms(p, &p_args);
-
-        for (thunk, n) in zip_eq(&v.thunk, &typ.thunks) {
-            self.check_thunk(thunk, n);
-        }
-    }
-
-    pub fn check_thunk(&self, thunk: &Thunk<Var>, n: &Fun<NegTyp>) {
-        match thunk {
-            Thunk::Just(e) => self.check_expr(e, n),
-            Thunk::Var(idx, proj) => {
-                let m = idx.infer_thunk(proj);
-                self.sub_neg_type(m, n);
-            }
-        }
+        let PosTyp = self.with_terms(p, &p_args);
     }
 
     pub fn spine(&mut self, n: &Fun<NegTyp>, s: &Value<Var>) -> Fun<PosTyp> {
         let n_args = self.calc_args(s);
         let typ = self.with_terms(n, &n_args);
-
-        for (thunk, n) in zip_eq(&s.thunk, &typ.arg.thunks) {
-            self.check_thunk(thunk, n);
-        }
         typ.ret
     }
 
@@ -130,7 +117,7 @@ impl SubContext {
             Expr::Let(g, l) => {
                 let bound_p = match g {
                     BoundExpr::App(func, s) => {
-                        let n = func.infer_thunk();
+                        let n = self.infer_func(func);
                         self.spine(&n, s)
                     }
                     BoundExpr::Anno(e, p) => {

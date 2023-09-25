@@ -109,7 +109,7 @@ macro_rules! neg_typ {
             let list_var!(@start $arg) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $arg_bound);
             $crate::refinement::NegTyp {
-                arg: funcs!($arg),
+                arg: crate::refinement::PosTyp,
                 ret: pos_typ!($($ret)*),
             }
         })};
@@ -130,7 +130,7 @@ macro_rules! pos_typ {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $part) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $bound);
-            funcs!($part)
+            $crate::refinement::PosTyp
         })};
         add_tau!(@start fun; $part);
         fun
@@ -162,6 +162,10 @@ macro_rules! bounds {
         let $var = Box::leak(Box::new(tmp));
         bounds!($heap; $($($tail)*)?);
     };
+    ($heap:ident; fn $val:ident $arg:tt $(where $bound:tt)? -> $ret:tt $(where $bound2:tt)? $(;$($tail:tt)*)?) => {
+        $heap.func($val, neg_typ!($arg $(where $bound)? -> $ret $(where $bound2)?));
+        bounds!($heap; $($($tail)*)?);
+    };
     ($heap:ident;) => {}
 }
 
@@ -172,21 +176,4 @@ macro_rules! term {
     ($val:literal) => {
         &::std::rc::Rc::new($crate::refinement::Term::Nat($val))
     };
-}
-
-macro_rules! add_part {
-    (@start $pos:tt; ($($tail:tt)*)) => {
-        add_part!($pos; $($tail)*)
-    };
-    ($pos:tt; $arg:tt $(where $bound:tt)? -> $ret:tt $(where $bound2:tt)? $(,$($tail:tt)*)?) => {
-        $pos.thunks.push(neg_typ!($arg $(where $bound)? -> $ret $(where $bound2)?));
-        add_part!($pos; $($($tail)*)?)
-    };
-    ($pos:tt; $var:ident:Nat $(,$($tail:tt)*)?) => {
-        add_part!($pos; $($($tail)*)?)
-    };
-    ($pos:tt; Nat $(,$($tail:tt)*)?) => {
-        add_part!($pos; $($($tail)*)?)
-    };
-    ($pos:tt;) => {}
 }

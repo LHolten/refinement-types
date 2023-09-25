@@ -61,3 +61,17 @@ fn increment() {
     );
     ctx.check_expr(&lamb, &typ);
 }
+
+#[test]
+fn func_arg() {
+    let ctx = SubContext::default();
+    let lamb = parse_lambda! {Var; args =>
+        let _ = args.0 ();
+        return ()
+    };
+    let typ = neg_typ!(
+        (func:Nat) where {fn func() -> ()}
+            -> ()
+    );
+    ctx.check_expr(&lamb, &typ);
+}

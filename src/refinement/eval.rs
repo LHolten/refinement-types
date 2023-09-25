@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{builtin::Builtin, BoundExpr, Expr, FuncRef, Inj, Lambda, Term, Thunk, Value};
+use super::{builtin::Builtin, BoundExpr, Expr, FuncRef, Inj, Lambda, Term, Value};
 
 #[derive(Clone)]
 struct Eval {
@@ -70,13 +70,9 @@ impl Res {
             Inj::Just(idx) => *idx,
             Inj::Var(var, proj) => *var.get_inj(proj),
         });
-        let thunks = val.thunk.iter().map(|thun| match thun {
-            Thunk::Just(lamb) => lamb.clone(),
-            Thunk::Var(var, proj) => var.get_thunk(proj).clone(),
-        });
         Self {
             inj: inj.collect(),
-            thunks: thunks.collect(),
+            thunks: vec![],
         }
     }
 }
