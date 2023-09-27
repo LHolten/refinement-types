@@ -1,6 +1,6 @@
 use std::{mem::take, rc::Rc};
 
-use super::{Cond, Context, Fun, FuncDef, NegTyp, Prop, Sort, SubContext, Term};
+use super::{typing::zip_eq, Cond, Context, Fun, FuncDef, NegTyp, Prop, Sort, SubContext, Term};
 
 /// a single resource
 #[derive(Clone, Debug)]
@@ -13,7 +13,7 @@ pub(super) trait Heap {
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term>;
     fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>);
     fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>);
-    fn switch(&mut self, c: Cond);
+    fn switch(&mut self, cond: Cond);
 }
 
 pub(super) struct HeapConsume<'a>(pub &'a mut SubContext);
@@ -48,23 +48,25 @@ impl Heap for HeapConsume<'_> {
     }
 
     fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>) {
-        let have_typ = self.infer_fptr(&ptr);
+        let have_typ = self.infer_fptr(ptr);
         self.sub_neg_type(&have_typ, &typ);
     }
 
-    fn switch(&mut self, c: Cond) {
-        let mut found = None;
-        for i in 0..c.branch.len() {
-            if self.is_always_eq(&c.arg, &Term::Nat(i)) {
-                found = Some(i);
-                break;
-            }
-        }
+    fn switch(&mut self, cond: Cond) {
+        // first check if the resource exists as a whole
+        let found = self.cond.iter().position(|have| {
+            have.func as fn(&'static mut _, u32, &'static _)
+                == cond.func as fn(&'static mut _, u32, &'static _)
+                && zip_eq(&have.args, &cond.args).all(|(l, r)| self.is_always_eq(l, r))
+        });
         if let Some(i) = found {
-            (c.branch[i])(self);
-        } else {
-            self.cond.push(c)
+            self.cond.swap_remove(i);
+            return;
         }
+
+        // now we try to build the resource from parts
+        let val = self.get_value(&cond.args[0]);
+        (cond.func)(self, val.unwrap(), &cond.args[1..]);
     }
 
     fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
@@ -107,18 +109,13 @@ impl Heap for HeapProduce<'_> {
         })
     }
 
-    fn switch(&mut self, c: Cond) {
-        let mut found = None;
-        for i in 0..c.branch.len() {
-            if self.is_always_eq(&c.arg, &Term::Nat(i)) {
-                found = Some(i);
-                break;
-            }
-        }
+    fn switch(&mut self, cond: Cond) {
+        let found = self.get_value(&cond.args[0]);
+
         if let Some(i) = found {
-            (c.branch[i])(self);
+            (cond.func)(self, i, &cond.args[1..]);
         } else {
-            // TODO: remove the cond from the list somehow
+            self.cond.push(cond)
         }
     }
 

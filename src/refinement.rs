@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use std::{fmt::Debug, ops::Deref, rc::Rc};
+use std::rc::Rc;
+use std::{fmt::Debug, ops::Deref};
 
 #[macro_use]
 mod parse_typ;
@@ -35,6 +36,7 @@ enum Sort {
 enum Term {
     UVar(u32, Sort),
     Nat(usize),
+    Add(Rc<Term>, Rc<Term>),
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -66,10 +68,11 @@ impl Debug for Context {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone)]
 struct Cond {
-    arg: Rc<Term>,
-    branch: Vec<Rc<dyn Fn(&mut dyn Heap)>>,
+    args: Vec<Rc<Term>>,
+    func: fn(&mut dyn Heap, u32, &[Rc<Term>]),
 }
 
 #[derive(Clone)]
@@ -178,14 +181,15 @@ impl<V> Default for Value<V> {
 
 enum Inj<V> {
     Just(usize),
-    // second argument is projection
-    Var(V, usize),
+    Var(Local<V>),
 }
 
-enum FuncRef<V> {
-    Local(V, usize),
+enum Thunk<V> {
+    Local(Local<V>),
     Builtin(Builtin),
 }
+
+struct Local<V>(V, usize);
 
 enum Expr<V> {
     /// construct a value and return it
@@ -195,7 +199,7 @@ enum Expr<V> {
     Let(BoundExpr<V>, Lambda<V>),
 
     /// match on some inductive type and choose a branch
-    Match(V, usize, Vec<Lambda<V>>),
+    Match(Local<V>, Vec<Lambda<V>>),
 
     /// loop back to an assigment
     Loop(V, Rc<Value<V>>),
@@ -203,7 +207,7 @@ enum Expr<V> {
 
 enum BoundExpr<V> {
     /// apply a function to some arguments
-    App(FuncRef<V>, Rc<Value<V>>),
+    App(Thunk<V>, Rc<Value<V>>),
 
     Anno(Rc<Value<V>>, Fun<PosTyp>),
 }

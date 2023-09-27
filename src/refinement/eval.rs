@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{builtin::Builtin, BoundExpr, Expr, FuncRef, Inj, Lambda, Term, Value};
+use super::{builtin::Builtin, BoundExpr, Expr, Inj, Lambda, Local, Term, Thunk, Value};
 
 #[derive(Clone)]
 struct Eval {
@@ -54,13 +54,13 @@ impl Lambda<Eval> {
     }
 }
 
-impl Eval {
-    fn get_thunk(&self, proj: &usize) -> &Lambda<Eval> {
-        &self.res.thunks[*proj]
+impl Local<Eval> {
+    fn get_thunk(&self) -> &Lambda<Eval> {
+        &self.0.res.thunks[self.1]
     }
 
-    fn get_inj(&self, proj: &usize) -> &usize {
-        &self.res.inj[*proj]
+    fn get_inj(&self) -> usize {
+        self.0.res.inj[self.1]
     }
 }
 
@@ -68,7 +68,7 @@ impl Res {
     pub fn from_val(val: &Value<Eval>) -> Self {
         let inj = val.inj.iter().map(|inj| match inj {
             Inj::Just(idx) => *idx,
-            Inj::Var(var, proj) => *var.get_inj(proj),
+            Inj::Var(local) => local.get_inj(),
         });
         Self {
             inj: inj.collect(),
@@ -86,9 +86,9 @@ impl Memory {
                     let arg = self.eval_bind(bind);
                     expr = e.inst_arg(&arg);
                 }
-                Expr::Match(var, proj, e) => {
-                    let idx = var.get_inj(proj);
-                    expr = e[*idx].inst_arg(&Default::default());
+                Expr::Match(local, e) => {
+                    let idx = local.get_inj();
+                    expr = e[idx].inst_arg(&Default::default());
                 }
                 Expr::Loop(var, arg) => {
                     let arg = Res::from_val(arg);
@@ -103,11 +103,11 @@ impl Memory {
             BoundExpr::App(func, arg) => {
                 let arg = Res::from_val(arg);
                 match func {
-                    FuncRef::Local(var, proj) => {
-                        let func = var.get_thunk(proj).inst_arg(&arg);
+                    Thunk::Local(local) => {
+                        let func = local.get_thunk().inst_arg(&arg);
                         self.eval(func)
                     }
-                    FuncRef::Builtin(builtin) => match builtin {
+                    Thunk::Builtin(builtin) => match builtin {
                         Builtin::Read => {
                             let [ptr] = *arg.inj else { panic!() };
                             Res::new(self.data[ptr])

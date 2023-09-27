@@ -2,7 +2,9 @@ use std::{iter::zip, rc::Rc};
 
 use crate::refinement::Inj;
 
-use super::{BoundExpr, Expr, Fun, FuncRef, Lambda, NegTyp, PosTyp, Sort, SubContext, Term, Value};
+use super::{
+    BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, Sort, SubContext, Term, Thunk, Value,
+};
 
 #[derive(Clone)]
 pub struct Var {
@@ -11,15 +13,9 @@ pub struct Var {
     rec: Fun<NegTyp>,
 }
 
-impl Var {
-    fn get_term(&self, proj: usize) -> Rc<Term> {
-        self.infer_inj(&proj).0.clone()
-    }
-}
-
-impl Var {
-    fn infer_inj(&self, proj: &usize) -> &(Rc<Term>, Sort) {
-        &self.args[*proj]
+impl Local<Var> {
+    fn infer(&self) -> &(Rc<Term>, Sort) {
+        &self.0.args[self.1]
     }
 }
 
@@ -56,14 +52,14 @@ impl SubContext {
         found.typ.clone()
     }
 
-    fn infer_func(&self, func: &FuncRef<Var>) -> Fun<NegTyp> {
+    fn infer_func(&self, func: &Thunk<Var>) -> Fun<NegTyp> {
         match func {
-            FuncRef::Local(var, proj) => {
-                let (fptr, tau) = &var.args[*proj];
+            Thunk::Local(local) => {
+                let (fptr, tau) = local.infer();
                 assert_eq!(*tau, Sort::Nat);
                 self.infer_fptr(fptr)
             }
-            FuncRef::Builtin(builtin) => builtin.infer(),
+            Thunk::Builtin(builtin) => builtin.infer(),
         }
     }
 
@@ -75,8 +71,8 @@ impl SubContext {
                     let arg = Rc::new(Term::Nat(*idx));
                     res.push(arg);
                 }
-                Inj::Var(idx, proj) => {
-                    let (arg, _obj) = idx.infer_inj(proj);
+                Inj::Var(local) => {
+                    let (arg, _tau) = local.infer();
                     res.push(arg.clone())
                 }
             }
@@ -127,8 +123,8 @@ impl SubContext {
                 };
                 self.check_expr(l, &bound_p.arrow(p.clone()))
             }
-            Expr::Match(idx, proj, pats) => {
-                let (term, _tau) = idx.infer_inj(proj);
+            Expr::Match(local, pats) => {
+                let (term, _tau) = local.infer();
 
                 for (i, l) in pats.iter().enumerate() {
                     // we want to preserve resources between branches

@@ -12,7 +12,8 @@ macro_rules! parse_expr {
     ($ty:ty; let $var:pat = $fun:ident.$num:literal ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
         let tail = parse_lambda!($ty; $var => $($tail)*);
-        let func = $crate::refinement::FuncRef::Local($fun.clone(), $num);
+        let local = $crate::refinement::Local($fun.clone(), $num);
+        let func = $crate::refinement::Thunk::Local(local);
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
@@ -20,7 +21,7 @@ macro_rules! parse_expr {
         let val = parse_value!($ty; $var.$num1, $val.$num);
         let tail = parse_lambda!($ty; _ => $($tail)*);
         let func = $crate::refinement::builtin::Builtin::Write;
-        let func = $crate::refinement::FuncRef::Builtin(func);
+        let func = $crate::refinement::Thunk::Builtin(func);
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
@@ -28,7 +29,7 @@ macro_rules! parse_expr {
         let val = parse_value!($ty; $val.$num);
         let tail = parse_lambda!($ty; $var => $($tail)*);
         let func = $crate::refinement::builtin::Builtin::Read;
-        let func = $crate::refinement::FuncRef::Builtin(func);
+        let func = $crate::refinement::Thunk::Builtin(func);
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
@@ -51,7 +52,8 @@ macro_rules! parse_expr {
         let branches = vec![$(
             parse_lambda!($ty; $($branch)*)
         ),*];
-        $crate::refinement::Expr::Match($fun.clone(), $num, branches)
+        let local = $crate::refinement::Local($fun.clone(), $num);
+        $crate::refinement::Expr::Match(local, branches)
     }};
 }
 
@@ -70,7 +72,8 @@ macro_rules! add_value {
         add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr; $var:ident.$num:literal $(,$($tail:tt)*)?) => {
-        $accum.inj.push($crate::refinement::Inj::Var($var.clone(), $num));
+        let local = $crate::refinement::Local($var.clone(), $num);
+        $accum.inj.push($crate::refinement::Inj::Var(local));
         add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr; { $($branch:tt)* } $(,$($tail:tt)*)?) => {

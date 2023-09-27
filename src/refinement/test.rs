@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{Fun, Lambda, NegTyp, Value, Var};
+use super::{heap::Heap, Cond, Fun, Lambda, NegTyp, Sort, Term, Value, Var};
 
 fn id_unit() -> Lambda<Var> {
     parse_lambda!(Var; _val => return ())
@@ -72,6 +72,38 @@ fn func_arg() {
     let typ = neg_typ!(
         (func:Nat) where {fn func() -> ()}
             -> ()
+    );
+    ctx.check_expr(&lamb, &typ);
+}
+
+/// zero terminated list type
+fn terminated(heap: &mut dyn Heap, val: u32, args: &[Rc<Term>]) {
+    let [ptr] = args else { panic!() };
+    if val != 0 {
+        let ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
+        let val = heap.owned(&ptr, Sort::Nat);
+        heap.switch(Cond {
+            args: vec![val, ptr],
+            func: terminated,
+        })
+    }
+}
+
+#[test]
+fn data_typ() {
+    let ctx = SubContext::default();
+    let lamb = parse_lambda! {Var; args =>
+        let val = args.0[0];
+        match val.0
+        {_ => return ()}
+        {_ =>
+            args.0[0] = args.1;
+            loop args = (args.0, args.1)
+        }
+    };
+    let typ = neg_typ!(
+        (ptr:Nat) where {let val = ptr[0]; terminated(val, ptr)}
+            -> () where {let val = ptr[0]; terminated(val, ptr)}
     );
     ctx.check_expr(&lamb, &typ);
 }

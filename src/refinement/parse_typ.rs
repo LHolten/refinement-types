@@ -166,6 +166,12 @@ macro_rules! bounds {
         $heap.func($val, neg_typ!($arg $(where $bound)? -> $ret $(where $bound2)?));
         bounds!($heap; $($($tail)*)?);
     };
+    ($heap:ident; $func:ident ($($arg:tt),*)) => {
+        $heap.switch($crate::refinement::Cond{
+            args: vec![$($arg.clone()),*],
+            func: $func,
+        });
+    };
     ($heap:ident;) => {}
 }
 
