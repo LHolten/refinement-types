@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{heap::Heap, Cond, Fun, Lambda, NegTyp, Sort, Term, Value, Var};
+use super::{heap::Heap, Cond, Fun, Lambda, NegTyp, Prop, Sort, Term, Value, Var};
 
 fn id_unit() -> Lambda<Var> {
     parse_lambda!(Var; _val => return ())
@@ -77,16 +77,18 @@ fn func_arg() {
 }
 
 /// zero terminated list type
-fn terminated(heap: &mut dyn Heap, val: u32, args: &[Rc<Term>]) {
+fn terminated(heap: &mut dyn Heap, is_zero: u32, args: &[Rc<Term>]) {
     let [ptr] = args else { panic!() };
-    if val != 0 {
-        let ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
-        let val = heap.owned(&ptr, Sort::Nat);
-        heap.switch(Cond {
-            args: vec![val, ptr],
-            func: terminated,
-        })
+    if is_zero != 0 {
+        return;
     }
+    let ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
+    let val = heap.owned(&ptr, Sort::Nat);
+    let is_zero = Rc::new(Term::Bool(Rc::new(Prop::Eq(val, Rc::new(Term::Nat(0))))));
+    heap.switch(Cond {
+        args: vec![is_zero, ptr],
+        func: terminated,
+    })
 }
 
 #[test]
@@ -97,12 +99,14 @@ fn data_typ() {
         match val.0
         {_ => return ()}
         {_ =>
-            args.0[0] = args.1;
+            let x: (v:Nat) where {1 <= v} = (10);
+            args.0[0] = x.0;
+            // args.0[0] = args.1;
             loop args = (args.0, args.1)
         }
     };
     let typ = neg_typ!(
-        (ptr:Nat) where {let val = ptr[0]; terminated(val, ptr)}
+        (ptr:Nat, new:Nat) where {let val = ptr[0]; terminated(val, ptr); 1 <= new}
             -> () where {let val = ptr[0]; terminated(val, ptr)}
     );
     ctx.check_expr(&lamb, &typ);

@@ -37,11 +37,13 @@ enum Term {
     UVar(u32, Sort),
     Nat(usize),
     Add(Rc<Term>, Rc<Term>),
+    Bool(Rc<Prop>),
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
+    LessEq(Rc<Term>, Rc<Term>),
     // MeasureEq(Measure, [Rc<Term>; 2]),
     // True,
 }
@@ -69,7 +71,7 @@ impl Debug for Context {
 }
 
 #[allow(clippy::type_complexity)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Cond {
     args: Vec<Rc<Term>>,
     func: fn(&mut dyn Heap, u32, &[Rc<Term>]),
@@ -199,6 +201,7 @@ enum Expr<V> {
     Let(BoundExpr<V>, Lambda<V>),
 
     /// match on some inductive type and choose a branch
+    /// last branch will be the catch all
     Match(Local<V>, Vec<Lambda<V>>),
 
     /// loop back to an assigment

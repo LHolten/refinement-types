@@ -3,7 +3,7 @@ use std::{iter::zip, rc::Rc};
 use crate::refinement::Inj;
 
 use super::{
-    BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, Sort, SubContext, Term, Thunk, Value,
+    BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, Prop, Sort, SubContext, Term, Thunk, Value,
 };
 
 #[derive(Clone)]
@@ -125,13 +125,19 @@ impl SubContext {
             }
             Expr::Match(local, pats) => {
                 let (term, _tau) = local.infer();
+                let (last, pats) = pats.split_last().unwrap();
 
                 for (i, l) in pats.iter().enumerate() {
                     // we want to preserve resources between branches
                     let this = self.clone();
-                    let match_p = this.unroll_prod_univ(term, i);
+                    let phi = Prop::Eq(term.clone(), Rc::new(Term::Nat(i)));
+                    let match_p = this.unroll_prod_univ(phi);
                     this.check_expr(l, &match_p.arrow(p.clone()));
                 }
+
+                let phi = Prop::LessEq(Rc::new(Term::Nat(pats.len())), term.clone());
+                let match_p = self.unroll_prod_univ(phi);
+                self.check_expr(last, &match_p.arrow(p.clone()));
             }
             Expr::Loop(idx, s) => {
                 let n = &idx.rec;

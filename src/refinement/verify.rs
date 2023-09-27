@@ -20,6 +20,9 @@ impl From<&Term> for Int<'_> {
             }
             Term::Nat(val) => Int::from_u64(ctx, *val as u64),
             Term::Add(l, r) => Int::add(ctx, &[&Int::from(l.as_ref()), &Int::from(r.as_ref())]),
+            Term::Bool(b) => {
+                Bool::from(b.as_ref()).ite(&Int::from_i64(ctx, 1), &Int::from_i64(ctx, 0))
+            }
         }
     }
 }
@@ -28,6 +31,7 @@ impl From<&Prop> for Bool<'_> {
     fn from(value: &Prop) -> Self {
         match value {
             Prop::Eq(l, r) => Int::from(l.as_ref())._eq(&Int::from(r.as_ref())),
+            Prop::LessEq(l, r) => Int::from(l.as_ref()).le(&Int::from(r.as_ref())),
         }
     }
 }
@@ -74,7 +78,7 @@ impl SubContext {
             SatResult::Unknown => todo!(),
             SatResult::Sat => {
                 let model = s.get_model().unwrap();
-                let val = model.get_const_interp(&term).unwrap();
+                let val = model.get_const_interp(&term)?;
 
                 match s.check_assumptions(&[term._eq(&val).not()]) {
                     SatResult::Unsat => Some(val.as_u64().unwrap() as u32),

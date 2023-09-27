@@ -11,7 +11,10 @@ pub(super) struct Resource {
 
 pub(super) trait Heap {
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term>;
-    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>);
+    fn assert(&mut self, phi: Prop);
+    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
+        self.assert(Prop::Eq(x.clone(), y.clone()));
+    }
     fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>);
     fn switch(&mut self, cond: Cond);
 }
@@ -65,12 +68,14 @@ impl Heap for HeapConsume<'_> {
         }
 
         // now we try to build the resource from parts
+        eprintln!("&self.cond = {:?}", &self.cond);
+        eprintln!("looking for &cond = {:?}", &cond);
         let val = self.get_value(&cond.args[0]);
         (cond.func)(self, val.unwrap(), &cond.args[1..]);
     }
 
-    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
-        self.verify_props(&[Prop::Eq(x.clone(), y.clone())]);
+    fn assert(&mut self, phi: Prop) {
+        self.verify_props(&[phi.clone()]);
     }
 }
 
@@ -112,16 +117,24 @@ impl Heap for HeapProduce<'_> {
     fn switch(&mut self, cond: Cond) {
         let found = self.get_value(&cond.args[0]);
 
-        if let Some(i) = found {
-            (cond.func)(self, i, &cond.args[1..]);
+        if let Some(val) = found {
+            (cond.func)(self, val, &cond.args[1..]);
         } else {
             self.cond.push(cond)
         }
     }
 
-    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
-        let phi = Prop::Eq(x.clone(), y.clone());
+    fn assert(&mut self, phi: Prop) {
         let next = take(&mut self.assume);
         self.assume = Rc::new(Context::Assume { phi, next });
+
+        let map = self.cond.iter().enumerate().filter_map(|(idx, cond)| {
+            let found = self.get_value(&cond.args[0]);
+            found.map(|val| (idx, val))
+        });
+        for (idx, val) in map.rev().collect::<Vec<_>>() {
+            let cond = self.cond.swap_remove(idx);
+            (cond.func)(self, val, &cond.args[1..]);
+        }
     }
 }

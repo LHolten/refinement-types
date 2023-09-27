@@ -64,6 +64,9 @@ macro_rules! add_tau {
     ($fun:expr; $l:tt == $r:tt $(,$($tail:tt)*)?) => {
         add_tau!($fun; $($($tail)*)?)
     };
+    ($fun:expr; $l:tt <= $r:tt $(,$($tail:tt)*)?) => {
+        add_tau!($fun; $($($tail)*)?)
+    };
     ($fun:expr; $var:ident:Nat $(,$($tail:tt)*)?) => {
         $fun.tau.push($crate::refinement::Sort::Nat);
         add_tau!($fun; $($($tail)*)?)
@@ -83,6 +86,9 @@ macro_rules! list_var {
         list_var!($($prev)* => $($($tail)*)?)
     };
     ($($prev:pat)* => ($l:expr) == ($r:expr) $(,$($tail:tt)*)?) => {
+        list_var!($($prev)* => $($($tail)*)?)
+    };
+    ($($prev:pat)* => ($l:expr) <= ($r:expr) $(,$($tail:tt)*)?) => {
         list_var!($($prev)* => $($($tail)*)?)
     };
     ($($prev:pat)* => $var:ident:$ty:tt $(,$($tail:tt)*)?) => {
@@ -157,6 +163,11 @@ macro_rules! bounds {
         $heap.assert_eq(term!($l), term!($r));
         bounds!($heap; $($($tail)*)?);
     };
+    ($heap:ident; $l:tt <= $r:tt $(;$($tail:tt)*)?) => {
+        let phi = $crate::refinement::Prop::LessEq(term!($l).clone(), term!($r).clone());
+        $heap.assert(phi);
+        bounds!($heap; $($($tail)*)?);
+    };
     ($heap:ident; let $var:pat = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {
         let tmp = $heap.owned($val, $crate::refinement::Sort::Nat);
         let $var = Box::leak(Box::new(tmp));
@@ -166,11 +177,12 @@ macro_rules! bounds {
         $heap.func($val, neg_typ!($arg $(where $bound)? -> $ret $(where $bound2)?));
         bounds!($heap; $($($tail)*)?);
     };
-    ($heap:ident; $func:ident ($($arg:tt),*)) => {
+    ($heap:ident; $func:ident ($($arg:tt),*) $(;$($tail:tt)*)?) => {
         $heap.switch($crate::refinement::Cond{
             args: vec![$($arg.clone()),*],
             func: $func,
         });
+        bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident;) => {}
 }
