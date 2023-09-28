@@ -1,4 +1,4 @@
-use std::{iter::zip, rc::Rc};
+use std::{iter::zip, mem::forget, rc::Rc};
 
 use crate::refinement::Inj;
 
@@ -92,23 +92,22 @@ impl SubContext {
         typ.ret
     }
 
-    pub fn check_expr(&self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
-        let (neg, mut this) = self.extract(n);
+    pub fn check_expr(mut self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
+        let neg = self.extract(n);
         let var = Var {
             args: zip_eq(neg.terms, n.tau.clone()).collect(),
             inner: Rc::new(neg.inner.arg),
             rec: n.clone(),
         };
         let e = l.inst(&var);
-        this.check_expr_pos(&e, &neg.inner.ret);
+        self.check_expr_pos(&e, &neg.inner.ret);
     }
 
-    pub fn check_expr_pos(&mut self, e: &Expr<Var>, p: &Fun<PosTyp>) {
+    pub fn check_expr_pos(mut self, e: &Expr<Var>, p: &Fun<PosTyp>) {
         match e {
             Expr::Return(v) => {
                 self.check_value(v, p);
-                // leaking resources is not allowed
-                assert!(self.alloc.is_empty(), "can not leak memory");
+                self.check_empty();
             }
             Expr::Let(g, l) => {
                 let bound_p = match g {
@@ -117,6 +116,7 @@ impl SubContext {
                         self.spine(&n, s)
                     }
                     BoundExpr::Anno(e, p) => {
+                        // as if you call identity
                         self.check_value(e, p);
                         p.clone()
                     }
@@ -145,5 +145,25 @@ impl SubContext {
                 self.sub_pos_typ(&res, p);
             }
         }
+    }
+
+    pub fn without_alloc(&self) -> Self {
+        Self {
+            univ: self.univ,
+            assume: self.assume.clone(),
+            alloc: vec![],
+            cond: vec![],
+            funcs: vec![],
+        }
+    }
+
+    pub fn check_empty(mut self) {
+        // leaking resources is not allowed
+        // TODO: make sure this doesn't leak
+        assert!(self.alloc.is_empty(), "can not leak memory");
+        assert!(self.cond.is_empty(), "can not leak memory");
+        self.assume.clear();
+        self.funcs.clear();
+        forget(self);
     }
 }

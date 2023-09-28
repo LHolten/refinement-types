@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::process::abort;
 use std::rc::Rc;
 use std::{fmt::Debug, ops::Deref};
 
@@ -32,7 +33,7 @@ enum Sort {
 }
 
 #[non_exhaustive]
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 enum Term {
     UVar(u32, Sort),
     Nat(usize),
@@ -40,7 +41,18 @@ enum Term {
     Bool(Rc<Prop>),
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+impl Debug for Term {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UVar(idx, _tau) => write!(f, "var{idx}"),
+            Self::Nat(val) => write!(f, "{val}"),
+            Self::Add(l, r) => write!(f, "{l:?} + {r:?}"),
+            Self::Bool(val) => write!(f, "{val:?}"),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone)]
 enum Prop {
     Eq(Rc<Term>, Rc<Term>),
     LessEq(Rc<Term>, Rc<Term>),
@@ -48,25 +60,12 @@ enum Prop {
     // True,
 }
 
-#[derive(Default)]
-enum Context {
-    #[default]
-    Empty,
-    Assume {
-        phi: Prop,
-        next: Rc<Context>,
-    },
-}
-
-impl Debug for Context {
+impl Debug for Prop {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut res = Vec::new();
-        let mut this = self;
-        while let Self::Assume { phi, next } = this {
-            this = next;
-            res.push(phi);
+        match self {
+            Self::Eq(l, r) => write!(f, "{l:?} == {r:?}"),
+            Self::LessEq(l, r) => write!(f, "{l:?} <= {r:?}"),
         }
-        f.debug_list().entries(res.iter().rev()).finish()
     }
 }
 
@@ -84,12 +83,19 @@ struct FuncDef {
 }
 
 #[derive(Clone, Default)]
+#[must_use]
 struct SubContext {
     univ: u32,
-    assume: Rc<Context>,
+    assume: Vec<Prop>,
     alloc: Vec<Resource>,
     cond: Vec<Cond>,
     funcs: Vec<FuncDef>,
+}
+
+impl Drop for SubContext {
+    fn drop(&mut self) {
+        abort()
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Default, Clone)]

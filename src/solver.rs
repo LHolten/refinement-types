@@ -2,7 +2,11 @@ use z3::{Config, Context, Solver};
 
 pub fn ctx() -> &'static Context {
     thread_local! {
-        static CTX: &'static Context = Box::leak(Box::new(Context::new(&Config::new())));
+        static CTX: &'static Context = Box::leak(Box::new(Context::new(&{
+            let mut config = Config::new();
+            config.set_model_generation(true);
+            config
+        })));
     }
     CTX.with(Clone::clone)
 }

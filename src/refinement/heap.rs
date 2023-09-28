@@ -1,6 +1,6 @@
-use std::{mem::take, rc::Rc};
+use std::rc::Rc;
 
-use super::{typing::zip_eq, Cond, Context, Fun, FuncDef, NegTyp, Prop, Sort, SubContext, Term};
+use super::{typing::zip_eq, Cond, Fun, FuncDef, NegTyp, Prop, Sort, SubContext, Term};
 
 /// a single resource
 #[derive(Clone, Debug)]
@@ -44,7 +44,8 @@ impl Heap for HeapConsume<'_> {
                 break;
             }
         }
-        let resource = self.alloc.swap_remove(found.unwrap());
+        let Some(idx) = found else { panic!() };
+        let resource = self.alloc.swap_remove(idx);
         // TODO: check that resource has correct sort
         assert_eq!(tau, Sort::Nat);
         resource.value
@@ -52,7 +53,10 @@ impl Heap for HeapConsume<'_> {
 
     fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>) {
         let have_typ = self.infer_fptr(ptr);
-        self.sub_neg_type(&have_typ, &typ);
+
+        // we do not want to allow access to resources outside the function
+        let this = self.without_alloc();
+        this.sub_neg_type(&have_typ, &typ);
     }
 
     fn switch(&mut self, cond: Cond) {
@@ -68,8 +72,6 @@ impl Heap for HeapConsume<'_> {
         }
 
         // now we try to build the resource from parts
-        eprintln!("&self.cond = {:?}", &self.cond);
-        eprintln!("looking for &cond = {:?}", &cond);
         let val = self.get_value(&cond.args[0]);
         (cond.func)(self, val.unwrap(), &cond.args[1..]);
     }
@@ -125,8 +127,7 @@ impl Heap for HeapProduce<'_> {
     }
 
     fn assert(&mut self, phi: Prop) {
-        let next = take(&mut self.assume);
-        self.assume = Rc::new(Context::Assume { phi, next });
+        self.assume.push(phi);
 
         let map = self.cond.iter().enumerate().filter_map(|(idx, cond)| {
             let found = self.get_value(&cond.args[0]);

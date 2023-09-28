@@ -24,9 +24,9 @@ fn forall_id_typ() -> Fun<NegTyp> {
 fn check_id_typ() {
     let ctx = SubContext::default();
     eprintln!("== test1");
-    ctx.check_expr(&id_unit(), &neg_typ!(() -> ()));
+    ctx.clone().check_expr(&id_unit(), &neg_typ!(() -> ()));
     eprintln!("== test2");
-    ctx.check_expr(&id_fun(), &neg_typ!((Nat) -> (Nat)));
+    ctx.clone().check_expr(&id_fun(), &neg_typ!((Nat) -> (Nat)));
     eprintln!("== test3");
     ctx.check_expr(&id_fun(), &neg_typ!((a:Nat) -> (b:Nat) where {b == a}));
 }
@@ -37,7 +37,7 @@ fn checkk_id_app() {
     eprintln!("== test1");
     let typ = ctx.spine(&forall_id_typ(), &inductive_val());
 
-    let (res, _ctx) = ctx.extract(&typ);
+    let res = ctx.extract(&typ);
     eprintln!("res.terms = {:?}", res.terms);
     // assert_eq!((res.fun)(&[]).0, inductive_typ(&InnerTerm::Zero.share()));
     // eprintln!();
@@ -76,19 +76,25 @@ fn func_arg() {
     ctx.check_expr(&lamb, &typ);
 }
 
-/// zero terminated list type
-fn terminated(heap: &mut dyn Heap, is_zero: u32, args: &[Rc<Term>]) {
-    let [ptr] = args else { panic!() };
-    if is_zero != 0 {
-        return;
-    }
+fn terminated(heap: &mut dyn Heap, ptr: &Rc<Term>) {
+    let val = heap.owned(ptr, Sort::Nat);
+    let not_zero = Rc::new(Term::Bool(Rc::new(Prop::LessEq(
+        Rc::new(Term::Nat(1)),
+        val,
+    ))));
     let ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
-    let val = heap.owned(&ptr, Sort::Nat);
-    let is_zero = Rc::new(Term::Bool(Rc::new(Prop::Eq(val, Rc::new(Term::Nat(0))))));
     heap.switch(Cond {
-        args: vec![is_zero, ptr],
-        func: terminated,
-    })
+        args: vec![not_zero, ptr],
+        func: inner,
+    });
+
+    /// zero terminated list type
+    fn inner(heap: &mut dyn Heap, not_zero: u32, args: &[Rc<Term>]) {
+        let [ptr] = args else { panic!() };
+        if not_zero != 0 {
+            terminated(heap, ptr)
+        }
+    }
 }
 
 #[test]
@@ -97,17 +103,16 @@ fn data_typ() {
     let lamb = parse_lambda! {Var; args =>
         let val = args.0[0];
         match val.0
-        {_ => return ()}
-        {_ =>
-            let x: (v:Nat) where {1 <= v} = (10);
-            args.0[0] = x.0;
-            // args.0[0] = args.1;
-            loop args = (args.0, args.1)
+        /* 0 */ {_ => return ()}
+        /* 1.. */ {_ =>
+            args.0[0] = args.1;
+            let next = @add(args.0, 1);
+            loop args = (next.0, args.1)
         }
     };
     let typ = neg_typ!(
-        (ptr:Nat, new:Nat) where {let val = ptr[0]; terminated(val, ptr); 1 <= new}
-            -> () where {let val = ptr[0]; terminated(val, ptr)}
+        (ptr:Nat, new:Nat) where {terminated(ptr); 1 <= new}
+            -> () where {terminated(ptr)}
     );
     ctx.check_expr(&lamb, &typ);
 }

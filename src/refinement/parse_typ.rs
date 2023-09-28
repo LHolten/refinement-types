@@ -178,10 +178,7 @@ macro_rules! bounds {
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; $func:ident ($($arg:tt),*) $(;$($tail:tt)*)?) => {
-        $heap.switch($crate::refinement::Cond{
-            args: vec![$($arg.clone()),*],
-            func: $func,
-        });
+        ($func)($heap, $($arg),*);
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident;) => {}

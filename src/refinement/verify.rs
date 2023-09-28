@@ -8,7 +8,7 @@ use crate::{
     solver::{ctx, solver},
 };
 
-use super::{Context, Prop, SubContext, Term};
+use super::{Prop, SubContext, Term};
 
 impl From<&Term> for Int<'_> {
     fn from(value: &Term) -> Self {
@@ -38,7 +38,7 @@ impl From<&Prop> for Bool<'_> {
 
 impl SubContext {
     pub fn is_always_eq(&self, l: &Term, r: &Term) -> bool {
-        let s = self.assume.assume();
+        let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
         let cond = Int::from(l)._eq(&Int::from(r));
@@ -52,7 +52,7 @@ impl SubContext {
     }
 
     pub fn verify_props(&self, props: &[Prop]) {
-        let s = self.assume.assume();
+        let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
         for prop in props {
@@ -71,14 +71,14 @@ impl SubContext {
     }
 
     pub fn get_value(&self, term: &Term) -> Option<u32> {
-        let s = self.assume.assume();
+        let s = self.assume();
         let term = Int::from(term);
         match s.check() {
             SatResult::Unsat => todo!(),
             SatResult::Unknown => todo!(),
             SatResult::Sat => {
                 let model = s.get_model().unwrap();
-                let val = model.get_const_interp(&term)?;
+                let val = model.eval(&term, true).unwrap();
 
                 match s.check_assumptions(&[term._eq(&val).not()]) {
                     SatResult::Unsat => Some(val.as_u64().unwrap() as u32),
@@ -90,19 +90,13 @@ impl SubContext {
     }
 }
 
-impl Context {
+impl SubContext {
     pub fn assume(&self) -> &'static Solver<'static> {
-        match self {
-            Context::Empty => {
-                let s = solver();
-                s.reset();
-                s
-            }
-            Context::Assume { phi, next } => {
-                let s = next.assume();
-                s.assert(&Bool::from(phi));
-                s
-            }
+        let s = solver();
+        s.reset();
+        for phi in &self.assume {
+            s.assert(&Bool::from(phi));
         }
+        s
     }
 }

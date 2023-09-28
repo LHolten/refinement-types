@@ -17,6 +17,14 @@ macro_rules! parse_expr {
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
+    ($ty:ty; let $var:pat = @$fun:ident ($($val:tt)*); $($tail:tt)*) => {{
+        let val = parse_value!($ty; $($val)*);
+        let tail = parse_lambda!($ty; $var => $($tail)*);
+        let builtin = parse_builtin!($fun);
+        let func = $crate::refinement::Thunk::Builtin(builtin);
+        let bound = $crate::refinement::BoundExpr::App(func, val);
+        $crate::refinement::Expr::Let(bound, tail)
+    }};
     ($ty:ty; $var:ident.$num1:tt[0] = $val:ident.$num:tt; $($tail:tt)*) => {{
         let val = parse_value!($ty; $var.$num1, $val.$num);
         let tail = parse_lambda!($ty; _ => $($tail)*);
@@ -64,6 +72,18 @@ macro_rules! parse_value {
         add_value!($ty; val; $($val)*);
         ::std::rc::Rc::new(val)
     }};
+}
+
+macro_rules! parse_builtin {
+    (read) => {
+        $crate::refinement::builtin::Builtin::Read
+    };
+    (write) => {
+        $crate::refinement::builtin::Builtin::Write
+    };
+    (add) => {
+        $crate::refinement::builtin::Builtin::Add
+    };
 }
 
 macro_rules! add_value {

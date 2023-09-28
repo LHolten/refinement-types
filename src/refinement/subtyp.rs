@@ -8,19 +8,17 @@ use crate::refinement::{
 use super::{Fun, NegTyp, PosTyp, Solved, Term};
 
 impl SubContext {
-    pub fn extract<T>(&self, n: &Fun<T>) -> (Solved<T>, Self) {
-        let mut this = self.clone();
+    pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
         let mut terms = vec![];
         for tau in &n.tau {
-            terms.push(Rc::new(Term::UVar(this.univ, *tau)));
-            this.univ += 1;
+            terms.push(Rc::new(Term::UVar(self.univ, *tau)));
+            self.univ += 1;
         }
 
-        let mut heap = HeapProduce(&mut this);
+        let mut heap = HeapProduce(self);
         let typ = (n.fun)(&terms, &mut heap);
 
-        let solved = Solved { inner: typ, terms };
-        (solved, this)
+        Solved { inner: typ, terms }
     }
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Rc<Term>]) -> T {
@@ -30,15 +28,16 @@ impl SubContext {
         (typ.fun)(terms, &mut heap)
     }
 
-    pub fn sub_pos_typ(&self, q: &Fun<PosTyp>, p: &Fun<PosTyp>) {
-        let (q, mut this) = self.extract(q);
-        let PosTyp = this.with_terms(p, &q.terms);
+    pub fn sub_pos_typ(mut self, q: &Fun<PosTyp>, p: &Fun<PosTyp>) {
+        let q = self.extract(q);
+        let PosTyp = self.with_terms(p, &q.terms);
+        self.check_empty()
     }
 
-    pub fn sub_neg_type(&self, n: &Fun<NegTyp>, m: &Fun<NegTyp>) {
-        let (m, mut this) = self.extract(m);
-        let typ = this.with_terms(n, &m.terms);
+    pub fn sub_neg_type(mut self, n: &Fun<NegTyp>, m: &Fun<NegTyp>) {
+        let m = self.extract(m);
+        let typ = self.with_terms(n, &m.terms);
 
-        this.sub_pos_typ(&typ.ret, &m.ret);
+        self.sub_pos_typ(&typ.ret, &m.ret);
     }
 }
