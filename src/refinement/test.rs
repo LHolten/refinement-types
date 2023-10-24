@@ -36,14 +36,7 @@ fn checkk_id_app() {
     let mut ctx = SubContext::default();
     eprintln!("== test1");
     let typ = ctx.spine(&forall_id_typ(), &inductive_val());
-
-    let res = ctx.extract(&typ);
-    eprintln!("res.terms = {:?}", res.terms);
-    // assert_eq!((res.fun)(&[]).0, inductive_typ(&InnerTerm::Zero.share()));
-    // eprintln!();
-    // eprintln!("== test2");
-    // let (res, xi) = ctx.spine(&forall_id_typ(), &[inductive_val()]);
-    // ctx.verify(&xi.w);
+    ctx.check_expr_pos(&parse_expr!(Var; return (0)), &typ);
 }
 
 #[test]
@@ -115,4 +108,23 @@ fn data_typ() {
             -> () where {terminated(ptr)}
     );
     ctx.check_expr(&lamb, &typ);
+}
+
+fn option(heap: &mut dyn Heap, ptr: &Rc<Term>) {
+    let not_zero = Rc::new(Term::Bool(Rc::new(Prop::LessEq(
+        Rc::new(Term::Nat(1)),
+        ptr.clone(),
+    ))));
+    heap.switch(Cond {
+        args: vec![not_zero, ptr.clone()],
+        func: inner,
+    });
+
+    /// zero terminated list type
+    fn inner(heap: &mut dyn Heap, not_zero: u32, args: &[Rc<Term>]) {
+        let [ptr] = args else { panic!() };
+        if not_zero != 0 {
+            let _val = heap.owned(ptr, Sort::Nat);
+        }
+    }
 }

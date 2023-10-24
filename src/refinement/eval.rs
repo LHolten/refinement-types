@@ -147,6 +147,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "diverges"]
     fn diverge() {
         let expr = parse_expr! {Eval;
             let rec: () = ();

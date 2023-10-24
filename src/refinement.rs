@@ -32,7 +32,6 @@ enum Sort {
     Nat,
 }
 
-#[non_exhaustive]
 #[derive(PartialEq, Eq, Clone)]
 enum Term {
     UVar(u32, Sort),
@@ -94,6 +93,11 @@ struct SubContext {
 
 impl Drop for SubContext {
     fn drop(&mut self) {
+        use std::backtrace::Backtrace;
+        eprintln!(
+            "dropped SubContext at location: {}",
+            Backtrace::force_capture()
+        );
         abort()
     }
 }
@@ -117,6 +121,7 @@ struct ResSort {
 struct Fun<T> {
     // the arguments that are expected to be in scope
     tau: Vec<Sort>,
+    // the first argument is the function itself
     fun: Rc<dyn Fn(&[Rc<Term>], &mut dyn Heap) -> T>,
 }
 

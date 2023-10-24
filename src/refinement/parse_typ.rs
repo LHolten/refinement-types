@@ -1,7 +1,7 @@
 #![allow(unused_macros)]
 
 /// Enum syntax:
-/// ```
+/// ```rust,ignore
 /// enum NatList() {
 ///     0 => Nil {},
 ///     n => Cons {

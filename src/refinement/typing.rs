@@ -45,11 +45,11 @@ impl Fun<PosTyp> {
 }
 
 impl SubContext {
-    pub fn infer_fptr(&self, fptr: &Term) -> Fun<NegTyp> {
+    pub fn infer_fptr(&self, fptr: &Term) -> &Fun<NegTyp> {
         let mut func_iter = self.funcs.iter();
         let found = func_iter.find(|func| self.is_always_eq(&func.ptr, fptr));
         let found = found.expect("argument must be a function");
-        found.typ.clone()
+        &found.typ
     }
 
     fn infer_func(&self, func: &Thunk<Var>) -> Fun<NegTyp> {
@@ -57,7 +57,7 @@ impl SubContext {
             Thunk::Local(local) => {
                 let (fptr, tau) = local.infer();
                 assert_eq!(*tau, Sort::Nat);
-                self.infer_fptr(fptr)
+                self.infer_fptr(fptr).clone()
             }
             Thunk::Builtin(builtin) => builtin.infer(),
         }

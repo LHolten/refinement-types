@@ -54,9 +54,12 @@ impl Heap for HeapConsume<'_> {
     fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>) {
         let have_typ = self.infer_fptr(ptr);
 
-        // we do not want to allow access to resources outside the function
+        // We do not want to allow access to resources outside the function
+        // Technically we can allow access if the access is read only
+        // Checking that the final resource is identical is not enough
+        // (Different closures could use the same memory)
         let this = self.without_alloc();
-        this.sub_neg_type(&have_typ, &typ);
+        this.sub_neg_type(have_typ, &typ);
     }
 
     fn switch(&mut self, cond: Cond) {
