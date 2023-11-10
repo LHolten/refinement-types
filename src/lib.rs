@@ -1,3 +1,4 @@
+#![feature(extract_if)]
 // mod lpi;
 // mod selfref;
 // mod typ_check;

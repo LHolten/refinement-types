@@ -1,13 +1,80 @@
-use std::rc::Rc;
+use std::{cell::RefCell, mem::take, rc::Rc};
 
-use super::{typing::zip_eq, Cond, Fun, FuncDef, NegTyp, Prop, Sort, SubContext, Term};
+use z3::ast::{Ast, Bool, Int};
 
-/// a single resource
-#[derive(Clone, Debug)]
-pub(super) struct Resource {
-    pub ptr: Rc<Term>,
-    pub value: Rc<Term>,
+use crate::solver::ctx;
+
+use super::{
+    typing::zip_eq, Cond, Forall, Fun, FuncDef, NegTyp, Prop, Resource, Sort, SubContext, Term,
+};
+
+#[allow(clippy::type_complexity)]
+pub enum BoolFuncTerm {
+    Uvar(z3::FuncDecl<'static>),
+    User(Box<dyn Fn(&[Int<'static>]) -> Bool<'static>>),
 }
+
+impl BoolFuncTerm {
+    pub fn new<F: Fn(&[Int<'static>]) -> Bool<'static> + 'static>(f: F) -> Rc<Self> {
+        Rc::new(Self::User(Box::new(f)))
+    }
+
+    pub fn apply(&self, idx: &[Int<'static>]) -> Bool<'static> {
+        match self {
+            BoolFuncTerm::Uvar(func) => {
+                let args: Vec<_> = idx.iter().map(|x| x as _).collect();
+                func.apply(&args).as_bool().unwrap()
+            }
+            BoolFuncTerm::User(func) => (func)(idx),
+        }
+    }
+
+    pub fn difference(self: &Rc<Self>, other: &Rc<Self>) -> Rc<Self> {
+        let this = self.clone();
+        let other = other.clone();
+        Self::new(move |idx| this.apply(idx) & !other.apply(idx))
+    }
+
+    pub fn exactly(ptr: &[Rc<Term>]) -> Rc<Self> {
+        let ptr = ptr.to_owned();
+        Self::new(move |val| {
+            zip_eq(&ptr, val)
+                .map(|(l, r)| Int::from(l.as_ref())._eq(r))
+                .fold(Bool::from_bool(ctx(), true), |l, r| l & r)
+        })
+    }
+
+    pub fn and(self: &Rc<Self>, other: &Rc<Self>) -> Rc<Self> {
+        let this = self.clone();
+        let other = other.clone();
+        Self::new(move |idx| this.apply(idx) & other.apply(idx))
+    }
+}
+
+// pub enum IntFuncTerm {
+//     Uvar(z3::FuncDecl<'static>),
+//     // options need to be proven to not intersect
+//     Ite(Resource, Rc<IntFuncTerm>),
+// }
+
+// impl IntFuncTerm {
+//     pub fn apply(&self, idx: &Int<'static>) -> Int<'static> {
+//         match self {
+//             IntFuncTerm::Uvar(func) => func.apply(&[idx]).as_int().unwrap(),
+//             IntFuncTerm::Ite(alloc, e) => {
+//                 let val = alloc.values.apply(idx);
+//                 alloc.locs.apply(idx).ite(&val, &e.apply(idx))
+//             }
+//         }
+//     }
+// }
+
+/// A named combination of constraints and resources
+/// can be combined with other packages of the same name
+// pub struct Package {
+//     pub args: Vec<Rc<Term>>,
+//     pub func: Option<fn(&mut dyn Heap, &[Rc<Term>])>,
+// }
 
 pub(super) trait Heap {
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term>;
@@ -16,7 +83,15 @@ pub(super) trait Heap {
         self.assert(Prop::Eq(x.clone(), y.clone()));
     }
     fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>);
-    fn switch(&mut self, cond: Cond);
+    fn forall(&mut self, forall: Forall);
+    fn switch(&mut self, cond: Cond) {
+        let condition = BoolFuncTerm::new(move |_| Bool::from(cond.cond.as_ref()));
+        self.forall(Forall {
+            func: cond.func,
+            mask: BoolFuncTerm::exactly(&cond.args).and(&condition),
+            arg_num: cond.args.len(),
+        })
+    }
 }
 
 pub(super) struct HeapConsume<'a>(pub &'a mut SubContext);
@@ -44,9 +119,10 @@ impl Heap for HeapConsume<'_> {
                 break;
             }
         }
-        let Some(idx) = found else { panic!() };
+        let Some(idx) = found else {
+            panic!("could not find owned")
+        };
         let resource = self.alloc.swap_remove(idx);
-        // TODO: check that resource has correct sort
         assert_eq!(tau, Sort::Nat);
         resource.value
     }
@@ -62,21 +138,32 @@ impl Heap for HeapConsume<'_> {
         this.sub_neg_type(have_typ, &typ);
     }
 
-    fn switch(&mut self, cond: Cond) {
-        // first check if the resource exists as a whole
-        let found = self.cond.iter().position(|have| {
-            have.func as fn(&'static mut _, u32, &'static _)
-                == cond.func as fn(&'static mut _, u32, &'static _)
-                && zip_eq(&have.args, &cond.args).all(|(l, r)| self.is_always_eq(l, r))
-        });
-        if let Some(i) = found {
-            self.cond.swap_remove(i);
+    /// We can first look at aggregate resources of the correct name.
+    /// After that we can iterate over the remaining resources one by one.
+    fn forall(&mut self, forall: Forall) {
+        let required = RefCell::new(forall);
+        let mut forall_list = take(&mut self.forall);
+
+        // first we consume small allocations
+        for alloc in forall_list.extract_if(|have| self.always_contains(&required.borrow(), have)) {
+            let new_mask = required.borrow().mask.difference(&alloc.mask);
+            required.borrow_mut().mask = new_mask;
+        }
+
+        if !self.still_possible(&required.borrow()) {
             return;
         }
 
-        // now we try to build the resource from parts
-        let val = self.get_value(&cond.args[0]);
-        (cond.func)(self, val.unwrap(), &cond.args[1..]);
+        // then we find a larger allocation to take the remainder from
+        let idx = forall_list
+            .iter()
+            .position(|have| self.always_contains(have, &required.borrow()))
+            .unwrap();
+        let have = &mut forall_list[idx];
+        // regions can not be equal in size, it would already be consumed
+        have.mask = have.mask.difference(&required.borrow().mask);
+
+        self.forall = forall_list;
     }
 
     fn assert(&mut self, phi: Prop) {
@@ -103,7 +190,8 @@ impl<'a> std::ops::Deref for HeapProduce<'a> {
 impl Heap for HeapProduce<'_> {
     /// all uses of `alloc` are recorded as resources
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
-        let val = Rc::new(Term::UVar(self.univ, tau));
+        let term = Int::new_const(ctx(), self.univ);
+        let val = Rc::new(Term::UVar(term, tau));
         self.univ += 1;
         self.alloc.push(Resource {
             ptr: ptr.clone(),
@@ -119,26 +207,12 @@ impl Heap for HeapProduce<'_> {
         })
     }
 
-    fn switch(&mut self, cond: Cond) {
-        let found = self.get_value(&cond.args[0]);
-
-        if let Some(val) = found {
-            (cond.func)(self, val, &cond.args[1..]);
-        } else {
-            self.cond.push(cond)
-        }
+    /// Here we just put the aggregate to be used by consumption.
+    fn forall(&mut self, forall: Forall) {
+        self.forall.push(forall);
     }
 
     fn assert(&mut self, phi: Prop) {
         self.assume.push(phi);
-
-        let map = self.cond.iter().enumerate().filter_map(|(idx, cond)| {
-            let found = self.get_value(&cond.args[0]);
-            found.map(|val| (idx, val))
-        });
-        for (idx, val) in map.rev().collect::<Vec<_>>() {
-            let cond = self.cond.swap_remove(idx);
-            (cond.func)(self, val, &cond.args[1..]);
-        }
     }
 }

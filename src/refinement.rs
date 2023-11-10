@@ -22,7 +22,7 @@ mod verify;
 
 pub use typing::Var;
 
-use self::heap::{Heap, Resource};
+use self::heap::{BoolFuncTerm, Heap};
 
 use self::builtin::Builtin;
 
@@ -34,7 +34,8 @@ enum Sort {
 
 #[derive(PartialEq, Eq, Clone)]
 enum Term {
-    UVar(u32, Sort),
+    UVar(z3::ast::Int<'static>, Sort),
+    Ite(z3::ast::Bool<'static>, Rc<Term>, Rc<Term>),
     Nat(usize),
     Add(Rc<Term>, Rc<Term>),
     Bool(Rc<Prop>),
@@ -43,7 +44,8 @@ enum Term {
 impl Debug for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UVar(idx, _tau) => write!(f, "var{idx}"),
+            Self::UVar(idx, _tau) => write!(f, "{idx}"),
+            Self::Ite(cond, t, e) => write!(f, "if {cond} then ({t:?}) else ({e:?})"),
             Self::Nat(val) => write!(f, "{val}"),
             Self::Add(l, r) => write!(f, "{l:?} + {r:?}"),
             Self::Bool(val) => write!(f, "{val:?}"),
@@ -53,6 +55,7 @@ impl Debug for Term {
 
 #[derive(PartialEq, Eq, Clone)]
 enum Prop {
+    Uvar(z3::ast::Bool<'static>),
     Eq(Rc<Term>, Rc<Term>),
     LessEq(Rc<Term>, Rc<Term>),
     // MeasureEq(Measure, [Rc<Term>; 2]),
@@ -62,6 +65,7 @@ enum Prop {
 impl Debug for Prop {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Uvar(b) => write!(f, "{b}"),
             Self::Eq(l, r) => write!(f, "{l:?} == {r:?}"),
             Self::LessEq(l, r) => write!(f, "{l:?} <= {r:?}"),
         }
@@ -71,8 +75,20 @@ impl Debug for Prop {
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Debug)]
 struct Cond {
+    // only if the cond is `true`, does this named resource exist
+    cond: Rc<Prop>,
+    // these are the arguments to the named resource
     args: Vec<Rc<Term>>,
-    func: fn(&mut dyn Heap, u32, &[Rc<Term>]),
+    func: fn(&mut dyn Heap, &[Rc<Term>]),
+}
+
+#[derive(Clone)]
+struct Forall {
+    // all args are universally quantified
+    func: fn(&mut dyn Heap, &[Rc<Term>]),
+    // mask specifies where is valid
+    mask: Rc<BoolFuncTerm>,
+    arg_num: usize,
 }
 
 #[derive(Clone)]
@@ -81,13 +97,20 @@ struct FuncDef {
     typ: Fun<NegTyp>,
 }
 
+/// a single resource
+#[derive(Clone)]
+struct Resource {
+    pub ptr: Rc<Term>,
+    pub value: Rc<Term>,
+}
+
 #[derive(Clone, Default)]
 #[must_use]
 struct SubContext {
     univ: u32,
     assume: Vec<Prop>,
     alloc: Vec<Resource>,
-    cond: Vec<Cond>,
+    forall: Vec<Forall>,
     funcs: Vec<FuncDef>,
 }
 
@@ -109,12 +132,6 @@ struct PosTyp;
 struct NegTyp {
     arg: PosTyp,
     ret: Fun<PosTyp>,
-}
-
-#[derive(Debug, Clone)]
-struct ResSort {
-    tau: Sort,
-    ptr: Rc<Term>,
 }
 
 #[allow(clippy::type_complexity)]

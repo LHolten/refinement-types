@@ -70,24 +70,20 @@ fn func_arg() {
 }
 
 fn terminated(heap: &mut dyn Heap, ptr: &Rc<Term>) {
-    let val = heap.owned(ptr, Sort::Nat);
-    let not_zero = Rc::new(Term::Bool(Rc::new(Prop::LessEq(
-        Rc::new(Term::Nat(1)),
-        val,
-    ))));
-    let ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
-    heap.switch(Cond {
-        args: vec![not_zero, ptr],
-        func: inner,
-    });
-
-    /// zero terminated list type
-    fn inner(heap: &mut dyn Heap, not_zero: u32, args: &[Rc<Term>]) {
+    fn inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
         let [ptr] = args else { panic!() };
-        if not_zero != 0 {
-            terminated(heap, ptr)
-        }
+        let val = heap.owned(ptr, Sort::Nat);
+
+        let not_zero = Rc::new(Prop::LessEq(Rc::new(Term::Nat(1)), val));
+        let next_ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
+        heap.switch(Cond {
+            cond: not_zero,
+            args: vec![next_ptr],
+            func: inner,
+        });
     }
+
+    inner(heap, &[ptr.clone()]);
 }
 
 #[test]
@@ -100,6 +96,7 @@ fn data_typ() {
         /* 1.. */ {_ =>
             args.0[0] = args.1;
             let next = @add(args.0, 1);
+            // while terminated(next);
             loop args = (next.0, args.1)
         }
     };
@@ -111,20 +108,15 @@ fn data_typ() {
 }
 
 fn option(heap: &mut dyn Heap, ptr: &Rc<Term>) {
-    let not_zero = Rc::new(Term::Bool(Rc::new(Prop::LessEq(
-        Rc::new(Term::Nat(1)),
-        ptr.clone(),
-    ))));
+    let not_zero = Rc::new(Prop::LessEq(Rc::new(Term::Nat(1)), ptr.clone()));
     heap.switch(Cond {
-        args: vec![not_zero, ptr.clone()],
+        cond: not_zero,
+        args: vec![ptr.clone()],
         func: inner,
     });
 
-    /// zero terminated list type
-    fn inner(heap: &mut dyn Heap, not_zero: u32, args: &[Rc<Term>]) {
+    fn inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
         let [ptr] = args else { panic!() };
-        if not_zero != 0 {
-            let _val = heap.owned(ptr, Sort::Nat);
-        }
+        let _val = heap.owned(ptr, Sort::Nat);
     }
 }

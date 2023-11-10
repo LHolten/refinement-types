@@ -152,7 +152,7 @@ impl SubContext {
             univ: self.univ,
             assume: self.assume.clone(),
             alloc: vec![],
-            cond: vec![],
+            forall: vec![],
             funcs: vec![],
         }
     }
@@ -161,7 +161,7 @@ impl SubContext {
         // leaking resources is not allowed
         // TODO: make sure this doesn't leak
         assert!(self.alloc.is_empty(), "can not leak memory");
-        assert!(self.cond.is_empty(), "can not leak memory");
+        assert!(self.forall.is_empty(), "can not leak memory");
         self.assume.clear();
         self.funcs.clear();
         forget(self);

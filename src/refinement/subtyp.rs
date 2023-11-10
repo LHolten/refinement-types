@@ -1,8 +1,13 @@
 use std::rc::Rc;
 
-use crate::refinement::{
-    heap::{HeapConsume, HeapProduce},
-    SubContext,
+use z3::ast::Int;
+
+use crate::{
+    refinement::{
+        heap::{HeapConsume, HeapProduce},
+        Sort, SubContext,
+    },
+    solver::ctx,
 };
 
 use super::{Fun, NegTyp, PosTyp, Solved, Term};
@@ -11,7 +16,9 @@ impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
         let mut terms = vec![];
         for tau in &n.tau {
-            terms.push(Rc::new(Term::UVar(self.univ, *tau)));
+            assert_eq!(tau, &Sort::Nat);
+            let term = Int::new_const(ctx(), self.univ);
+            terms.push(Rc::new(Term::UVar(term, *tau)));
             self.univ += 1;
         }
 
