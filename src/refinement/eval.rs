@@ -137,9 +137,9 @@ mod tests {
 
     #[test]
     fn match_test() {
-        let expr = parse_lambda! { Eval; val =>
-            match val.0
-            {_thing => return ()}
+        let expr = parse_lambda! { Eval; (val) =>
+            match val
+            { return ()}
         };
         let val = Res::new(0);
         let expr = expr.inst_arg(&val);
@@ -150,8 +150,8 @@ mod tests {
     #[ignore = "diverges"]
     fn diverge() {
         let expr = parse_expr! {Eval;
-            let rec: () = ();
-            loop rec = ()
+            let val@(): () = ();
+            loop val = ()
         };
         let expr = Rc::new(expr);
         Memory::default().eval(expr);
@@ -159,9 +159,9 @@ mod tests {
 
     #[test]
     fn increment() {
-        parse_lambda! {Eval; ptr =>
-            let x = ptr.0[0];
-            ptr.0[0] = x.0;
+        parse_lambda! {Eval; (ptr) =>
+            let (x) = ptr[0];
+            ptr[0] = x;
             return ()
         };
     }

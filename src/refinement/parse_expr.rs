@@ -1,49 +1,58 @@
 #![allow(unused_macros)]
 
 macro_rules! parse_lambda {
-    ($ty:ty; $var:pat => $($expr:tt)*) => {
+    ($ty:ty; $($name:ident@)? ($($var:pat),*) => $($expr:tt)*) => {
         $crate::refinement::Lambda::new(|tmp: &$ty| {
-            let $var = Box::leak(Box::new(tmp.clone()));
+            #[allow(unused_variables)]
+            let tmp = &*Box::leak(Box::new(tmp.clone()));
+            $(let $name = tmp;)?
+
+            #[allow(unused_variables)]
+            let i = 0;
+            $(
+                let $var = Box::leak(Box::new($crate::refinement::Local(tmp.clone(), i)));
+                #[allow(unused_variables)]
+                let i = i + 1;
+            )*
             parse_expr!($ty; $($expr)*)})
     }
 }
 
 macro_rules! parse_expr {
-    ($ty:ty; let $var:pat = $fun:ident.$num:literal ($($val:tt)*); $($tail:tt)*) => {{
+    ($ty:ty; let $($name:ident@)? ($($var:tt),*) = $fun:ident ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
-        let tail = parse_lambda!($ty; $var => $($tail)*);
-        let local = $crate::refinement::Local($fun.clone(), $num);
-        let func = $crate::refinement::Thunk::Local(local);
+        let tail = parse_lambda!($ty; $($name@)? ($($var),*) => $($tail)*);
+        let func = $crate::refinement::Thunk::Local($fun.clone());
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; let $var:pat = @$fun:ident ($($val:tt)*); $($tail:tt)*) => {{
+    ($ty:ty; let $($name:ident@)? ($($var:tt),*) = @$fun:ident ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
-        let tail = parse_lambda!($ty; $var => $($tail)*);
+        let tail = parse_lambda!($ty; $($name@)? ($($var),*) => $($tail)*);
         let builtin = parse_builtin!($fun);
         let func = $crate::refinement::Thunk::Builtin(builtin);
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; $var:ident.$num1:tt[0] = $val:ident.$num:tt; $($tail:tt)*) => {{
-        let val = parse_value!($ty; $var.$num1, $val.$num);
-        let tail = parse_lambda!($ty; _ => $($tail)*);
+    ($ty:ty; $var:ident[0] = $val:ident; $($tail:tt)*) => {{
+        let val = parse_value!($ty; $var, $val);
+        let tail = parse_lambda!($ty; () => $($tail)*);
         let func = $crate::refinement::builtin::Builtin::Write;
         let func = $crate::refinement::Thunk::Builtin(func);
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; let $var:pat = $val:ident.$num:tt[0]; $($tail:tt)*) => {{
-        let val = parse_value!($ty; $val.$num);
-        let tail = parse_lambda!($ty; $var => $($tail)*);
+    ($ty:ty; let $($name:ident@)? ($($var:tt),*) = $val:ident[0]; $($tail:tt)*) => {{
+        let val = parse_value!($ty; $val);
+        let tail = parse_lambda!($ty; $($name@)? ($($var),*) => $($tail)*);
         let func = $crate::refinement::builtin::Builtin::Read;
         let func = $crate::refinement::Thunk::Builtin(func);
         let bound = $crate::refinement::BoundExpr::App(func, val);
         $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; let $var:ident: $pos:tt $(where $bound:tt)? = ($($val:tt)*); $($tail:tt)*) => {{
+    ($ty:ty; let $($name:ident@)? ($($var:tt),*): $pos:tt $(where $bound:tt)? = ($($val:tt)*); $($tail:tt)*) => {{
         let val = parse_value!($ty; $($val)*);
-        let tail = parse_lambda!($ty; $var => $($tail)*);
+        let tail = parse_lambda!($ty; $($name@)? ($($var),*) => $($tail)*);
         let typ = pos_typ!($pos $(where $bound)?);
         let bound = $crate::refinement::BoundExpr::Anno(val, typ);
         $crate::refinement::Expr::<$ty>::Let(bound, tail)
@@ -56,12 +65,11 @@ macro_rules! parse_expr {
         let val = parse_value!($ty; $($val)*);
         $crate::refinement::Expr::Loop($fun.clone(), val)
     }};
-    ($ty:ty; match $fun:ident.$num:literal $({ $($branch:tt)* })* ) => {{
+    ($ty:ty; match $val:ident $({ $($branch:tt)* })* ) => {{
         let branches = vec![$(
-            parse_lambda!($ty; $($branch)*)
+            parse_lambda!($ty; () => $($branch)*)
         ),*];
-        let local = $crate::refinement::Local($fun.clone(), $num);
-        $crate::refinement::Expr::Match(local, branches)
+        $crate::refinement::Expr::Match($val.clone(), branches)
     }};
 }
 
@@ -91,9 +99,8 @@ macro_rules! add_value {
         $accum.inj.push($crate::refinement::Inj::Just($idx));
         add_value!($ty; $accum; $($($tail)*)?)
     };
-    ($ty:ty; $accum:expr; $var:ident.$num:literal $(,$($tail:tt)*)?) => {
-        let local = $crate::refinement::Local($var.clone(), $num);
-        $accum.inj.push($crate::refinement::Inj::Var(local));
+    ($ty:ty; $accum:expr; $var:ident $(,$($tail:tt)*)?) => {
+        $accum.inj.push($crate::refinement::Inj::Var($var.clone()));
         add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr; { $($branch:tt)* } $(,$($tail:tt)*)?) => {

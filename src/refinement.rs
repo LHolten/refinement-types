@@ -219,6 +219,7 @@ enum Thunk<V> {
     Builtin(Builtin),
 }
 
+#[derive(Clone)]
 struct Local<V>(V, usize);
 
 enum Expr<V> {

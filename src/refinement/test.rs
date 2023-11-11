@@ -5,11 +5,11 @@ use crate::refinement::SubContext;
 use super::{heap::Heap, Cond, Fun, Lambda, NegTyp, Prop, Sort, Term, Value, Var};
 
 fn id_unit() -> Lambda<Var> {
-    parse_lambda!(Var; _val => return ())
+    parse_lambda!(Var; () => return ())
 }
 
 fn id_fun() -> Lambda<Var> {
-    parse_lambda!(Var; val => return (val.0))
+    parse_lambda!(Var; (val) => return (val))
 }
 
 fn inductive_val() -> Rc<Value<Var>> {
@@ -42,10 +42,10 @@ fn checkk_id_app() {
 #[test]
 fn increment() {
     let ctx = SubContext::default();
-    let lamb = parse_lambda! {Var; ptr =>
+    let lamb = parse_lambda! {Var; (ptr) =>
         // let x = ptr.0[0];
-        let x: (v:Nat) where {v == 10} = (10);
-        ptr.0[0] = x.0;
+        let (x): (v:Nat) where {v == 10} = (10);
+        ptr[0] = x;
         return ()
     };
     let typ = neg_typ!(
@@ -58,8 +58,8 @@ fn increment() {
 #[test]
 fn func_arg() {
     let ctx = SubContext::default();
-    let lamb = parse_lambda! {Var; args =>
-        let _ = args.0 ();
+    let lamb = parse_lambda! {Var; (args) =>
+        let (_) = args ();
         return ()
     };
     let typ = neg_typ!(
@@ -89,15 +89,15 @@ fn terminated(heap: &mut dyn Heap, ptr: &Rc<Term>) {
 #[test]
 fn data_typ() {
     let ctx = SubContext::default();
-    let lamb = parse_lambda! {Var; args =>
-        let val = args.0[0];
-        match val.0
-        /* 0 */ {_ => return ()}
-        /* 1.. */ {_ =>
-            args.0[0] = args.1;
-            let next = @add(args.0, 1);
+    let lamb = parse_lambda! {Var; args@(ptr, new) =>
+        let (val) = ptr[0];
+        match val
+        /* 0 */ { return () }
+        /* 1.. */ {
+            ptr[0] = new;
+            let (next) = @add(ptr, 1);
             // while terminated(next);
-            loop args = (next.0, args.1)
+            loop args = (next, new)
         }
     };
     let typ = neg_typ!(
