@@ -69,21 +69,21 @@ fn func_arg() {
     ctx.check_expr(&lamb, &typ);
 }
 
+fn terminated_inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
+    let [ptr] = args else { panic!() };
+    let val = heap.owned(ptr, Sort::Nat);
+
+    let not_zero = Rc::new(Prop::LessEq(Rc::new(Term::Nat(1)), val));
+    let next_ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
+    heap.switch(Cond {
+        cond: not_zero,
+        args: vec![next_ptr],
+        func: terminated_inner,
+    });
+}
+
 fn terminated(heap: &mut dyn Heap, ptr: &Rc<Term>) {
-    fn inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
-        let [ptr] = args else { panic!() };
-        let val = heap.owned(ptr, Sort::Nat);
-
-        let not_zero = Rc::new(Prop::LessEq(Rc::new(Term::Nat(1)), val));
-        let next_ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
-        heap.switch(Cond {
-            cond: not_zero,
-            args: vec![next_ptr],
-            func: inner,
-        });
-    }
-
-    inner(heap, &[ptr.clone()]);
+    terminated_inner(heap, &[ptr.clone()]);
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn data_typ() {
         /* 1.. */ {
             ptr[0] = new;
             let (next) = @add(ptr, 1);
-            // while terminated(next);
+            unpack terminated_inner(next);
             loop args = (next, new)
         }
     };

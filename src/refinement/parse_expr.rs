@@ -71,6 +71,10 @@ macro_rules! parse_expr {
         ),*];
         $crate::refinement::Expr::Match($val.clone(), branches)
     }};
+    ($ty:ty; unpack $fun:ident ($($val:expr),*); $($tail:tt)*) => {{
+        let tail = parse_expr!($ty; $($tail)*);
+        $crate::refinement::Expr::Unpack($fun, vec![$($val.clone()),*], ::std::rc::Rc::new(tail))
+    }};
 }
 
 macro_rules! parse_value {

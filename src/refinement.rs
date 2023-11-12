@@ -233,6 +233,8 @@ enum Expr<V> {
     /// last branch will be the catch all
     Match(Local<V>, Vec<Lambda<V>>),
 
+    Unpack(fn(&mut dyn Heap, &[Rc<Term>]), Vec<Local<V>>, Rc<Expr<V>>),
+
     /// loop back to an assigment
     Loop(V, Rc<Value<V>>),
 }

@@ -94,6 +94,9 @@ impl Memory {
                     let arg = Res::from_val(arg);
                     expr = var.rec.inst_arg(&arg);
                 }
+                Expr::Unpack(_, _, rest) => {
+                    expr = rest.clone();
+                }
             }
         }
     }

@@ -33,7 +33,7 @@ impl From<&Prop> for Bool<'_> {
 }
 
 impl SubContext {
-    fn is_always_true(&self, cond: Bool<'_>) -> bool {
+    pub fn is_always_true(&self, cond: Bool<'_>) -> bool {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 

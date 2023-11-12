@@ -111,6 +111,25 @@ impl<'a> std::ops::Deref for HeapConsume<'a> {
 }
 
 impl Heap for HeapConsume<'_> {
+    fn switch(&mut self, cond: Cond) {
+        let condition = BoolFuncTerm::new(move |_| Bool::from(cond.cond.as_ref()));
+        let need = Forall {
+            func: cond.func,
+            mask: BoolFuncTerm::exactly(&cond.args).and(&condition),
+            arg_num: cond.args.len(),
+        };
+
+        if let Some(need) = self.try_remove(need) {
+            let args: Vec<_> = cond.args.iter().map(|x| Int::from(x.as_ref())).collect();
+            let res = need.mask.apply(&args);
+            if self.is_always_true(res) {
+                (cond.func)(self, &cond.args);
+            } else {
+                panic!("can not pack named resource")
+            }
+        }
+    }
+
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
         let mut found = None;
         for (idx, alloc) in self.alloc.iter().enumerate() {
@@ -140,8 +159,20 @@ impl Heap for HeapConsume<'_> {
 
     /// We can first look at aggregate resources of the correct name.
     /// After that we can iterate over the remaining resources one by one.
-    fn forall(&mut self, forall: Forall) {
-        let required = RefCell::new(forall);
+    fn forall(&mut self, need: Forall) {
+        if let Some(_need) = self.try_remove(need) {
+            panic!()
+        }
+    }
+
+    fn assert(&mut self, phi: Prop) {
+        self.verify_props(&[phi.clone()]);
+    }
+}
+
+impl SubContext {
+    fn try_remove(&mut self, need: Forall) -> Option<Forall> {
+        let required = RefCell::new(need);
         let mut forall_list = take(&mut self.forall);
 
         // first we consume small allocations
@@ -149,25 +180,27 @@ impl Heap for HeapConsume<'_> {
             let new_mask = required.borrow().mask.difference(&alloc.mask);
             required.borrow_mut().mask = new_mask;
         }
+        self.forall = forall_list;
+        let required = required.into_inner();
 
-        if !self.still_possible(&required.borrow()) {
-            return;
+        if !self.still_possible(&required) {
+            return None;
         }
 
         // then we find a larger allocation to take the remainder from
-        let idx = forall_list
+        let idx = self
+            .forall
             .iter()
-            .position(|have| self.always_contains(have, &required.borrow()))
-            .unwrap();
-        let have = &mut forall_list[idx];
+            .position(|have| self.always_contains(have, &required));
+        let Some(idx) = idx else {
+            return Some(required);
+        };
+
+        let have = &mut self.forall[idx];
         // regions can not be equal in size, it would already be consumed
-        have.mask = have.mask.difference(&required.borrow().mask);
+        have.mask = have.mask.difference(&required.mask);
 
-        self.forall = forall_list;
-    }
-
-    fn assert(&mut self, phi: Prop) {
-        self.verify_props(&[phi.clone()]);
+        None
     }
 }
 
