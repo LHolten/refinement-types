@@ -16,17 +16,17 @@ impl Eval {
 
 #[derive(Clone, Default)]
 struct Res {
-    inj: Vec<usize>,
+    inj: Vec<i64>,
     thunks: Vec<Lambda<Eval>>,
 }
 
 #[derive(Default)]
 struct Memory {
-    data: Vec<usize>,
+    data: Vec<i64>,
 }
 
 impl Res {
-    fn new(val: usize) -> Self {
+    fn new(val: i64) -> Self {
         Self {
             inj: vec![val],
             thunks: vec![],
@@ -59,7 +59,7 @@ impl Local<Eval> {
         &self.0.res.thunks[self.1]
     }
 
-    fn get_inj(&self) -> usize {
+    fn get_inj(&self) -> i64 {
         self.0.res.inj[self.1]
     }
 }
@@ -88,13 +88,14 @@ impl Memory {
                 }
                 Expr::Match(local, e) => {
                     let idx = local.get_inj();
-                    expr = e[idx].inst_arg(&Default::default());
+                    // TODO: check values higher than len or branches
+                    expr = e[idx as usize].inst_arg(&Default::default());
                 }
                 Expr::Loop(var, arg) => {
                     let arg = Res::from_val(arg);
                     expr = var.rec.inst_arg(&arg);
                 }
-                Expr::Unpack(_, _, rest) => {
+                Expr::Pack(_, _, rest, _) => {
                     expr = rest.clone();
                 }
             }
@@ -113,11 +114,11 @@ impl Memory {
                     Thunk::Builtin(builtin) => match builtin {
                         Builtin::Read => {
                             let [ptr] = *arg.inj else { panic!() };
-                            Res::new(self.data[ptr])
+                            Res::new(self.data[ptr as usize])
                         }
                         Builtin::Write => {
                             let [ptr, val] = *arg.inj else { panic!() };
-                            self.data[ptr] = val;
+                            self.data[ptr as usize] = val;
                             Res::default()
                         }
                         Builtin::Add => {

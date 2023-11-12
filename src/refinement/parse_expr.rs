@@ -73,7 +73,11 @@ macro_rules! parse_expr {
     }};
     ($ty:ty; unpack $fun:ident ($($val:expr),*); $($tail:tt)*) => {{
         let tail = parse_expr!($ty; $($tail)*);
-        $crate::refinement::Expr::Unpack($fun, vec![$($val.clone()),*], ::std::rc::Rc::new(tail))
+        $crate::refinement::Expr::Pack($fun, vec![$($val.clone()),*], ::std::rc::Rc::new(tail), true)
+    }};
+    ($ty:ty; pack $fun:ident ($($val:expr),*); $($tail:tt)*) => {{
+        let tail = parse_expr!($ty; $($tail)*);
+        $crate::refinement::Expr::Pack($fun, vec![$($val.clone()),*], ::std::rc::Rc::new(tail), false)
     }};
 }
 

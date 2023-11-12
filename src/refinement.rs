@@ -21,6 +21,7 @@ mod util;
 mod verify;
 
 pub use typing::Var;
+use z3::ast::{Bool, Int};
 
 use self::heap::{BoolFuncTerm, Heap};
 
@@ -36,20 +37,14 @@ enum Sort {
 enum Term {
     UVar(z3::ast::Int<'static>, Sort),
     Ite(z3::ast::Bool<'static>, Rc<Term>, Rc<Term>),
-    Nat(usize),
+    Nat(i64),
     Add(Rc<Term>, Rc<Term>),
     Bool(Rc<Prop>),
 }
 
 impl Debug for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UVar(idx, _tau) => write!(f, "{idx}"),
-            Self::Ite(cond, t, e) => write!(f, "if {cond} then ({t:?}) else ({e:?})"),
-            Self::Nat(val) => write!(f, "{val}"),
-            Self::Add(l, r) => write!(f, "{l:?} + {r:?}"),
-            Self::Bool(val) => write!(f, "{val:?}"),
-        }
+        Int::from(self).fmt(f)
     }
 }
 
@@ -64,11 +59,7 @@ enum Prop {
 
 impl Debug for Prop {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Uvar(b) => write!(f, "{b}"),
-            Self::Eq(l, r) => write!(f, "{l:?} == {r:?}"),
-            Self::LessEq(l, r) => write!(f, "{l:?} <= {r:?}"),
-        }
+        Bool::from(self).fmt(f)
     }
 }
 
@@ -210,7 +201,7 @@ impl<V> Default for Value<V> {
 }
 
 enum Inj<V> {
-    Just(usize),
+    Just(i64),
     Var(Local<V>),
 }
 
@@ -221,6 +212,9 @@ enum Thunk<V> {
 
 #[derive(Clone)]
 struct Local<V>(V, usize);
+
+/// Named resource name
+type Name = fn(&mut dyn Heap, &[Rc<Term>]);
 
 enum Expr<V> {
     /// construct a value and return it
@@ -233,7 +227,8 @@ enum Expr<V> {
     /// last branch will be the catch all
     Match(Local<V>, Vec<Lambda<V>>),
 
-    Unpack(fn(&mut dyn Heap, &[Rc<Term>]), Vec<Local<V>>, Rc<Expr<V>>),
+    // last argument can be used to unpack
+    Pack(Name, Vec<Local<V>>, Rc<Expr<V>>, bool),
 
     /// loop back to an assigment
     Loop(V, Rc<Value<V>>),

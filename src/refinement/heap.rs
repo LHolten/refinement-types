@@ -51,31 +51,6 @@ impl BoolFuncTerm {
     }
 }
 
-// pub enum IntFuncTerm {
-//     Uvar(z3::FuncDecl<'static>),
-//     // options need to be proven to not intersect
-//     Ite(Resource, Rc<IntFuncTerm>),
-// }
-
-// impl IntFuncTerm {
-//     pub fn apply(&self, idx: &Int<'static>) -> Int<'static> {
-//         match self {
-//             IntFuncTerm::Uvar(func) => func.apply(&[idx]).as_int().unwrap(),
-//             IntFuncTerm::Ite(alloc, e) => {
-//                 let val = alloc.values.apply(idx);
-//                 alloc.locs.apply(idx).ite(&val, &e.apply(idx))
-//             }
-//         }
-//     }
-// }
-
-/// A named combination of constraints and resources
-/// can be combined with other packages of the same name
-// pub struct Package {
-//     pub args: Vec<Rc<Term>>,
-//     pub func: Option<fn(&mut dyn Heap, &[Rc<Term>])>,
-// }
-
 pub(super) trait Heap {
     fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term>;
     fn assert(&mut self, phi: Prop);
@@ -160,8 +135,17 @@ impl Heap for HeapConsume<'_> {
     /// We can first look at aggregate resources of the correct name.
     /// After that we can iterate over the remaining resources one by one.
     fn forall(&mut self, need: Forall) {
-        if let Some(_need) = self.try_remove(need) {
-            panic!()
+        if let Some(need) = self.try_remove(need) {
+            let idx: Vec<_> = std::iter::repeat_with(|| Int::fresh_const(ctx(), "index"))
+                .take(need.arg_num)
+                .collect();
+            // for have in &self.forall {
+            //     println!("have {}", have.mask.apply(&idx))
+            // }
+            for assume in &self.assume {
+                println!("assume: {assume:?}");
+            }
+            panic!("missing some named resources {}", need.mask.apply(&idx));
         }
     }
 

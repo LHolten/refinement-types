@@ -13,7 +13,7 @@ impl From<&Term> for Int<'_> {
         match value {
             Term::UVar(var, _tau) => var.clone(),
             Term::Ite(cond, t, e) => cond.ite(&Int::from(t.as_ref()), &Int::from(e.as_ref())),
-            Term::Nat(val) => Int::from_u64(ctx, *val as u64),
+            Term::Nat(val) => Int::from_i64(ctx, *val),
             Term::Add(l, r) => Int::add(ctx, &[&Int::from(l.as_ref()), &Int::from(r.as_ref())]),
             Term::Bool(b) => {
                 Bool::from(b.as_ref()).ite(&Int::from_i64(ctx, 1), &Int::from_i64(ctx, 0))

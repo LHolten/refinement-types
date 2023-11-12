@@ -133,12 +133,12 @@ impl SubContext {
                 for (i, l) in pats.iter().enumerate() {
                     // we want to preserve resources between branches
                     let this = self.clone();
-                    let phi = Prop::Eq(term.clone(), Rc::new(Term::Nat(i)));
+                    let phi = Prop::Eq(term.clone(), Rc::new(Term::Nat(i as i64)));
                     let match_p = this.unroll_prod_univ(phi);
                     this.check_expr(l, &match_p.arrow(p.clone()));
                 }
 
-                let phi = Prop::LessEq(Rc::new(Term::Nat(pats.len())), term.clone());
+                let phi = Prop::LessEq(Rc::new(Term::Nat(pats.len() as i64)), term.clone());
                 let match_p = self.unroll_prod_univ(phi);
                 self.check_expr(last, &match_p.arrow(p.clone()));
             }
@@ -147,16 +147,20 @@ impl SubContext {
                 let res = self.spine(n, s);
                 self.sub_pos_typ(&res, p);
             }
-            Expr::Unpack(func, args, rest) => {
+            Expr::Pack(func, args, rest, unpack) => {
                 let args: Vec<_> = args.iter().map(|x| x.infer().0.clone()).collect();
                 let need = Forall {
                     func: *func,
                     mask: BoolFuncTerm::exactly(&args),
                     arg_num: args.len(),
                 };
-                HeapConsume(&mut self).forall(need);
-                let mut heap = HeapProduce(&mut self);
-                (func)(&mut heap, &args);
+                if *unpack {
+                    HeapConsume(&mut self).forall(need);
+                    (func)(&mut HeapProduce(&mut self), &args);
+                } else {
+                    (func)(&mut HeapConsume(&mut self), &args);
+                    HeapProduce(&mut self).forall(need);
+                }
 
                 self.check_expr_pos(rest, p);
             }
