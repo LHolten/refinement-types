@@ -1,11 +1,14 @@
-use std::rc::Rc;
+use std::{mem::swap, rc::Rc};
 
-use super::{heap::Heap, Fun, NegTyp, Term};
+use crate::refinement::{heap::BoolFuncTerm, Forall};
+
+use super::{heap::Heap, Fun, Name, NegTyp, PosTyp, Term};
 
 pub(crate) enum Builtin {
     Read,
     Write,
     Add,
+    Pack(Name, bool),
 }
 
 fn add_cond(heap: &mut dyn Heap, sum: &Rc<Term>, l: &Rc<Term>, r: &Rc<Term>) {
@@ -29,11 +32,43 @@ thread_local! {
 
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
-        let key = match self {
-            Builtin::Read => &READ,
-            Builtin::Write => &WRITE,
-            Builtin::Add => &ADD,
-        };
-        key.with(Clone::clone)
+        match self {
+            Builtin::Read => READ.with(Clone::clone),
+            Builtin::Write => WRITE.with(Clone::clone),
+            Builtin::Add => ADD.with(Clone::clone),
+            Builtin::Pack(name, unpack) => {
+                let func = name.func;
+                let unpack = *unpack;
+                Fun {
+                    tau: name.tau.clone(),
+                    fun: Rc::new(move |args, heap| {
+                        let args = args.to_owned();
+                        let forall = Forall {
+                            func,
+                            mask: BoolFuncTerm::exactly(&args),
+                            arg_num: args.len(),
+                        };
+                        type HeapOp = Box<dyn Fn(&mut dyn Heap)>;
+                        let mut need: HeapOp = Box::new(move |heap| {
+                            (func)(heap, &args);
+                        });
+                        let mut res: HeapOp = Box::new(move |heap| heap.forall(forall.clone()));
+
+                        if unpack {
+                            swap(&mut res, &mut need);
+                        }
+                        (need)(heap);
+
+                        NegTyp::new(Fun {
+                            tau: vec![],
+                            fun: Rc::new(move |_args, heap| {
+                                (res)(heap);
+                                PosTyp
+                            }),
+                        })
+                    }),
+                }
+            }
+        }
     }
 }

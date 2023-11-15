@@ -71,13 +71,29 @@ macro_rules! parse_expr {
         ),*];
         $crate::refinement::Expr::Match($val.clone(), branches)
     }};
-    ($ty:ty; unpack $fun:ident ($($val:expr),*); $($tail:tt)*) => {{
-        let tail = parse_expr!($ty; $($tail)*);
-        $crate::refinement::Expr::Pack($fun, vec![$($val.clone()),*], ::std::rc::Rc::new(tail), true)
+    ($ty:ty; unpack $fun:ident ($($val:tt)*); $($tail:tt)*) => {{
+        let tail = parse_lambda!($ty; () => $($tail)*);
+        let val = parse_value!($ty; $($val)*);
+        let name = $crate::refinement::Name {
+            tau: val.inj.iter().map(|_|Sort::Nat).collect(),
+            func: $fun,
+        };
+        let func = $crate::refinement::builtin::Builtin::Pack(name, true);
+        let func = $crate::refinement::Thunk::Builtin(func);
+        let bound = $crate::refinement::BoundExpr::App(func, val);
+        $crate::refinement::Expr::Let(bound, tail)
     }};
-    ($ty:ty; pack $fun:ident ($($val:expr),*); $($tail:tt)*) => {{
-        let tail = parse_expr!($ty; $($tail)*);
-        $crate::refinement::Expr::Pack($fun, vec![$($val.clone()),*], ::std::rc::Rc::new(tail), false)
+    ($ty:ty; pack $fun:ident ($($val:tt)*); $($tail:tt)*) => {{
+        let tail = parse_lambda!($ty; () => $($tail)*);
+        let val = parse_value!($ty; $($val)*);
+        let name = $crate::refinement::Name {
+            tau: val.inj.iter().map(|_|Sort::Nat).collect(),
+            func: $fun,
+        };
+        let func = $crate::refinement::builtin::Builtin::Pack(name, false);
+        let func = $crate::refinement::Thunk::Builtin(func);
+        let bound = $crate::refinement::BoundExpr::App(func, val);
+        $crate::refinement::Expr::Let(bound, tail)
     }};
 }
 

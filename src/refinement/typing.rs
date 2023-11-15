@@ -1,9 +1,6 @@
 use std::{iter::zip, mem::forget, rc::Rc};
 
-use crate::refinement::{
-    heap::{BoolFuncTerm, Heap, HeapConsume, HeapProduce},
-    Forall, Inj,
-};
+use crate::refinement::Inj;
 
 use super::{
     BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, Prop, Sort, SubContext, Term, Thunk, Value,
@@ -146,23 +143,6 @@ impl SubContext {
                 let n = &idx.rec;
                 let res = self.spine(n, s);
                 self.sub_pos_typ(&res, p);
-            }
-            Expr::Pack(func, args, rest, unpack) => {
-                let args: Vec<_> = args.iter().map(|x| x.infer().0.clone()).collect();
-                let need = Forall {
-                    func: *func,
-                    mask: BoolFuncTerm::exactly(&args),
-                    arg_num: args.len(),
-                };
-                if *unpack {
-                    HeapConsume(&mut self).forall(need);
-                    (func)(&mut HeapProduce(&mut self), &args);
-                } else {
-                    (func)(&mut HeapConsume(&mut self), &args);
-                    HeapProduce(&mut self).forall(need);
-                }
-
-                self.check_expr_pos(rest, p);
             }
         }
     }

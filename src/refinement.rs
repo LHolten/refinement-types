@@ -125,6 +125,12 @@ struct NegTyp {
     ret: Fun<PosTyp>,
 }
 
+impl NegTyp {
+    pub fn new(ret: Fun<PosTyp>) -> Self {
+        NegTyp { arg: PosTyp, ret }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
     // the arguments that are expected to be in scope
@@ -214,7 +220,10 @@ enum Thunk<V> {
 struct Local<V>(V, usize);
 
 /// Named resource name
-type Name = fn(&mut dyn Heap, &[Rc<Term>]);
+struct Name {
+    tau: Vec<Sort>,
+    func: fn(&mut dyn Heap, &[Rc<Term>]),
+}
 
 enum Expr<V> {
     /// construct a value and return it
@@ -226,9 +235,6 @@ enum Expr<V> {
     /// match on some inductive type and choose a branch
     /// last branch will be the catch all
     Match(Local<V>, Vec<Lambda<V>>),
-
-    // last argument can be used to unpack
-    Pack(Name, Vec<Local<V>>, Rc<Expr<V>>, bool),
 
     /// loop back to an assigment
     Loop(V, Rc<Value<V>>),

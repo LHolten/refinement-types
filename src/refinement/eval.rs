@@ -95,9 +95,6 @@ impl Memory {
                     let arg = Res::from_val(arg);
                     expr = var.rec.inst_arg(&arg);
                 }
-                Expr::Pack(_, _, rest, _) => {
-                    expr = rest.clone();
-                }
             }
         }
     }
@@ -125,6 +122,7 @@ impl Memory {
                             let [l, r] = *arg.inj else { panic!() };
                             Res::new(l + r)
                         }
+                        Builtin::Pack(_, _) => Res::default(),
                     },
                 }
             }
