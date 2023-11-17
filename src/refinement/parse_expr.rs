@@ -75,7 +75,7 @@ macro_rules! parse_expr {
         let tail = parse_lambda!($ty; () => $($tail)*);
         let val = parse_value!($ty; $($val)*);
         let name = $crate::refinement::Name {
-            tau: val.inj.iter().map(|_|Sort::Nat).collect(),
+            tau: val.inj.iter().map(|_|32).collect(),
             func: $fun,
         };
         let func = $crate::refinement::builtin::Builtin::Pack(name, true);
@@ -87,7 +87,7 @@ macro_rules! parse_expr {
         let tail = parse_lambda!($ty; () => $($tail)*);
         let val = parse_value!($ty; $($val)*);
         let name = $crate::refinement::Name {
-            tau: val.inj.iter().map(|_|Sort::Nat).collect(),
+            tau: val.inj.iter().map(|_|32).collect(),
             func: $fun,
         };
         let func = $crate::refinement::builtin::Builtin::Pack(name, false);
@@ -120,7 +120,7 @@ macro_rules! parse_builtin {
 
 macro_rules! add_value {
     ($ty:ty; $accum:expr; $idx:literal $(,$($tail:tt)*)?) => {
-        $accum.inj.push($crate::refinement::Inj::Just($idx));
+        $accum.inj.push($crate::refinement::Inj::Just($idx, 32));
         add_value!($ty; $accum; $($($tail)*)?)
     };
     ($ty:ty; $accum:expr; $var:ident $(,$($tail:tt)*)?) => {

@@ -2,19 +2,17 @@ use std::{iter::zip, mem::forget, rc::Rc};
 
 use crate::refinement::Inj;
 
-use super::{
-    BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, Prop, Sort, SubContext, Term, Thunk, Value,
-};
+use super::{BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, SubContext, Term, Thunk, Value};
 
 #[derive(Clone)]
 pub struct Var {
-    args: Vec<(Rc<Term>, Sort)>,
+    args: Vec<Term>,
     inner: Rc<PosTyp>,
     rec: Fun<NegTyp>,
 }
 
 impl Local<Var> {
-    fn infer(&self) -> &(Rc<Term>, Sort) {
+    fn infer(&self) -> &Term {
         &self.0.args[self.1]
     }
 }
@@ -55,24 +53,24 @@ impl SubContext {
     fn infer_func(&self, func: &Thunk<Var>) -> Fun<NegTyp> {
         match func {
             Thunk::Local(local) => {
-                let (fptr, tau) = local.infer();
-                assert_eq!(*tau, Sort::Nat);
+                let fptr = local.infer();
+                assert_eq!(fptr.get_size(), 32);
                 self.infer_fptr(fptr).clone()
             }
             Thunk::Builtin(builtin) => builtin.infer(),
         }
     }
 
-    fn calc_args(&self, val: &Value<Var>) -> Vec<Rc<Term>> {
+    fn calc_args(&self, val: &Value<Var>) -> Vec<Term> {
         let mut res = vec![];
         for inj in &val.inj {
             match inj {
-                Inj::Just(idx) => {
-                    let arg = Rc::new(Term::Nat(*idx));
+                Inj::Just(idx, size) => {
+                    let arg = Term::nat(*idx, *size);
                     res.push(arg);
                 }
                 Inj::Var(local) => {
-                    let (arg, _tau) = local.infer();
+                    let arg = local.infer();
                     res.push(arg.clone())
                 }
             }
@@ -95,7 +93,7 @@ impl SubContext {
     pub fn check_expr(mut self, l: &Lambda<Var>, n: &Fun<NegTyp>) {
         let neg = self.extract(n);
         let var = Var {
-            args: zip_eq(neg.terms, n.tau.clone()).collect(),
+            args: neg.terms,
             inner: Rc::new(neg.inner.arg),
             rec: n.clone(),
         };
@@ -124,18 +122,19 @@ impl SubContext {
                 self.check_expr(l, &bound_p.arrow(p.clone()))
             }
             Expr::Match(local, pats) => {
-                let (term, _tau) = local.infer();
+                let term = local.infer();
+                let size = term.get_size();
                 let (last, pats) = pats.split_last().unwrap();
 
                 for (i, l) in pats.iter().enumerate() {
                     // we want to preserve resources between branches
                     let this = self.clone();
-                    let phi = Prop::Eq(term.clone(), Rc::new(Term::Nat(i as i64)));
+                    let phi = term.eq(&Term::nat(i as i64, size));
                     let match_p = this.unroll_prod_univ(phi);
                     this.check_expr(l, &match_p.arrow(p.clone()));
                 }
 
-                let phi = Prop::LessEq(Rc::new(Term::Nat(pats.len() as i64)), term.clone());
+                let phi = Term::nat(pats.len() as i64, size).ule(term);
                 let match_p = self.unroll_prod_univ(phi);
                 self.check_expr(last, &match_p.arrow(p.clone()));
             }
@@ -149,7 +148,6 @@ impl SubContext {
 
     pub fn without_alloc(&self) -> Self {
         Self {
-            univ: self.univ,
             assume: self.assume.clone(),
             alloc: vec![],
             forall: vec![],

@@ -21,7 +21,7 @@ mod util;
 mod verify;
 
 pub use typing::Var;
-use z3::ast::{Bool, Int};
+use z3::ast::BV;
 
 use self::heap::{BoolFuncTerm, Heap};
 
@@ -34,32 +34,11 @@ enum Sort {
 }
 
 #[derive(PartialEq, Eq, Clone)]
-enum Term {
-    UVar(z3::ast::Int<'static>, Sort),
-    Ite(z3::ast::Bool<'static>, Rc<Term>, Rc<Term>),
-    Nat(i64),
-    Add(Rc<Term>, Rc<Term>),
-    Bool(Rc<Prop>),
-}
+struct Term(BV<'static>);
 
 impl Debug for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Int::from(self).fmt(f)
-    }
-}
-
-#[derive(PartialEq, Eq, Clone)]
-enum Prop {
-    Uvar(z3::ast::Bool<'static>),
-    Eq(Rc<Term>, Rc<Term>),
-    LessEq(Rc<Term>, Rc<Term>),
-    // MeasureEq(Measure, [Rc<Term>; 2]),
-    // True,
-}
-
-impl Debug for Prop {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Bool::from(self).fmt(f)
+        self.0.fmt(f)
     }
 }
 
@@ -67,39 +46,38 @@ impl Debug for Prop {
 #[derive(Clone, Debug)]
 struct Cond {
     // only if the cond is `true`, does this named resource exist
-    cond: Rc<Prop>,
+    cond: Term,
     // these are the arguments to the named resource
-    args: Vec<Rc<Term>>,
-    func: fn(&mut dyn Heap, &[Rc<Term>]),
+    args: Vec<Term>,
+    func: fn(&mut dyn Heap, &[Term]),
 }
 
 #[derive(Clone)]
 struct Forall {
     // all args are universally quantified
-    func: fn(&mut dyn Heap, &[Rc<Term>]),
+    func: fn(&mut dyn Heap, &[Term]),
     // mask specifies where is valid
     mask: Rc<BoolFuncTerm>,
-    arg_num: usize,
+    arg_size: Vec<u32>,
 }
 
 #[derive(Clone)]
 struct FuncDef {
-    ptr: Rc<Term>,
+    ptr: Term,
     typ: Fun<NegTyp>,
 }
 
 /// a single resource
 #[derive(Clone)]
 struct Resource {
-    pub ptr: Rc<Term>,
-    pub value: Rc<Term>,
+    pub ptr: Term,
+    pub value: Term,
 }
 
 #[derive(Clone, Default)]
 #[must_use]
 struct SubContext {
-    univ: u32,
-    assume: Vec<Prop>,
+    assume: Vec<Term>,
     alloc: Vec<Resource>,
     forall: Vec<Forall>,
     funcs: Vec<FuncDef>,
@@ -134,9 +112,9 @@ impl NegTyp {
 #[allow(clippy::type_complexity)]
 struct Fun<T> {
     // the arguments that are expected to be in scope
-    tau: Vec<Sort>,
+    tau: Vec<u32>,
     // the first argument is the function itself
-    fun: Rc<dyn Fn(&[Rc<Term>], &mut dyn Heap) -> T>,
+    fun: Rc<dyn Fn(&[Term], &mut dyn Heap) -> T>,
 }
 
 impl<T> Clone for Fun<T> {
@@ -163,7 +141,7 @@ impl<T> Debug for Fun<T> {
 }
 
 pub struct Solved<T> {
-    terms: Vec<Rc<Term>>,
+    terms: Vec<Term>,
     inner: T,
 }
 
@@ -207,7 +185,7 @@ impl<V> Default for Value<V> {
 }
 
 enum Inj<V> {
-    Just(i64),
+    Just(i64, u32),
     Var(Local<V>),
 }
 
@@ -221,8 +199,8 @@ struct Local<V>(V, usize);
 
 /// Named resource name
 struct Name {
-    tau: Vec<Sort>,
-    func: fn(&mut dyn Heap, &[Rc<Term>]),
+    tau: Vec<u32>,
+    func: fn(&mut dyn Heap, &[Term]),
 }
 
 enum Expr<V> {

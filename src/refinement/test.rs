@@ -1,12 +1,10 @@
 use std::rc::Rc;
 
-use z3::ast::Int;
-
 use crate::refinement::SubContext;
 
 use super::{
     heap::{BoolFuncTerm, Heap},
-    Cond, Forall, Fun, Lambda, NegTyp, Prop, Sort, Term, Value, Var,
+    Cond, Forall, Fun, Lambda, NegTyp, Term, Value, Var,
 };
 
 fn id_unit() -> Lambda<Var> {
@@ -74,12 +72,12 @@ fn func_arg() {
     ctx.check_expr(&lamb, &typ);
 }
 
-fn terminated_inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
+fn terminated_inner(heap: &mut dyn Heap, args: &[Term]) {
     let [ptr] = args else { panic!() };
-    let val = heap.owned(ptr, Sort::Nat);
+    let val = heap.owned_byte(ptr);
 
-    let not_zero = Rc::new(Prop::LessEq(Rc::new(Term::Nat(1)), val));
-    let next_ptr = Rc::new(Term::Add(ptr.clone(), Rc::new(Term::Nat(1))));
+    let not_zero = val.not_zero();
+    let next_ptr = ptr.add(&Term::nat(1, 32));
     heap.switch(Cond {
         cond: not_zero,
         args: vec![next_ptr],
@@ -87,7 +85,7 @@ fn terminated_inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
     });
 }
 
-fn terminated(heap: &mut dyn Heap, ptr: &Rc<Term>) {
+fn terminated(heap: &mut dyn Heap, ptr: &Term) {
     terminated_inner(heap, &[ptr.clone()]);
 }
 
@@ -112,35 +110,36 @@ fn data_typ() {
     ctx.check_expr(&lamb, &typ);
 }
 
-fn option(heap: &mut dyn Heap, ptr: &Rc<Term>) {
-    let not_zero = Rc::new(Prop::LessEq(Rc::new(Term::Nat(1)), ptr.clone()));
+fn option(heap: &mut dyn Heap, ptr: &Term) {
+    let not_zero = ptr.not_zero();
     heap.switch(Cond {
         cond: not_zero,
         args: vec![ptr.clone()],
         func: inner,
     });
 
-    fn inner(heap: &mut dyn Heap, args: &[Rc<Term>]) {
+    fn inner(heap: &mut dyn Heap, args: &[Term]) {
         let [ptr] = args else { panic!() };
-        let _val = heap.owned(ptr, Sort::Nat);
+        let _val = heap.owned_byte(ptr);
     }
 }
 
-fn mem(heap: &mut dyn Heap, args: &[Rc<Term>]) {
+fn mem(heap: &mut dyn Heap, args: &[Term]) {
     let [ptr] = args else { panic!() };
-    heap.owned(ptr, Sort::Nat);
+    heap.owned_byte(ptr);
 }
 
-fn array(heap: &mut dyn Heap, from: &Rc<Term>, len: &Rc<Term>) {
-    let (from, len) = (Int::from(from.as_ref()), Int::from(len.as_ref()));
-    let end = from.clone() + len;
+fn array(heap: &mut dyn Heap, from: &Term, len: &Term) {
+    let end = from.add(len);
+    let from = from.clone();
+    heap.assert(from.ule(&end));
     heap.forall(Forall {
         func: mem,
         mask: BoolFuncTerm::new(move |args| {
             let [ptr] = args else { panic!() };
-            ptr.ge(&from) & ptr.lt(&end)
+            from.ule(ptr).to_bool() & ptr.ult(&end).to_bool()
         }),
-        arg_num: 1,
+        arg_size: vec![32],
     });
 }
 

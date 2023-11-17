@@ -1,13 +1,6 @@
-use std::rc::Rc;
-
-use z3::ast::Int;
-
-use crate::{
-    refinement::{
-        heap::{HeapConsume, HeapProduce},
-        Sort, SubContext,
-    },
-    solver::ctx,
+use crate::refinement::{
+    heap::{HeapConsume, HeapProduce},
+    SubContext,
 };
 
 use super::{Fun, NegTyp, PosTyp, Solved, Term};
@@ -16,10 +9,8 @@ impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
         let mut terms = vec![];
         for tau in &n.tau {
-            assert_eq!(tau, &Sort::Nat);
-            let term = Int::new_const(ctx(), self.univ);
-            terms.push(Rc::new(Term::UVar(term, *tau)));
-            self.univ += 1;
+            let term = Term::fresh("extract", *tau);
+            terms.push(term);
         }
 
         let mut heap = HeapProduce(self);
@@ -28,7 +19,7 @@ impl SubContext {
         Solved { inner: typ, terms }
     }
 
-    pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Rc<Term>]) -> T {
+    pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> T {
         let mut heap = HeapConsume(self);
 
         assert_eq!(typ.tau.len(), terms.len());

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{builtin::Builtin, BoundExpr, Expr, Inj, Lambda, Local, Term, Thunk, Value};
+use super::{builtin::Builtin, BoundExpr, Expr, Inj, Lambda, Local, Thunk, Value};
 
 #[derive(Clone)]
 struct Eval {
@@ -9,7 +9,7 @@ struct Eval {
 }
 
 impl Eval {
-    fn get_term(&self, proj: usize) -> Rc<Term> {
+    fn get_term(&self, proj: usize) -> i64 {
         self.res.get_term(proj)
     }
 }
@@ -40,10 +40,8 @@ impl Res {
         }
     }
 
-    fn get_term(&self, proj: usize) -> Rc<Term> {
-        let idx = self.inj[proj];
-        let res = Term::Nat(idx);
-        Rc::new(res)
+    fn get_term(&self, proj: usize) -> i64 {
+        self.inj[proj]
     }
 }
 
@@ -67,7 +65,7 @@ impl Local<Eval> {
 impl Res {
     pub fn from_val(val: &Value<Eval>) -> Self {
         let inj = val.inj.iter().map(|inj| match inj {
-            Inj::Just(idx) => *idx,
+            Inj::Just(idx, _size) => *idx,
             Inj::Var(local) => local.get_inj(),
         });
         Self {
@@ -201,7 +199,7 @@ mod tests {
     //     #[allow(non_snake_case)]
     //     let List = pos_typ!(List = ptr:Nat, (ptr @ () | ptr @ (Nat, List)));
     //     #[allow(non_snake_case)]
-    //     let ZippedList = |ptr: &Rc<Term>| {
+    //     let ZippedList = |ptr: &Term| {
     //         inductive!(ZippedList if ptr = () | (Nat, Nat, ptr:Nat, ZippedList(ptr))).leak()
     //     };
 

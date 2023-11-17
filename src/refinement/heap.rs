@@ -1,28 +1,26 @@
 use std::{cell::RefCell, mem::take, rc::Rc};
 
-use z3::ast::{Ast, Bool, Int};
+use z3::ast::{Ast, Bool};
 
 use crate::solver::ctx;
 
-use super::{
-    typing::zip_eq, Cond, Forall, Fun, FuncDef, NegTyp, Prop, Resource, Sort, SubContext, Term,
-};
+use super::{typing::zip_eq, Cond, Forall, Fun, FuncDef, NegTyp, Resource, SubContext, Term};
 
 #[allow(clippy::type_complexity)]
 pub enum BoolFuncTerm {
     Uvar(z3::FuncDecl<'static>),
-    User(Box<dyn Fn(&[Int<'static>]) -> Bool<'static>>),
+    User(Box<dyn Fn(&[Term]) -> Bool<'static>>),
 }
 
 impl BoolFuncTerm {
-    pub fn new<F: Fn(&[Int<'static>]) -> Bool<'static> + 'static>(f: F) -> Rc<Self> {
+    pub fn new<F: Fn(&[Term]) -> Bool<'static> + 'static>(f: F) -> Rc<Self> {
         Rc::new(Self::User(Box::new(f)))
     }
 
-    pub fn apply(&self, idx: &[Int<'static>]) -> Bool<'static> {
+    pub fn apply(&self, idx: &[Term]) -> Bool<'static> {
         match self {
             BoolFuncTerm::Uvar(func) => {
-                let args: Vec<_> = idx.iter().map(|x| x as _).collect();
+                let args: Vec<_> = idx.iter().map(|x| &x.0 as _).collect();
                 func.apply(&args).as_bool().unwrap()
             }
             BoolFuncTerm::User(func) => (func)(idx),
@@ -35,11 +33,11 @@ impl BoolFuncTerm {
         Self::new(move |idx| this.apply(idx) & !other.apply(idx))
     }
 
-    pub fn exactly(ptr: &[Rc<Term>]) -> Rc<Self> {
+    pub fn exactly(ptr: &[Term]) -> Rc<Self> {
         let ptr = ptr.to_owned();
         Self::new(move |val| {
             zip_eq(&ptr, val)
-                .map(|(l, r)| Int::from(l.as_ref())._eq(r))
+                .map(|(l, r)| l.0._eq(&r.0))
                 .fold(Bool::from_bool(ctx(), true), |l, r| l & r)
         })
     }
@@ -52,19 +50,31 @@ impl BoolFuncTerm {
 }
 
 pub(super) trait Heap {
-    fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term>;
-    fn assert(&mut self, phi: Prop);
-    fn assert_eq(&mut self, x: &Rc<Term>, y: &Rc<Term>) {
-        self.assert(Prop::Eq(x.clone(), y.clone()));
+    // load bytes and store in size bits
+    fn owned(&mut self, ptr: &Term, bytes: u32, size: u32) -> Term {
+        let mut res = self.owned_byte(ptr);
+        let mut ptr = ptr.clone();
+        for _ in 1..bytes {
+            ptr = ptr.add(&Term::nat(1, 32));
+            // little endian, so new value is more significant
+            let val = self.owned_byte(&ptr);
+            res = val.concat(&res);
+        }
+        res.extend_to(size)
     }
-    fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>);
+    fn owned_byte(&mut self, ptr: &Term) -> Term;
+    fn assert(&mut self, phi: Term);
+    fn assert_eq(&mut self, x: &Term, y: &Term) {
+        self.assert(x.eq(y));
+    }
+    fn func(&mut self, ptr: &Term, typ: Fun<NegTyp>);
     fn forall(&mut self, forall: Forall);
     fn switch(&mut self, cond: Cond) {
-        let condition = BoolFuncTerm::new(move |_| Bool::from(cond.cond.as_ref()));
+        let condition = BoolFuncTerm::new(move |_| cond.cond.to_bool());
         self.forall(Forall {
             func: cond.func,
             mask: BoolFuncTerm::exactly(&cond.args).and(&condition),
-            arg_num: cond.args.len(),
+            arg_size: cond.args.iter().map(|x| x.get_size()).collect(),
         })
     }
 }
@@ -87,16 +97,15 @@ impl<'a> std::ops::Deref for HeapConsume<'a> {
 
 impl Heap for HeapConsume<'_> {
     fn switch(&mut self, cond: Cond) {
-        let condition = BoolFuncTerm::new(move |_| Bool::from(cond.cond.as_ref()));
+        let condition = BoolFuncTerm::new(move |_| cond.cond.to_bool());
         let need = Forall {
             func: cond.func,
             mask: BoolFuncTerm::exactly(&cond.args).and(&condition),
-            arg_num: cond.args.len(),
+            arg_size: cond.args.iter().map(|x| x.get_size()).collect(),
         };
 
         if let Some(need) = self.try_remove(need) {
-            let args: Vec<_> = cond.args.iter().map(|x| Int::from(x.as_ref())).collect();
-            let res = need.mask.apply(&args);
+            let res = need.mask.apply(&cond.args);
             if self.is_always_true(res) {
                 (cond.func)(self, &cond.args);
             } else {
@@ -105,7 +114,7 @@ impl Heap for HeapConsume<'_> {
         }
     }
 
-    fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
+    fn owned_byte(&mut self, ptr: &Term) -> Term {
         let mut found = None;
         for (idx, alloc) in self.alloc.iter().enumerate() {
             if self.is_always_eq(&alloc.ptr, ptr) {
@@ -114,14 +123,13 @@ impl Heap for HeapConsume<'_> {
             }
         }
         let Some(idx) = found else {
-            panic!("could not find owned")
+            panic!("could not find owned byte")
         };
         let resource = self.alloc.swap_remove(idx);
-        assert_eq!(tau, Sort::Nat);
         resource.value
     }
 
-    fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>) {
+    fn func(&mut self, ptr: &Term, typ: Fun<NegTyp>) {
         let have_typ = self.infer_fptr(ptr);
 
         // We do not want to allow access to resources outside the function
@@ -136,21 +144,19 @@ impl Heap for HeapConsume<'_> {
     /// After that we can iterate over the remaining resources one by one.
     fn forall(&mut self, need: Forall) {
         if let Some(need) = self.try_remove(need) {
-            let idx: Vec<_> = std::iter::repeat_with(|| Int::fresh_const(ctx(), "index"))
-                .take(need.arg_num)
-                .collect();
+            let idx = need.make_fresh_args();
             // for have in &self.forall {
             //     println!("have {}", have.mask.apply(&idx))
             // }
             for assume in &self.assume {
-                println!("assume: {assume:?}");
+                println!("assume {assume:?}");
             }
-            panic!("missing some named resources {}", need.mask.apply(&idx));
+            panic!("missing {}", need.mask.apply(&idx));
         }
     }
 
-    fn assert(&mut self, phi: Prop) {
-        self.verify_props(&[phi.clone()]);
+    fn assert(&mut self, phi: Term) {
+        self.verify_prop(&phi);
     }
 }
 
@@ -205,11 +211,8 @@ impl<'a> std::ops::Deref for HeapProduce<'a> {
 }
 
 impl Heap for HeapProduce<'_> {
-    /// all uses of `alloc` are recorded as resources
-    fn owned(&mut self, ptr: &Rc<Term>, tau: Sort) -> Rc<Term> {
-        let term = Int::new_const(ctx(), self.univ);
-        let val = Rc::new(Term::UVar(term, tau));
-        self.univ += 1;
+    fn owned_byte(&mut self, ptr: &Term) -> Term {
+        let val = Term::fresh("heap", 8);
         self.alloc.push(Resource {
             ptr: ptr.clone(),
             value: val.clone(),
@@ -217,7 +220,7 @@ impl Heap for HeapProduce<'_> {
         val
     }
 
-    fn func(&mut self, ptr: &Rc<Term>, typ: Fun<NegTyp>) {
+    fn func(&mut self, ptr: &Term, typ: Fun<NegTyp>) {
         self.funcs.push(FuncDef {
             ptr: ptr.clone(),
             typ: typ.clone(),
@@ -229,7 +232,7 @@ impl Heap for HeapProduce<'_> {
         self.forall.push(forall);
     }
 
-    fn assert(&mut self, phi: Prop) {
+    fn assert(&mut self, phi: Term) {
         self.assume.push(phi);
     }
 }

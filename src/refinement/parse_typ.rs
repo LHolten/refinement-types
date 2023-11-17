@@ -68,11 +68,11 @@ macro_rules! add_tau {
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; $var:ident:Nat $(,$($tail:tt)*)?) => {
-        $fun.tau.push($crate::refinement::Sort::Nat);
+        $fun.tau.push(32);
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; Nat $(,$($tail:tt)*)?) => {
-        $fun.tau.push($crate::refinement::Sort::Nat);
+        $fun.tau.push(32);
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr;) => {}
@@ -164,12 +164,12 @@ macro_rules! bounds {
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; $l:tt <= $r:tt $(;$($tail:tt)*)?) => {
-        let phi = $crate::refinement::Prop::LessEq(term!($l).clone(), term!($r).clone());
+        let phi = term!($l).ule(&term!($r));
         $heap.assert(phi);
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; let $var:pat = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {
-        let tmp = $heap.owned($val, $crate::refinement::Sort::Nat);
+        let tmp = $heap.owned($val, 1, 32);
         let $var = Box::leak(Box::new(tmp));
         bounds!($heap; $($($tail)*)?);
     };
@@ -189,6 +189,6 @@ macro_rules! term {
         $name
     };
     ($val:literal) => {
-        &::std::rc::Rc::new($crate::refinement::Term::Nat($val))
+        &$crate::refinement::Term::nat($val, 32)
     };
 }

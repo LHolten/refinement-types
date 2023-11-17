@@ -11,8 +11,8 @@ pub(crate) enum Builtin {
     Pack(Name, bool),
 }
 
-fn add_cond(heap: &mut dyn Heap, sum: &Rc<Term>, l: &Rc<Term>, r: &Rc<Term>) {
-    heap.assert_eq(sum, &Rc::new(Term::Add(l.clone(), r.clone())))
+fn add_cond(heap: &mut dyn Heap, sum: &Term, l: &Term, r: &Term) {
+    heap.assert_eq(sum, &l.add(r))
 }
 
 // TODO: these leak a bit of memory for each thread
@@ -46,7 +46,7 @@ impl Builtin {
                         let forall = Forall {
                             func,
                             mask: BoolFuncTerm::exactly(&args),
-                            arg_num: args.len(),
+                            arg_size: args.iter().map(|x| x.get_size()).collect(),
                         };
                         type HeapOp = Box<dyn Fn(&mut dyn Heap)>;
                         let mut need: HeapOp = Box::new(move |heap| {
