@@ -1,0 +1,22 @@
+
+trait factorial(n) {
+    if_zero n {
+        return 1
+    }
+    let next = factorial(n - 1);
+    return next * n
+}
+
+fn factorial(n) where {} -> (out) where {
+    assert out == factorial(n)
+} = {
+    let loop(res, i) = (1, n)
+    where {
+        assert res * factorial(i) == factorial(n);
+    };
+    
+    if_zero n {
+        return (res)
+    }
+    return loop(res * i, i - 1)
+}

@@ -14,7 +14,7 @@ impl SubContext {
         }
 
         let mut heap = HeapProduce(self);
-        let typ = (n.fun)(&terms, &mut heap);
+        let typ = (n.fun)(&mut heap, &terms);
 
         Solved { inner: typ, terms }
     }
@@ -23,7 +23,7 @@ impl SubContext {
         let mut heap = HeapConsume(self);
 
         assert_eq!(typ.tau.len(), terms.len());
-        (typ.fun)(terms, &mut heap)
+        (typ.fun)(&mut heap, terms)
     }
 
     pub fn sub_pos_typ(mut self, q: &Fun<PosTyp>, p: &Fun<PosTyp>) {

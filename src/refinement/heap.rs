@@ -49,7 +49,7 @@ impl BoolFuncTerm {
     }
 }
 
-pub(super) trait Heap {
+pub trait Heap {
     // load bytes and store in size bits
     fn owned(&mut self, ptr: &Term, bytes: u32, size: u32) -> Term {
         let mut res = self.owned_byte(ptr);
@@ -72,9 +72,8 @@ pub(super) trait Heap {
     fn switch(&mut self, cond: Cond) {
         let condition = BoolFuncTerm::new(move |_| cond.cond.to_bool());
         self.forall(Forall {
-            func: cond.func,
+            named: cond.named,
             mask: BoolFuncTerm::exactly(&cond.args).and(&condition),
-            arg_size: cond.args.iter().map(|x| x.get_size()).collect(),
         })
     }
 }
@@ -99,15 +98,14 @@ impl Heap for HeapConsume<'_> {
     fn switch(&mut self, cond: Cond) {
         let condition = BoolFuncTerm::new(move |_| cond.cond.to_bool());
         let need = Forall {
-            func: cond.func,
+            named: cond.named.clone(),
             mask: BoolFuncTerm::exactly(&cond.args).and(&condition),
-            arg_size: cond.args.iter().map(|x| x.get_size()).collect(),
         };
 
         if let Some(need) = self.try_remove(need) {
             let res = need.mask.apply(&cond.args);
             if self.is_always_true(res) {
-                (cond.func)(self, &cond.args);
+                (cond.named.upgrade().unwrap().typ.fun)(self, &cond.args);
             } else {
                 panic!("can not pack named resource")
             }

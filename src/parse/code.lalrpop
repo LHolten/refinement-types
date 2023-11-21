@@ -1,0 +1,76 @@
+use std::str::FromStr;
+use std::rc::Rc;
+use crate::parse::expr::*;
+use crate::parse::types::*;
+
+grammar;
+
+Num: i32 = r"[0-9]+" => i32::from_str(<>).unwrap();
+Var: String = r"[@]?[_a-zA-Z][_a-zA-z0-9]*" => <>.to_owned();
+
+
+Value: Value = {
+    "(" <UnboxedValue> ")" => <>,
+    Var => Value::Var(<>),
+    Num => Value::Int32(<>),
+}
+
+UnboxedValue: Value = {
+    Value => <>,
+    BinOpValue => Value::BinOp(Box::new(<>)),
+    Prop => Value::Prop(Box::new(<>)),
+};
+
+BinOpValue: BinOpValue = <l:Value> <op:BinOp> <r:Value> => BinOpValue{<>};
+BinOp: BinOp = {
+    "+" => BinOp::Plus,
+    "-" => BinOp::Minus,
+};
+
+Bind: Bind = <func:Var?> "(" <args:(<UnboxedValue> ","?)*> ")" => Bind{<>};
+
+Let: Let = "let" <label:Var?> "(" <names:Var*> ")" "=" <bind:Bind> => Let{<>};
+
+IfZero: IfZero = "if_zero" <val:Value> "{" <block:Block> "}" => IfZero{<>};
+
+Stmt: Stmt = {
+    Let => Stmt::Let(<>),
+    FuncDef => Stmt::FuncDef(<>),
+    IfZero => Stmt::IfZero(<>),
+    "unpack" <Bind> => Stmt::Unpack(<>), 
+    "pack" <Bind> => Stmt::Pack(<>), 
+};
+
+Block: Rc<Block> = <steps:(<Stmt> ";")*> "return" <end:Bind> => Rc::new(Block{<>});
+
+FuncDef: FuncDef = "fn" <name: Var> <typ:NegTyp> "=" "{" <block:Block> "}" => FuncDef{<>};
+
+NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
+
+PosTyp: Rc<PosTyp> = "(" <names:(<Var> ","?)*> ")" "where" "{" <parts:(<Constraint> ";")*> "}" => Rc::new(PosTyp{<>});
+
+Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
+
+Constraint: Constraint = {
+    Forall => Constraint::Forall(<>),
+    "move" <Var> "=" <Bind> => Constraint::Builtin(<>),
+    "assert" <Prop> => Constraint::Assert(<>),
+};
+
+Prop: Prop = <l:Value> <op:PropOp> <r:Value> => Prop{<>};
+PropOp: PropOp = {
+    "<" => PropOp::Less,
+    "<=" => PropOp::LessEq,
+    "==" => PropOp::Eq,
+    "!=" => PropOp::NotEq,
+    "&&" => PropOp::And,
+};
+
+NamedConstraint: NamedConstraint = "type" <name:Var> <typ:PosTyp> => NamedConstraint{<>};
+
+Def: Def = {
+    FuncDef => Def::Func(<>),
+    NamedConstraint => Def::Typ(<>),
+};
+
+pub Module: Module = Def* => Module(<>);

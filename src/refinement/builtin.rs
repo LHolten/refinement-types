@@ -1,14 +1,66 @@
-use std::{mem::swap, rc::Rc};
+use std::{
+    mem::swap,
+    rc::{Rc, Weak},
+};
 
 use crate::refinement::{heap::BoolFuncTerm, Forall};
 
-use super::{heap::Heap, Fun, Name, NegTyp, PosTyp, Term};
+use super::{heap::Heap, BinOp, Free, Fun, Name, NegTyp, PosTyp, SubContext, Term};
 
-pub(crate) enum Builtin {
+pub enum Builtin {
     Read,
     Write,
     Add,
-    Pack(Name, bool),
+    Pack(Weak<Name>, bool),
+}
+
+impl SubContext {
+    pub fn check_binop(&self, op: &BinOp, _l: &Term, r: &Term) {
+        // TODO: check int sizes here?
+        match op {
+            BinOp::Add => {}
+            BinOp::Sub => {}
+            BinOp::Div => self.verify_prop(&r.not_zero()),
+            BinOp::Eq => {}
+            BinOp::Less => {}
+            BinOp::And => {}
+        }
+    }
+}
+
+impl BinOp {
+    pub fn apply(&self, l: &Term, r: &Term) -> Term {
+        match self {
+            BinOp::Add => l.add(r),
+            BinOp::Sub => l.sub(r),
+            BinOp::Div => todo!(),
+            BinOp::Eq => l.eq(r),
+            BinOp::Less => l.ult(r),
+            BinOp::And => l.and(r),
+        }
+    }
+
+    pub fn eval(&self, l: i64, r: i64) -> i64 {
+        // TODO: make sure that values wrap arround correct
+        match self {
+            BinOp::Add => l + r,
+            BinOp::Sub => l - r,
+            BinOp::Div => l / r,
+            BinOp::Eq => (l == r) as i64,
+            BinOp::Less => (l < r) as i64,
+            BinOp::And => l & r,
+        }
+    }
+}
+
+impl Free<Term> {
+    pub fn make_term(&self) -> Term {
+        match self {
+            Free::BinOp { l, r, op } => op.apply(&l.make_term(), &r.make_term()),
+            Free::Just(val, size) => Term::nat(*val, *size),
+            Free::Var(term) => term.clone(),
+        }
+    }
 }
 
 fn add_cond(heap: &mut dyn Heap, sum: &Term, l: &Term, r: &Term) {
@@ -36,21 +88,22 @@ impl Builtin {
             Builtin::Read => READ.with(Clone::clone),
             Builtin::Write => WRITE.with(Clone::clone),
             Builtin::Add => ADD.with(Clone::clone),
-            Builtin::Pack(name, unpack) => {
-                let func = name.func;
+            Builtin::Pack(named, unpack) => {
                 let unpack = *unpack;
+                let named_rc = named.upgrade().unwrap();
+                let named = named.clone();
                 Fun {
-                    tau: name.tau.clone(),
-                    fun: Rc::new(move |args, heap| {
+                    tau: named_rc.typ.tau.clone(),
+                    fun: Rc::new(move |heap, args| {
                         let args = args.to_owned();
                         let forall = Forall {
-                            func,
+                            named: named.clone(),
                             mask: BoolFuncTerm::exactly(&args),
-                            arg_size: args.iter().map(|x| x.get_size()).collect(),
                         };
                         type HeapOp = Box<dyn Fn(&mut dyn Heap)>;
+                        let fun = named_rc.typ.fun.clone();
                         let mut need: HeapOp = Box::new(move |heap| {
-                            (func)(heap, &args);
+                            (fun)(heap, &args);
                         });
                         let mut res: HeapOp = Box::new(move |heap| heap.forall(forall.clone()));
 
@@ -61,7 +114,7 @@ impl Builtin {
 
                         NegTyp::new(Fun {
                             tau: vec![],
-                            fun: Rc::new(move |_args, heap| {
+                            fun: Rc::new(move |heap, _args| {
                                 (res)(heap);
                                 PosTyp
                             }),

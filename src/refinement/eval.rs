@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{builtin::Builtin, BoundExpr, Expr, Inj, Lambda, Local, Thunk, Value};
+use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Local, Thunk, Value};
 
 #[derive(Clone)]
 struct Eval {
@@ -62,12 +62,19 @@ impl Local<Eval> {
     }
 }
 
+impl Free<Local<Eval>> {
+    pub fn eval(&self) -> i64 {
+        match self {
+            Free::Just(idx, _size) => *idx,
+            Free::Var(local) => local.get_inj(),
+            Free::BinOp { l, r, op } => op.eval(l.eval(), r.eval()),
+        }
+    }
+}
+
 impl Res {
     pub fn from_val(val: &Value<Eval>) -> Self {
-        let inj = val.inj.iter().map(|inj| match inj {
-            Inj::Just(idx, _size) => *idx,
-            Inj::Var(local) => local.get_inj(),
-        });
+        let inj = val.inj.iter().map(|inj| inj.eval());
         Self {
             inj: inj.collect(),
             thunks: vec![],
@@ -81,11 +88,22 @@ impl Memory {
             match expr.as_ref() {
                 Expr::Return(val) => return Res::from_val(val),
                 Expr::Let(bind, e) => {
-                    let arg = self.eval_bind(bind);
-                    expr = e.inst_arg(&arg);
+                    match bind {
+                        BoundExpr::App(func, arg) => {
+                            let arg = self.call_func(arg, func);
+                            expr = e.inst_arg(&arg);
+                        }
+                        BoundExpr::Cont(cont, _neg) => {
+                            let eval = Eval {
+                                res: Res::default(),
+                                rec: cont.to_owned(),
+                            };
+                            expr = Rc::new((e.0)(&eval));
+                        }
+                    };
                 }
                 Expr::Match(local, e) => {
-                    let idx = local.get_inj();
+                    let idx = local.eval();
                     // TODO: check values higher than len or branches
                     expr = e[idx as usize].inst_arg(&Default::default());
                 }
@@ -97,34 +115,29 @@ impl Memory {
         }
     }
 
-    pub fn eval_bind(&mut self, e: &BoundExpr<Eval>) -> Res {
-        match e {
-            BoundExpr::App(func, arg) => {
-                let arg = Res::from_val(arg);
-                match func {
-                    Thunk::Local(local) => {
-                        let func = local.get_thunk().inst_arg(&arg);
-                        self.eval(func)
-                    }
-                    Thunk::Builtin(builtin) => match builtin {
-                        Builtin::Read => {
-                            let [ptr] = *arg.inj else { panic!() };
-                            Res::new(self.data[ptr as usize])
-                        }
-                        Builtin::Write => {
-                            let [ptr, val] = *arg.inj else { panic!() };
-                            self.data[ptr as usize] = val;
-                            Res::default()
-                        }
-                        Builtin::Add => {
-                            let [l, r] = *arg.inj else { panic!() };
-                            Res::new(l + r)
-                        }
-                        Builtin::Pack(_, _) => Res::default(),
-                    },
-                }
+    fn call_func(&mut self, arg: &Rc<Value<Eval>>, func: &Thunk<Eval>) -> Res {
+        let arg = Res::from_val(arg);
+        match func {
+            Thunk::Local(local) => {
+                let func = local.get_thunk().inst_arg(&arg);
+                self.eval(func)
             }
-            BoundExpr::Anno(val, _pos) => Res::from_val(val),
+            Thunk::Builtin(builtin) => match builtin {
+                Builtin::Read => {
+                    let [ptr] = *arg.inj else { panic!() };
+                    Res::new(self.data[ptr as usize])
+                }
+                Builtin::Write => {
+                    let [ptr, val] = *arg.inj else { panic!() };
+                    self.data[ptr as usize] = val;
+                    Res::default()
+                }
+                Builtin::Add => {
+                    let [l, r] = *arg.inj else { panic!() };
+                    Res::new(l + r)
+                }
+                Builtin::Pack(_, _) => Res::default(),
+            },
         }
     }
 }
@@ -135,36 +148,36 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn match_test() {
-        let expr = parse_lambda! { Eval; (val) =>
-            match val
-            { return ()}
-        };
-        let val = Res::new(0);
-        let expr = expr.inst_arg(&val);
-        Memory::default().eval(expr);
-    }
+    // #[test]
+    // fn match_test() {
+    //     let expr = parse_lambda! { Eval; (val) =>
+    //         match val
+    //         { return ()}
+    //     };
+    //     let val = Res::new(0);
+    //     let expr = expr.inst_arg(&val);
+    //     Memory::default().eval(expr);
+    // }
 
-    #[test]
-    #[ignore = "diverges"]
-    fn diverge() {
-        let expr = parse_expr! {Eval;
-            let val@(): () = ();
-            loop val = ()
-        };
-        let expr = Rc::new(expr);
-        Memory::default().eval(expr);
-    }
+    // #[test]
+    // #[ignore = "diverges"]
+    // fn diverge() {
+    //     let expr = parse_expr! {Eval;
+    //         let val@(): () = ();
+    //         loop val = ()
+    //     };
+    //     let expr = Rc::new(expr);
+    //     Memory::default().eval(expr);
+    // }
 
-    #[test]
-    fn increment() {
-        parse_lambda! {Eval; (ptr) =>
-            let (x) = ptr[0];
-            ptr[0] = x;
-            return ()
-        };
-    }
+    // #[test]
+    // fn increment() {
+    //     parse_lambda! {Eval; (ptr) =>
+    //         let (x) = ptr[0];
+    //         ptr[0] = x;
+    //         return ()
+    //     };
+    // }
 
     // #[test]
     // fn testing() {

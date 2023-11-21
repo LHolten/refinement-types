@@ -1,13 +1,12 @@
 use std::{iter::zip, mem::forget, rc::Rc};
 
-use crate::refinement::Inj;
+use crate::refinement::Free;
 
 use super::{BoundExpr, Expr, Fun, Lambda, Local, NegTyp, PosTyp, SubContext, Term, Thunk, Value};
 
 #[derive(Clone)]
 pub struct Var {
     args: Vec<Term>,
-    inner: Rc<PosTyp>,
     rec: Fun<NegTyp>,
 }
 
@@ -64,18 +63,21 @@ impl SubContext {
     fn calc_args(&self, val: &Value<Var>) -> Vec<Term> {
         let mut res = vec![];
         for inj in &val.inj {
-            match inj {
-                Inj::Just(idx, size) => {
-                    let arg = Term::nat(*idx, *size);
-                    res.push(arg);
-                }
-                Inj::Var(local) => {
-                    let arg = local.infer();
-                    res.push(arg.clone())
-                }
-            }
+            res.push(self.check_free(inj))
         }
         res
+    }
+
+    pub fn check_free(&self, free: &Free<Local<Var>>) -> Term {
+        match free {
+            Free::Just(idx, size) => Term::nat(*idx, *size),
+            Free::Var(local) => local.infer().clone(),
+            Free::BinOp { l, r, op } => {
+                let (l, r) = (self.check_free(l), self.check_free(r));
+                self.check_binop(op, &l, &r);
+                op.apply(&l, &r)
+            }
+        }
     }
 
     // This resolves value determined indices in `p`
@@ -94,7 +96,6 @@ impl SubContext {
         let neg = self.extract(n);
         let var = Var {
             args: neg.terms,
-            inner: Rc::new(neg.inner.arg),
             rec: n.clone(),
         };
         let e = l.inst(&var);
@@ -108,21 +109,26 @@ impl SubContext {
                 self.check_empty();
             }
             Expr::Let(g, l) => {
-                let bound_p = match g {
+                match g {
                     BoundExpr::App(func, s) => {
                         let n = self.infer_func(func);
-                        self.spine(&n, s)
+                        let bound_p = self.spine(&n, s);
+                        self.check_expr(l, &bound_p.arrow(p.clone()))
                     }
-                    BoundExpr::Anno(e, p) => {
-                        // as if you call identity
-                        self.check_value(e, p);
-                        p.clone()
+                    BoundExpr::Cont(l, n) => {
+                        self.clone().check_expr(l, n);
+
+                        let var = Var {
+                            args: vec![],
+                            rec: n.clone(),
+                        };
+                        let e = l.inst(&var);
+                        self.check_expr_pos(&e, p);
                     }
                 };
-                self.check_expr(l, &bound_p.arrow(p.clone()))
             }
-            Expr::Match(local, pats) => {
-                let term = local.infer();
+            Expr::Match(free, pats) => {
+                let term = self.check_free(free);
                 let size = term.get_size();
                 let (last, pats) = pats.split_last().unwrap();
 
@@ -134,7 +140,7 @@ impl SubContext {
                     this.check_expr(l, &match_p.arrow(p.clone()));
                 }
 
-                let phi = Term::nat(pats.len() as i64, size).ule(term);
+                let phi = Term::nat(pats.len() as i64, size).ule(&term);
                 let match_p = self.unroll_prod_univ(phi);
                 self.check_expr(last, &match_p.arrow(p.clone()));
             }

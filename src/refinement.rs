@@ -1,17 +1,16 @@
 #![allow(dead_code)]
 
 use std::process::abort;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, ops::Deref};
 
 #[macro_use]
 mod parse_typ;
-#[macro_use]
-mod parse_expr;
 
-mod builtin;
+pub mod builtin;
 mod eval;
-mod heap;
+pub mod heap;
 mod subtyp;
 #[cfg(test)]
 mod test;
@@ -27,14 +26,8 @@ use self::heap::{BoolFuncTerm, Heap};
 
 use self::builtin::Builtin;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Sort {
-    Bool,
-    Nat,
-}
-
-#[derive(PartialEq, Eq, Clone)]
-struct Term(BV<'static>);
+#[derive(Clone)]
+pub struct Term(BV<'static>);
 
 impl Debug for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,41 +35,61 @@ impl Debug for Term {
     }
 }
 
+// Side effect free expression
+#[derive(Clone)]
+pub enum Free<T> {
+    BinOp {
+        l: Rc<Free<T>>,
+        r: Rc<Free<T>>,
+        op: BinOp,
+    },
+    Just(i64, u32),
+    Var(T),
+}
+
+#[derive(Clone, Copy)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Div,
+    Eq,
+    Less,
+    And,
+}
+
 #[allow(clippy::type_complexity)]
-#[derive(Clone, Debug)]
-struct Cond {
+#[derive(Clone)]
+pub struct Cond {
+    named: Weak<Name>,
     // only if the cond is `true`, does this named resource exist
     cond: Term,
     // these are the arguments to the named resource
     args: Vec<Term>,
-    func: fn(&mut dyn Heap, &[Term]),
 }
 
 #[derive(Clone)]
-struct Forall {
-    // all args are universally quantified
-    func: fn(&mut dyn Heap, &[Term]),
+pub struct Forall {
+    pub named: Weak<Name>,
     // mask specifies where is valid
-    mask: Rc<BoolFuncTerm>,
-    arg_size: Vec<u32>,
+    pub mask: Rc<BoolFuncTerm>,
 }
 
 #[derive(Clone)]
-struct FuncDef {
+pub struct FuncDef {
     ptr: Term,
     typ: Fun<NegTyp>,
 }
 
 /// a single resource
 #[derive(Clone)]
-struct Resource {
+pub struct Resource {
     pub ptr: Term,
     pub value: Term,
 }
 
 #[derive(Clone, Default)]
 #[must_use]
-struct SubContext {
+pub struct SubContext {
     assume: Vec<Term>,
     alloc: Vec<Resource>,
     forall: Vec<Forall>,
@@ -95,12 +108,12 @@ impl Drop for SubContext {
 }
 
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
-struct PosTyp;
+pub struct PosTyp;
 
 #[derive(PartialEq, Eq, Debug)]
-struct NegTyp {
-    arg: PosTyp,
-    ret: Fun<PosTyp>,
+pub struct NegTyp {
+    pub arg: PosTyp,
+    pub ret: Fun<PosTyp>,
 }
 
 impl NegTyp {
@@ -110,11 +123,10 @@ impl NegTyp {
 }
 
 #[allow(clippy::type_complexity)]
-struct Fun<T> {
+pub struct Fun<T> {
     // the arguments that are expected to be in scope
-    tau: Vec<u32>,
-    // the first argument is the function itself
-    fun: Rc<dyn Fn(&[Term], &mut dyn Heap) -> T>,
+    pub tau: Vec<u32>,
+    pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term]) -> T>,
 }
 
 impl<T> Clone for Fun<T> {
@@ -164,7 +176,7 @@ impl<V> Lambda<V> {
 }
 
 #[allow(clippy::type_complexity)]
-struct Lambda<V>(Rc<dyn Fn(&V) -> Expr<V>>);
+pub struct Lambda<V>(pub Rc<dyn Fn(&V) -> Expr<V>>);
 
 impl<V> Clone for Lambda<V> {
     fn clone(&self) -> Self {
@@ -172,8 +184,8 @@ impl<V> Clone for Lambda<V> {
     }
 }
 
-struct Value<V> {
-    inj: Vec<Inj<V>>,
+pub struct Value<V> {
+    pub inj: Vec<Free<Local<V>>>,
 }
 
 impl<V> Default for Value<V> {
@@ -184,26 +196,32 @@ impl<V> Default for Value<V> {
     }
 }
 
-enum Inj<V> {
-    Just(i64, u32),
-    Var(Local<V>),
-}
-
-enum Thunk<V> {
+pub enum Thunk<V> {
     Local(Local<V>),
     Builtin(Builtin),
 }
 
 #[derive(Clone)]
-struct Local<V>(V, usize);
+pub struct Local<V>(pub V, pub usize);
 
 /// Named resource name
-struct Name {
-    tau: Vec<u32>,
-    func: fn(&mut dyn Heap, &[Term]),
+#[derive(Clone)]
+pub struct Name {
+    pub id: usize,
+    pub typ: Fun<PosTyp>,
 }
 
-enum Expr<V> {
+impl Name {
+    pub fn new(typ: Fun<PosTyp>) -> Self {
+        static NAME_ID: AtomicUsize = AtomicUsize::new(0);
+        Self {
+            id: NAME_ID.fetch_add(1, Ordering::Relaxed),
+            typ,
+        }
+    }
+}
+
+pub enum Expr<V> {
     /// construct a value and return it
     Return(Rc<Value<V>>),
 
@@ -212,17 +230,18 @@ enum Expr<V> {
 
     /// match on some inductive type and choose a branch
     /// last branch will be the catch all
-    Match(Local<V>, Vec<Lambda<V>>),
+    Match(Free<Local<V>>, Vec<Lambda<V>>),
 
     /// loop back to an assigment
     Loop(V, Rc<Value<V>>),
 }
 
-enum BoundExpr<V> {
+pub enum BoundExpr<V> {
     /// apply a function to some arguments
     App(Thunk<V>, Rc<Value<V>>),
 
-    Anno(Rc<Value<V>>, Fun<PosTyp>),
+    /// define a different continuation,
+    Cont(Lambda<V>, Fun<NegTyp>),
 }
 
 // - Make Prod type any length and povide projections

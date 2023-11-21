@@ -110,7 +110,7 @@ macro_rules! neg_typ {
         #[allow(unused_mut, unused_variables)]
         let mut fun = $crate::refinement::Fun {
             tau: vec![],
-            fun: ::std::rc::Rc::new(|args, heap| {
+            fun: ::std::rc::Rc::new(|heap, args| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $arg) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $arg_bound);
@@ -132,7 +132,7 @@ macro_rules! pos_typ {
         #[allow(unused_mut, unused_variables)]
         let mut fun = $crate::refinement::Fun {
             tau: vec![],
-            fun: ::std::rc::Rc::new(|args, heap| {
+            fun: ::std::rc::Rc::new(|heap, args| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $part) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $bound);

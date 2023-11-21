@@ -33,6 +33,10 @@ impl Term {
         assert_eq!(self.get_size(), r.get_size());
         Self(self.0.bvadd(&r.0))
     }
+    pub fn sub(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self(self.0.bvsub(&r.0))
+    }
     pub fn eq(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
         Self::from_bool(self.0._eq(&r.0))
@@ -49,8 +53,8 @@ impl Term {
         assert_eq!(self.get_size(), r.get_size());
         Self(self.0.bvand(&r.0))
     }
-    pub fn not(&self) -> Self {
-        Self(self.0.bvnot())
+    pub fn bool_not(&self) -> Self {
+        Self::nat(1, 32).sub(self)
     }
     pub fn not_zero(&self) -> Self {
         Self::from_bool(self.to_bool())
@@ -65,10 +69,9 @@ impl Term {
 
 impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
-        self.arg_size
-            .iter()
-            .map(|size| Term::fresh("index", *size))
-            .collect()
+        let name = self.named.upgrade().unwrap();
+        let arg_sizes = name.typ.tau.iter();
+        arg_sizes.map(|size| Term::fresh("index", *size)).collect()
     }
 }
 
@@ -101,12 +104,15 @@ impl SubContext {
     pub fn exactly_equal() {}
     pub fn never_overlap() {}
     pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
-        if large.func as fn(&'static mut _, &'static _)
-            != small.func as fn(&'static mut _, &'static _)
-        {
+        let (large_named, small_named) = (
+            large.named.upgrade().unwrap(),
+            small.named.upgrade().unwrap(),
+        );
+
+        if large_named.id != small_named.id {
             return false;
         }
-        assert_eq!(large.arg_size, small.arg_size);
+        debug_assert_eq!(large_named.typ.tau, small_named.typ.tau);
         let idx = large.make_fresh_args();
 
         let cond = small.mask.apply(&idx).implies(&large.mask.apply(&idx));
