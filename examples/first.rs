@@ -2,17 +2,17 @@ use std::collections::BTreeMap;
 
 use structural_types::parse::code::ModuleParser;
 
-static CODE: &str = include_str!("first.lang");
+static CODE: &[&str] = &[include_str!("string.lang"), include_str!("array.lang")];
 
-fn main() {
+fn check_code(code: &str) {
     let mut map = BTreeMap::new();
     let mut offset = 0;
-    for line in CODE.split_inclusive('\n') {
+    for line in code.split_inclusive('\n') {
         map.insert(offset, line);
         offset += line.len();
     }
 
-    match ModuleParser::new().parse(CODE) {
+    match ModuleParser::new().parse(code) {
         Err(e) => {
             let e = e.map_location(|offset| {
                 let line_num = map.range(..offset).count();
@@ -25,5 +25,11 @@ fn main() {
         Ok(m) => {
             structural_types::parse::desugar::Desugar::check(m);
         }
+    }
+}
+
+fn main() {
+    for code in CODE {
+        check_code(code)
     }
 }

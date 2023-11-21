@@ -20,18 +20,24 @@ mod util;
 mod verify;
 
 pub use typing::Var;
-use z3::ast::BV;
+use z3::ast::{Bool, BV};
 
 use self::heap::{BoolFuncTerm, Heap};
 
 use self::builtin::Builtin;
 
 #[derive(Clone)]
-pub struct Term(BV<'static>);
+pub enum Term {
+    BV(BV<'static>),
+    Bool(Bool<'static>),
+}
 
 impl Debug for Term {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        match self {
+            Term::BV(bv) => bv.fmt(f),
+            Term::Bool(b) => b.fmt(f),
+        }
     }
 }
 
@@ -54,17 +60,19 @@ pub enum BinOp {
     Div,
     Eq,
     Less,
+    LessEq,
+    NotEq,
     And,
 }
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub struct Cond {
-    named: Weak<Name>,
+    pub named: Weak<Name>,
     // only if the cond is `true`, does this named resource exist
-    cond: Term,
+    pub cond: Term,
     // these are the arguments to the named resource
-    args: Vec<Term>,
+    pub args: Vec<Term>,
 }
 
 #[derive(Clone)]

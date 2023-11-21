@@ -1,0 +1,13 @@
+fn fib(n) where {
+    assert n <= 10;
+} -> (out) where {
+    assert n <= out;
+} = {
+    if_zero (1 < n) {
+        return (1)
+    };
+    let (val1) = fib(n - 1);
+    let (val2) = fib(n - 2);
+    return (val1 + val2)
+}
+

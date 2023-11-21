@@ -1,0 +1,20 @@
+type terminated(ptr) where {
+    move val = @byte (ptr);
+    terminated (ptr + 1) if val != 0;
+}
+
+fn fill_string(ptr, new) where {
+    move _ = terminated(ptr); 
+    assert new != 0;
+} -> () where {
+    move _ = terminated(ptr);
+} = {
+    let (val) = @read_u8(ptr);
+    if_zero val {
+        return ()
+    };
+    let () = @write_u8(ptr, new);
+
+    unpack terminated(ptr + 1);
+    return fill_string(ptr + 1, new)
+}

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, mem::take, rc::Rc};
 
-use z3::ast::{Ast, Bool};
+use z3::ast::Bool;
 
 use crate::solver::ctx;
 
@@ -8,7 +8,6 @@ use super::{typing::zip_eq, Cond, Forall, Fun, FuncDef, NegTyp, Resource, SubCon
 
 #[allow(clippy::type_complexity)]
 pub enum BoolFuncTerm {
-    Uvar(z3::FuncDecl<'static>),
     User(Box<dyn Fn(&[Term]) -> Bool<'static>>),
 }
 
@@ -19,10 +18,6 @@ impl BoolFuncTerm {
 
     pub fn apply(&self, idx: &[Term]) -> Bool<'static> {
         match self {
-            BoolFuncTerm::Uvar(func) => {
-                let args: Vec<_> = idx.iter().map(|x| &x.0 as _).collect();
-                func.apply(&args).as_bool().unwrap()
-            }
             BoolFuncTerm::User(func) => (func)(idx),
         }
     }
@@ -37,7 +32,7 @@ impl BoolFuncTerm {
         let ptr = ptr.to_owned();
         Self::new(move |val| {
             zip_eq(&ptr, val)
-                .map(|(l, r)| l.0._eq(&r.0))
+                .map(|(l, r)| l.eq(r).to_bool())
                 .fold(Bool::from_bool(ctx(), true), |l, r| l & r)
         })
     }
@@ -143,9 +138,11 @@ impl Heap for HeapConsume<'_> {
     fn forall(&mut self, need: Forall) {
         if let Some(need) = self.try_remove(need) {
             let idx = need.make_fresh_args();
-            // for have in &self.forall {
-            //     println!("have {}", have.mask.apply(&idx))
-            // }
+            for have in &self.forall {
+                if have.named.upgrade().unwrap().id == need.named.upgrade().unwrap().id {
+                    println!("have {}", have.mask.apply(&idx))
+                }
+            }
             for assume in &self.assume {
                 println!("assume {assume:?}");
             }

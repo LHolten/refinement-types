@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     expr::{BinOpValue, Block, Def, FuncDef, Module, Value},
-    types::{Constraint, NamedConstraint, NegTyp, PosTyp, Prop, PropOp},
+    types::{Constraint, NamedConstraint, NegTyp, PosTyp, Prop, PropOp, Switch},
 };
 
 #[derive(Clone)]
@@ -26,7 +26,7 @@ pub struct Desugar {
 }
 
 impl Desugar {
-    pub fn new(named: WeakNameList) -> Self {
+    fn new(named: WeakNameList) -> Self {
         Self {
             named,
             terms: HashMap::new(),
@@ -97,12 +97,6 @@ impl refinement::BinOp {
     }
 }
 
-impl<T> refinement::Free<T> {
-    pub fn bool_not(self) -> Self {
-        refinement::BinOp::Sub.free(Self::Just(1, 32), self)
-    }
-}
-
 impl Prop {
     pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
         let l = self.l.convert(lookup);
@@ -110,9 +104,9 @@ impl Prop {
         use refinement::BinOp as Op;
         match self.op {
             PropOp::Less => Op::Less.free(l, r),
-            PropOp::LessEq => Op::Less.free(r, l).bool_not(),
+            PropOp::LessEq => Op::LessEq.free(l, r),
             PropOp::Eq => Op::Eq.free(l, r),
-            PropOp::NotEq => Op::Eq.free(l, r).bool_not(),
+            PropOp::NotEq => Op::NotEq.free(l, r),
             PropOp::And => Op::And.free(l, r),
         }
     }
@@ -186,6 +180,15 @@ impl Desugar {
                             this.convert_prop(&cond).to_bool()
                         }),
                     });
+                }
+                Constraint::Switch(Switch { cond, named, args }) => {
+                    let named = self.named.0.get(named).unwrap();
+
+                    heap.switch(refinement::Cond {
+                        named: named.clone(),
+                        cond: self.convert_prop(cond),
+                        args: self.convert_vals(args),
+                    })
                 }
                 Constraint::Assert(cond) => heap.assert(self.convert_prop(cond)),
                 Constraint::Builtin(new_name, call) => {

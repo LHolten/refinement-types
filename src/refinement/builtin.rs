@@ -24,6 +24,8 @@ impl SubContext {
             BinOp::Eq => {}
             BinOp::Less => {}
             BinOp::And => {}
+            BinOp::LessEq => {}
+            BinOp::NotEq => {}
         }
     }
 }
@@ -36,7 +38,9 @@ impl BinOp {
             BinOp::Div => todo!(),
             BinOp::Eq => l.eq(r),
             BinOp::Less => l.ult(r),
-            BinOp::And => l.and(r),
+            BinOp::And => l.bool_and(r),
+            BinOp::LessEq => l.ule(r),
+            BinOp::NotEq => l.eq(r).is_zero(),
         }
     }
 
@@ -49,6 +53,8 @@ impl BinOp {
             BinOp::Eq => (l == r) as i64,
             BinOp::Less => (l < r) as i64,
             BinOp::And => l & r,
+            BinOp::LessEq => (l <= r) as i64,
+            BinOp::NotEq => (l != r) as i64,
         }
     }
 }

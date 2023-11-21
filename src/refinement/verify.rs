@@ -9,61 +9,76 @@ use super::{Forall, SubContext, Term};
 
 impl Term {
     pub fn fresh(prefix: &str, size: u32) -> Self {
-        Self(BV::fresh_const(ctx(), prefix, size))
+        Self::BV(BV::fresh_const(ctx(), prefix, size))
     }
-    fn from_bool(b: Bool<'static>) -> Self {
-        Self(b.ite(&BV::from_i64(ctx(), 1, 32), &BV::from_i64(ctx(), 0, 32)))
+    fn to_bv(&self) -> BV<'static> {
+        match self {
+            Term::BV(bv) => bv.clone(),
+            Term::Bool(b) => b.ite(&BV::from_i64(ctx(), 1, 32), &BV::from_i64(ctx(), 0, 32)),
+        }
     }
-
     pub fn get_size(&self) -> u32 {
-        self.0.get_size()
+        match self {
+            Term::BV(bv) => bv.get_size(),
+            Term::Bool(_) => 32,
+        }
     }
     pub fn to_bool(&self) -> Bool<'static> {
-        let size = self.get_size();
-        let zero = BV::from_i64(ctx(), 0, size);
-        self.0._eq(&zero).not()
+        match self {
+            Term::BV(bv) => {
+                let zero = BV::from_i64(ctx(), 0, bv.get_size());
+                zero._eq(bv).not()
+            }
+            Term::Bool(b) => b.clone(),
+        }
+    }
+    pub fn not_zero(&self) -> Self {
+        Self::Bool(self.to_bool())
+    }
+    pub fn is_zero(&self) -> Self {
+        match self {
+            Term::BV(bv) => {
+                let zero = &BV::from_i64(ctx(), 0, bv.get_size());
+                Term::Bool(zero._eq(bv))
+            }
+            Term::Bool(b) => Term::Bool(b.not()),
+        }
     }
     pub fn bool(b: bool) -> Self {
-        Self::nat(b as i64, 32)
+        Self::Bool(Bool::from_bool(ctx(), b))
     }
     pub fn nat(val: i64, size: u32) -> Self {
-        Self(BV::from_i64(ctx(), val, size))
+        Self::BV(BV::from_i64(ctx(), val, size))
     }
     pub fn add(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self(self.0.bvadd(&r.0))
+        Self::BV(self.to_bv().bvadd(&r.to_bv()))
     }
     pub fn sub(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self(self.0.bvsub(&r.0))
+        Self::BV(self.to_bv().bvsub(&r.to_bv()))
     }
     pub fn eq(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self::from_bool(self.0._eq(&r.0))
+        Self::Bool(self.to_bv()._eq(&r.to_bv()))
     }
     pub fn ule(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self::from_bool(self.0.bvule(&r.0))
+        Self::Bool(self.to_bv().bvule(&r.to_bv()))
     }
     pub fn ult(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self::from_bool(self.0.bvult(&r.0))
+        Self::Bool(self.to_bv().bvult(&r.to_bv()))
     }
-    pub fn and(&self, r: &Self) -> Self {
+    pub fn bool_and(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self(self.0.bvand(&r.0))
-    }
-    pub fn bool_not(&self) -> Self {
-        Self::nat(1, 32).sub(self)
-    }
-    pub fn not_zero(&self) -> Self {
-        Self::from_bool(self.to_bool())
+        Self::Bool(self.to_bool() & r.to_bool())
     }
     pub fn concat(&self, r: &Self) -> Self {
-        Self(self.0.concat(&r.0))
+        Self::BV(self.to_bv().concat(&r.to_bv()))
     }
     pub fn extend_to(&self, size: u32) -> Self {
-        Self(self.0.zero_ext(size - self.get_size()))
+        Self::BV(self.to_bv().zero_ext(size - self.get_size()))
     }
 }
 
@@ -143,7 +158,7 @@ impl SubContext {
 
     pub fn get_value(&self, term: &Term) -> Option<u32> {
         let s = self.assume();
-        let term = &term.0;
+        let term = &term.to_bv();
         match s.check() {
             SatResult::Unsat => todo!(),
             SatResult::Unknown => todo!(),

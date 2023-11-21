@@ -50,9 +50,11 @@ NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 PosTyp: Rc<PosTyp> = "(" <names:(<Var> ","?)*> ")" "where" "{" <parts:(<Constraint> ";")*> "}" => Rc::new(PosTyp{<>});
 
 Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
+Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Prop> => Switch{<>};
 
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
+    Switch => Constraint::Switch(<>),
     "move" <Var> "=" <Bind> => Constraint::Builtin(<>),
     "assert" <Prop> => Constraint::Assert(<>),
 };
