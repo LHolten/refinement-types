@@ -9,12 +9,12 @@ use std::{fmt::Debug, ops::Deref};
 mod parse_typ;
 
 pub mod builtin;
-mod eval;
+pub mod eval;
 pub mod heap;
 mod subtyp;
 #[cfg(test)]
 mod test;
-mod typing;
+pub mod typing;
 mod unroll;
 mod util;
 mod verify;
@@ -58,6 +58,7 @@ pub enum BinOp {
     Add,
     Sub,
     Div,
+    Mul,
     Eq,
     Less,
     LessEq,

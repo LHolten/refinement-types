@@ -25,6 +25,7 @@ BinOpValue: BinOpValue = <l:Value> <op:BinOp> <r:Value> => BinOpValue{<>};
 BinOp: BinOp = {
     "+" => BinOp::Plus,
     "-" => BinOp::Minus,
+    "*" => BinOp::Times,
 };
 
 Bind: Bind = <func:Var?> "(" <args:(<UnboxedValue> ","?)*> ")" => Bind{<>};
@@ -47,7 +48,10 @@ FuncDef: FuncDef = "fn" <name: Var> <typ:NegTyp> "=" "{" <block:Block> "}" => Fu
 
 NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
-PosTyp: Rc<PosTyp> = "(" <names:(<Var> ","?)*> ")" "where" "{" <parts:(<Constraint> ";")*> "}" => Rc::new(PosTyp{<>});
+PosTyp: Rc<PosTyp> = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Constraint> ";")*> "}")?> => Rc::new({
+    let parts = parts.into_iter().flatten().collect();    
+    PosTyp{names, parts}
+});
 
 Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
 Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Prop> => Switch{<>};

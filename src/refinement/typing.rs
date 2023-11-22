@@ -115,8 +115,8 @@ impl SubContext {
                         let bound_p = self.spine(&n, s);
                         self.check_expr(l, &bound_p.arrow(p.clone()))
                     }
-                    BoundExpr::Cont(l, n) => {
-                        self.clone().check_expr(l, n);
+                    BoundExpr::Cont(c, n) => {
+                        self.clone().check_expr(c, n);
 
                         let var = Var {
                             args: vec![],

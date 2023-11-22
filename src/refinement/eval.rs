@@ -1,9 +1,9 @@
-use std::rc::Rc;
+use std::{cmp, rc::Rc};
 
 use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Local, Thunk, Value};
 
 #[derive(Clone)]
-struct Eval {
+pub struct Eval {
     res: Res,
     rec: Lambda<Eval>,
 }
@@ -15,25 +15,21 @@ impl Eval {
 }
 
 #[derive(Clone, Default)]
-struct Res {
-    inj: Vec<i64>,
-    thunks: Vec<Lambda<Eval>>,
+pub struct Res {
+    pub inj: Vec<i64>,
 }
 
 #[derive(Default)]
-struct Memory {
+pub struct Memory {
     data: Vec<i64>,
 }
 
 impl Res {
     fn new(val: i64) -> Self {
-        Self {
-            inj: vec![val],
-            thunks: vec![],
-        }
+        Self { inj: vec![val] }
     }
 
-    fn make_eval(&self, rec: &Lambda<Eval>) -> Eval {
+    pub fn make_eval(&self, rec: &Lambda<Eval>) -> Eval {
         Eval {
             res: self.clone(),
             rec: rec.clone(),
@@ -54,7 +50,8 @@ impl Lambda<Eval> {
 
 impl Local<Eval> {
     fn get_thunk(&self) -> &Lambda<Eval> {
-        &self.0.res.thunks[self.1]
+        // &self.0.res.thunks[self.1]
+        panic!()
     }
 
     fn get_inj(&self) -> i64 {
@@ -75,10 +72,7 @@ impl Free<Local<Eval>> {
 impl Res {
     pub fn from_val(val: &Value<Eval>) -> Self {
         let inj = val.inj.iter().map(|inj| inj.eval());
-        Self {
-            inj: inj.collect(),
-            thunks: vec![],
-        }
+        Self { inj: inj.collect() }
     }
 }
 
@@ -103,9 +97,9 @@ impl Memory {
                     };
                 }
                 Expr::Match(local, e) => {
-                    let idx = local.eval();
-                    // TODO: check values higher than len or branches
-                    expr = e[idx as usize].inst_arg(&Default::default());
+                    // clip index because last branch is the default
+                    let idx = cmp::min(local.eval() as usize, e.len() - 1);
+                    expr = e[idx].inst_arg(&Default::default());
                 }
                 Expr::Loop(var, arg) => {
                     let arg = Res::from_val(arg);

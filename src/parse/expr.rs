@@ -42,6 +42,7 @@ pub struct BinOpValue {
 pub enum BinOp {
     Plus,
     Minus,
+    Times,
 }
 
 pub enum Stmt {
