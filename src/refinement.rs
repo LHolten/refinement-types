@@ -22,7 +22,7 @@ mod verify;
 pub use typing::Var;
 use z3::ast::{Bool, BV};
 
-use self::heap::{BoolFuncTerm, Heap};
+use self::heap::{FuncTerm, Heap};
 
 use self::builtin::Builtin;
 
@@ -76,11 +76,18 @@ pub struct Cond {
     pub args: Vec<Term>,
 }
 
+/// a single resource
+#[derive(Clone)]
+pub enum Resource {
+    Named(Weak<Name>),
+    Owned,
+}
+
 #[derive(Clone)]
 pub struct Forall {
-    pub named: Weak<Name>,
+    pub named: Resource,
     // mask specifies where is valid
-    pub mask: Rc<BoolFuncTerm>,
+    pub mask: FuncTerm,
 }
 
 #[derive(Clone)]
@@ -89,19 +96,17 @@ pub struct FuncDef {
     typ: Fun<NegTyp>,
 }
 
-/// a single resource
 #[derive(Clone)]
-pub struct Resource {
-    pub ptr: Term,
-    pub value: Term,
+pub struct CtxForall {
+    pub have: Forall,
+    pub value: FuncTerm,
 }
 
 #[derive(Clone, Default)]
 #[must_use]
 pub struct SubContext {
     assume: Vec<Term>,
-    alloc: Vec<Resource>,
-    forall: Vec<Forall>,
+    forall: Vec<CtxForall>,
     funcs: Vec<FuncDef>,
 }
 

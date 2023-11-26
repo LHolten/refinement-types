@@ -155,7 +155,6 @@ impl SubContext {
     pub fn without_alloc(&self) -> Self {
         Self {
             assume: self.assume.clone(),
-            alloc: vec![],
             forall: vec![],
             funcs: vec![],
         }
@@ -164,8 +163,7 @@ impl SubContext {
     pub fn check_empty(mut self) {
         // leaking resources is not allowed
         // TODO: make sure this doesn't leak
-        assert!(self.alloc.is_empty(), "can not leak memory");
-        assert!(self.forall.is_empty(), "can not leak memory");
+        assert!(self.forall.is_empty(), "can not leak resources");
         self.assume.clear();
         self.funcs.clear();
         forget(self);

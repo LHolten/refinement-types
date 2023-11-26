@@ -3,15 +3,18 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::refinement::{heap::BoolFuncTerm, Forall};
+use crate::{
+    parse,
+    refinement::{heap::FuncTerm, Forall, Resource},
+};
 
 use super::{heap::Heap, BinOp, Free, Fun, Name, NegTyp, PosTyp, SubContext, Term};
 
 pub enum Builtin {
     Read,
     Write,
-    Add,
     Pack(Weak<Name>, bool),
+    Alloc,
 }
 
 impl SubContext {
@@ -72,10 +75,6 @@ impl Free<Term> {
     }
 }
 
-fn add_cond(heap: &mut dyn Heap, sum: &Term, l: &Term, r: &Term) {
-    heap.assert_eq(sum, &l.add(r))
-}
-
 // TODO: these leak a bit of memory for each thread
 thread_local! {
     static READ: Fun<NegTyp> = neg_typ!(
@@ -86,17 +85,24 @@ thread_local! {
         (ptr:Nat, val:Nat) where {let _ = ptr[0]}
             -> () where {let new = ptr[0]; new == val}
     );
-    static ADD: Fun<NegTyp> = neg_typ!(
-        (l:Nat, r:Nat) -> (sum:Nat) where {add_cond(sum, l, r)}
-    );
 }
+
+static ALLOC_STR: &str = r"
+(pages) -> (start) where {
+    @byte for (ptr) if (start != -1) 
+        && (start * 65536 <= ptr)
+        && (ptr < (start + pages) * 65536);
+    assert (start != -1) => (start <= (start + pages));
+    assert (start != -1) => ((start + pages) <= 65536);
+}
+";
 
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
         match self {
             Builtin::Read => READ.with(Clone::clone),
             Builtin::Write => WRITE.with(Clone::clone),
-            Builtin::Add => ADD.with(Clone::clone),
+            Builtin::Alloc => parse::convert_neg(ALLOC_STR),
             Builtin::Pack(named, unpack) => {
                 let unpack = *unpack;
                 let named_rc = named.upgrade().unwrap();
@@ -106,15 +112,17 @@ impl Builtin {
                     fun: Rc::new(move |heap, args| {
                         let args = args.to_owned();
                         let forall = Forall {
-                            named: named.clone(),
-                            mask: BoolFuncTerm::exactly(&args),
+                            named: Resource::Named(named.clone()),
+                            mask: FuncTerm::exactly(&args),
                         };
                         type HeapOp = Box<dyn Fn(&mut dyn Heap)>;
                         let fun = named_rc.typ.fun.clone();
                         let mut need: HeapOp = Box::new(move |heap| {
                             (fun)(heap, &args);
                         });
-                        let mut res: HeapOp = Box::new(move |heap| heap.forall(forall.clone()));
+                        let mut res: HeapOp = Box::new(move |heap| {
+                            heap.forall(forall.clone());
+                        });
 
                         if unpack {
                             swap(&mut res, &mut need);

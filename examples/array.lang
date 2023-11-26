@@ -1,10 +1,6 @@
-type mem(ptr) where {
-    move _ = @byte (ptr);
-}
-
 type array(from, len) where {
     assert from <= (from + len);
-    mem for (ptr) if (from <= ptr) && (ptr < (from + len));
+    @byte for (ptr) if (from <= ptr) && (ptr < (from + len));
 }
 
 fn fill_vec(ptr, len, new) where {
@@ -15,9 +11,7 @@ fn fill_vec(ptr, len, new) where {
     if_zero len {
         return ()
     };
-    unpack mem(ptr);
     let () = @write_u8(ptr, new);
-    pack mem(ptr);
 
     return fill_vec(ptr + 1, len - 1, new)
 }

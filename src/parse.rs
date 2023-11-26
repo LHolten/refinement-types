@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use lalrpop_util::lalrpop_mod;
 
-use self::{code::ModuleParser, expr::Module};
+use crate::refinement::{Fun, NegTyp};
+
+use self::{code::ModuleParser, code::NegTypParser, expr::Module};
 
 pub mod desugar;
 pub mod expr;
@@ -29,4 +31,9 @@ pub fn get_module(code: &str) -> Module {
         }
         Ok(m) => m,
     }
+}
+
+pub fn convert_neg(code: &str) -> Fun<NegTyp> {
+    let parsed = NegTypParser::new().parse(code).unwrap();
+    desugar::convert_neg_builtin(parsed)
 }

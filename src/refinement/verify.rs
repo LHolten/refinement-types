@@ -5,13 +5,13 @@ use z3::{
 
 use crate::solver::{ctx, solver};
 
-use super::{Forall, SubContext, Term};
+use super::{Forall, Resource, SubContext, Term};
 
 impl Term {
     pub fn fresh(prefix: &str, size: u32) -> Self {
         Self::BV(BV::fresh_const(ctx(), prefix, size))
     }
-    fn to_bv(&self) -> BV<'static> {
+    pub fn to_bv(&self) -> BV<'static> {
         match self {
             Term::BV(bv) => bv.clone(),
             Term::Bool(b) => b.ite(&BV::from_i64(ctx(), 1, 32), &BV::from_i64(ctx(), 0, 32)),
@@ -88,9 +88,22 @@ impl Term {
 
 impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
-        let name = self.named.upgrade().unwrap();
-        let arg_sizes = name.typ.tau.iter();
-        arg_sizes.map(|size| Term::fresh("index", *size)).collect()
+        self.arg_sizes()
+            .iter()
+            .map(|size| Term::fresh("index", *size))
+            .collect()
+    }
+    pub fn id(&self) -> Option<usize> {
+        match &self.named {
+            Resource::Named(name) => Some(name.upgrade().unwrap().id),
+            Resource::Owned => None,
+        }
+    }
+    pub fn arg_sizes(&self) -> Vec<u32> {
+        match &self.named {
+            Resource::Named(name) => name.upgrade().unwrap().typ.tau.clone(),
+            Resource::Owned => vec![32],
+        }
     }
 }
 
@@ -111,7 +124,7 @@ impl SubContext {
         debug_assert_eq!(s.check(), SatResult::Sat);
 
         let idx = forall.make_fresh_args();
-        let cond = forall.mask.apply(&idx);
+        let cond = forall.mask.apply_bool(&idx);
 
         match s.check_assumptions(&[cond]) {
             SatResult::Unsat => false,
@@ -123,18 +136,16 @@ impl SubContext {
     pub fn exactly_equal() {}
     pub fn never_overlap() {}
     pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
-        let (large_named, small_named) = (
-            large.named.upgrade().unwrap(),
-            small.named.upgrade().unwrap(),
-        );
-
-        if large_named.id != small_named.id {
+        if large.id() != small.id() {
             return false;
         }
-        debug_assert_eq!(large_named.typ.tau, small_named.typ.tau);
+        // debug_assert_eq!(large_named.typ.tau, small_named.typ.tau);
         let idx = large.make_fresh_args();
 
-        let cond = small.mask.apply(&idx).implies(&large.mask.apply(&idx));
+        let cond = small
+            .mask
+            .apply_bool(&idx)
+            .implies(&large.mask.apply_bool(&idx));
         self.is_always_true(cond)
     }
 

@@ -8,8 +8,9 @@ use crate::{
     parse::expr::{IfZero, Let, Stmt},
     refinement::{
         self,
-        heap::{BoolFuncTerm, Heap},
+        heap::{FuncTerm, Heap},
         typing::zip_eq,
+        Resource,
     },
 };
 
@@ -161,13 +162,17 @@ impl DesugarTypes {
         for part in parts {
             match part {
                 Constraint::Forall(forall) => {
-                    let named = self.named.0.get(&forall.named).unwrap();
+                    let named = if forall.named == "@byte" {
+                        Resource::Owned
+                    } else {
+                        Resource::Named(self.named.0.get(&forall.named).unwrap().clone())
+                    };
                     let cond = forall.cond.clone();
                     let names = forall.names.clone();
                     let this = self.clone();
                     heap.forall(refinement::Forall {
-                        named: named.clone(),
-                        mask: BoolFuncTerm::new(move |terms| {
+                        named,
+                        mask: FuncTerm::new_bool(move |terms| {
                             let mut this = this.clone();
                             this.terms.extend(zip_eq(names.clone(), terms.to_owned()));
                             this.convert_prop(&cond).to_bool()
@@ -409,4 +414,12 @@ pub fn run(m: Module, name: &str, args: Vec<i32>) -> Vec<i64> {
         }
     }
     panic!("function not found")
+}
+
+pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
+    let desugar = DesugarTypes {
+        named: WeakNameList(Default::default()),
+        terms: Default::default(),
+    };
+    desugar.convert_neg(neg)
 }

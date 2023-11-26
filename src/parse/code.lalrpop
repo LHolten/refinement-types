@@ -46,7 +46,7 @@ Block: Rc<Block> = <steps:(<Stmt> ";")*> "return" <end:Bind> => Rc::new(Block{<>
 
 FuncDef: FuncDef = "fn" <name: Var> <typ:NegTyp> "=" "{" <block:Block> "}" => FuncDef{<>};
 
-NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
+pub NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
 PosTyp: Rc<PosTyp> = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Constraint> ";")*> "}")?> => Rc::new({
     let parts = parts.into_iter().flatten().collect();    

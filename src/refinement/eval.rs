@@ -126,11 +126,8 @@ impl Memory {
                     self.data[ptr as usize] = val;
                     Res::default()
                 }
-                Builtin::Add => {
-                    let [l, r] = *arg.inj else { panic!() };
-                    Res::new(l + r)
-                }
                 Builtin::Pack(_, _) => Res::default(),
+                Builtin::Alloc => todo!(),
             },
         }
     }
