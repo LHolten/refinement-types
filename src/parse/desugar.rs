@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    iter,
+    marker::PhantomData,
     rc::{Rc, UniqueRc, Weak},
 };
 
@@ -10,8 +10,9 @@ use crate::{
         self,
         heap::{FuncTerm, Heap},
         typing::zip_eq,
-        Resource,
+        Lambda, Resource, Val,
     },
+    uninit_rc::UninitRc,
 };
 
 use super::{
@@ -207,35 +208,41 @@ impl DesugarTypes {
 }
 
 #[derive(Clone)]
-pub struct Desugar<T> {
-    _named: Vec<Rc<refinement::Name>>,
+pub struct Desugar<T: Val> {
     types: DesugarTypes,
-    vars: HashMap<String, refinement::Local<T>>,
-    labels: HashMap<String, T>,
+    vars: HashMap<String, T>,
+    labels: HashMap<String, T::Func>,
 }
 
-impl<T: Clone + 'static> Desugar<T> {
+#[derive(Clone)]
+pub struct WeakFuncDef<T: Val> {
+    weak: Weak<Lambda<T>>,
+    typ: refinement::Fun<refinement::NegTyp>,
+}
+
+impl<T: Val> Desugar<T> {
     pub fn convert_value(&self, value: &[Value]) -> refinement::Value<T> {
         refinement::Value {
             inj: value.iter().map(|val| val.convert(&self.vars)).collect(),
         }
     }
 
-    pub fn convert_lambda(
-        &self,
+    pub fn convert_lambda_inner(
+        self,
         index: usize,
-        block: &Rc<Block>,
-        label: Option<String>,
         names: Vec<String>,
-    ) -> refinement::Lambda<T> {
-        let this = self.clone();
-        let block = block.clone();
-        refinement::Lambda(Rc::new(move |arg| -> refinement::Expr<T> {
-            let mut this = this.clone();
-            let locals = (0..).map(|i| refinement::Local(arg.clone(), i));
-            this.vars.extend(iter::zip(names.clone(), locals));
-            if let Some(label) = label.as_ref() {
-                this.labels.insert(label.clone(), arg.clone());
+        labels: HashMap<String, WeakFuncDef<T>>,
+        block: Rc<Block>,
+    ) -> refinement::Lambda<T, impl Fn(&[T]) -> refinement::Expr<T>> {
+        refinement::Lambda(PhantomData, move |args: &[T]| -> refinement::Expr<T> {
+            let mut this = self.clone();
+            for (name, def) in &labels {
+                this.labels
+                    .insert(name.clone(), T::make(&def.weak, &def.typ));
+            }
+
+            for (name, arg) in zip_eq(&names, args) {
+                this.vars.insert(name.clone(), arg.clone());
             }
 
             let Some(step) = block.steps.get(index) else {
@@ -243,15 +250,15 @@ impl<T: Clone + 'static> Desugar<T> {
                 return match block.end.func.as_ref() {
                     Some(func) => {
                         let label = this.labels.get(func).unwrap();
-                        refinement::Expr::Loop(label.clone(), Rc::new(value))
+                        refinement::Expr::Loop(label.clone(), value)
                     }
-                    None => refinement::Expr::Return(Rc::new(value)),
+                    None => refinement::Expr::Return(value),
                 };
             };
 
             match step {
-                Stmt::Let(Let { label, names, bind }) => {
-                    let rest = this.convert_lambda(index + 1, &block, label.clone(), names.clone());
+                Stmt::Let(Let { names, bind }) => {
+                    let rest = this.convert_lambda(index + 1, &block, None, names.clone());
 
                     let func_name = bind.func.as_ref().unwrap();
                     let func = if func_name.starts_with('@') {
@@ -262,11 +269,11 @@ impl<T: Clone + 'static> Desugar<T> {
                         };
                         refinement::Thunk::Builtin(builtin)
                     } else {
-                        let local = this.vars.get(func_name).unwrap();
+                        let local = this.labels.get(func_name).unwrap();
                         refinement::Thunk::Local(local.clone())
                     };
                     let arg = this.convert_value(&bind.args);
-                    let bound = refinement::BoundExpr::App(func, Rc::new(arg));
+                    let bound = refinement::BoundExpr::App(func, arg);
 
                     refinement::Expr::Let(bound, rest)
                 }
@@ -275,52 +282,126 @@ impl<T: Clone + 'static> Desugar<T> {
                     typ,
                     block: def,
                 }) => {
-                    let rest = this.convert_lambda(index + 1, &block, Some(name.clone()), vec![]);
+                    let arg_names = typ.args.names.clone();
+                    let typ = this.types.convert_neg(typ.clone());
                     let cont =
-                        this.convert_lambda(0, def, Some(name.clone()), typ.args.names.clone());
-                    let bound =
-                        refinement::BoundExpr::Cont(cont, this.types.convert_neg(typ.clone()));
+                        this.convert_lambda(0, def, Some((name.clone(), typ.clone())), arg_names);
+
+                    this.labels
+                        .insert(name.clone(), T::make(&Rc::downgrade(&cont), &typ));
+                    let rest = this.convert_lambda(index + 1, &block, None, vec![]);
+
+                    let bound = refinement::BoundExpr::Cont(cont, typ);
                     refinement::Expr::Let(bound, rest)
                 }
                 Stmt::IfZero(IfZero { val, block: def }) => {
                     let rest = this.convert_lambda(index + 1, &block, None, vec![]);
-                    let cont = this.convert_lambda(0, def, None, vec![]);
 
+                    let cont = this.convert_lambda(0, def, None, vec![]);
                     let local = val.convert(&this.vars);
                     refinement::Expr::Match(local, vec![cont, rest])
                 }
                 Stmt::Unpack(bind) => {
-                    let func = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
                     let rest = this.convert_lambda(index + 1, &block, None, vec![]);
+                    let func = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
 
                     let arg = this.convert_value(&bind.args);
                     let builtin = refinement::builtin::Builtin::Pack(func.clone(), true);
                     let func = refinement::Thunk::Builtin(builtin);
-                    let bound = refinement::BoundExpr::App(func, Rc::new(arg));
+                    let bound = refinement::BoundExpr::App(func, arg);
                     refinement::Expr::Let(bound, rest)
                 }
                 Stmt::Pack(bind) => {
-                    let func = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
                     let rest = this.convert_lambda(index + 1, &block, None, vec![]);
+                    let func = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
 
                     let arg = this.convert_value(&bind.args);
                     let builtin = refinement::builtin::Builtin::Pack(func.clone(), false);
                     let func = refinement::Thunk::Builtin(builtin);
-                    let bound = refinement::BoundExpr::App(func, Rc::new(arg));
+                    let bound = refinement::BoundExpr::App(func, arg);
                     refinement::Expr::Let(bound, rest)
                 }
             }
-        }))
+        })
+    }
+
+    pub fn convert_lambda(
+        &self,
+        index: usize,
+        block: &Rc<Block>,
+        label: Option<(String, refinement::Fun<refinement::NegTyp>)>,
+        names: Vec<String>,
+    ) -> Rc<refinement::Lambda<T>> {
+        let func = Rc::new_cyclic(|rec| {
+            let mut labels = HashMap::new();
+            if let Some((name, typ)) = label.as_ref() {
+                let weak_def = WeakFuncDef {
+                    // magic to initialize dynamically sized recursive Rc
+                    weak: rec.clone() as Weak<Lambda<T>>,
+                    typ: typ.clone(),
+                };
+                labels.insert(name.clone(), weak_def);
+            }
+            self.clone()
+                .convert_lambda_inner(index, names, labels, block.clone())
+        });
+
+        func
     }
 }
 
-impl<T> Desugar<T> {
-    fn new(list: LazyNameList) -> Self {
-        Self {
-            types: DesugarTypes::new(list.weak()),
-            _named: list.fix(),
+struct Desugared<T: Val> {
+    _named: Vec<Rc<refinement::Name>>,
+    funcs: HashMap<String, (Rc<Lambda<T>>, refinement::Fun<refinement::NegTyp>)>,
+}
+
+impl<T: Val> Desugared<T> {
+    fn new(list: LazyNameList, m: &Module) -> Self {
+        let types = DesugarTypes::new(list.weak());
+
+        let mut labels = HashMap::new();
+        let mut funcs_unique = HashMap::new();
+
+        for def in &m.0 {
+            if let Def::Func(func) = def {
+                let rc = UninitRc::new();
+                let weak = rc.downgrade() as Weak<Lambda<T>>;
+                let typ = types.convert_neg(func.typ.clone());
+                labels.insert(func.name.clone(), WeakFuncDef { weak, typ });
+                funcs_unique.insert(func.name.clone(), rc);
+            }
+        }
+
+        let this = Desugar {
+            types,
             vars: HashMap::new(),
             labels: HashMap::new(),
+        };
+
+        let mut funcs_init = HashMap::new();
+
+        for def in &m.0 {
+            if let Def::Func(func) = def {
+                let neg = this.types.convert_neg(func.typ.clone());
+
+                let lambda = this.clone().convert_lambda_inner(
+                    0,
+                    func.typ.args.names.clone(),
+                    labels.clone(),
+                    func.block.clone(),
+                );
+
+                let uninit = funcs_unique.remove(&func.name).unwrap();
+                let init = uninit.init(lambda) as Rc<Lambda<T>>;
+                funcs_init.insert(func.name.clone(), (init, neg));
+            }
+        }
+
+        assert!(funcs_unique.is_empty());
+
+        Desugared {
+            _named: list.fix(),
+            funcs: funcs_init,
         }
     }
 }
@@ -365,55 +446,23 @@ impl LazyNameList {
 
 pub fn check(m: &Module) {
     let list = LazyNameList::new(m);
-    let this = Desugar::new(list);
+    let this = Desugared::new(list, m);
 
-    for def in &m.0 {
-        match def {
-            Def::Func(func) => {
-                let neg = this.types.convert_neg(func.typ.clone());
-                let lambda = this.convert_lambda(
-                    0,
-                    &func.block,
-                    Some(func.name.clone()),
-                    func.typ.args.names.clone(),
-                );
-
-                let ctx = refinement::SubContext::default();
-                ctx.check_expr(&lambda, &neg);
-            }
-            Def::Typ(_named) => {}
-        }
+    for (lambda, neg) in this.funcs.values() {
+        let ctx = refinement::SubContext::default();
+        ctx.check_expr(lambda, neg);
     }
 }
 
-pub fn run(m: Module, name: &str, args: Vec<i32>) -> Vec<i64> {
+pub fn run(m: Module, name: &str, args: Vec<i32>) -> Vec<i32> {
     let list = LazyNameList::new(&m);
-    let this = Desugar::<refinement::eval::Eval>::new(list);
+    let this = Desugared::<i32>::new(list, &m);
 
-    for def in m.0 {
-        match def {
-            Def::Func(func) => {
-                if func.name == name {
-                    let lambda = this.convert_lambda(
-                        0,
-                        &func.block,
-                        Some(func.name),
-                        func.typ.args.names.clone(),
-                    );
+    let (lambda, _typ) = &this.funcs[name];
 
-                    let arg = refinement::eval::Res {
-                        inj: args.iter().map(|x| *x as i64).collect(),
-                    };
-                    let expr = lambda.inst(&arg.make_eval(&lambda));
-                    let mut memory = refinement::eval::Memory::default();
-                    let result = memory.eval(Rc::new(expr));
-                    return result.inj;
-                }
-            }
-            Def::Typ(_named) => {}
-        }
-    }
-    panic!("function not found")
+    let expr = lambda.inst(&args);
+    let mut memory = refinement::eval::Memory::default();
+    memory.eval(expr)
 }
 
 pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {

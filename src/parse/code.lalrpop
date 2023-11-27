@@ -30,7 +30,7 @@ BinOp: BinOp = {
 
 Bind: Bind = <func:Var?> "(" <args:(<UnboxedValue> ","?)*> ")" => Bind{<>};
 
-Let: Let = "let" <label:Var?> "(" <names:Var*> ")" "=" <bind:Bind> => Let{<>};
+Let: Let = "let" "(" <names:Var*> ")" "=" <bind:Bind> => Let{<>};
 
 IfZero: IfZero = "if_zero" <val:Value> "{" <block:Block> "}" => IfZero{<>};
 

@@ -1,133 +1,91 @@
-use std::{cmp, rc::Rc};
+use std::{
+    cmp,
+    rc::{Rc, Weak},
+};
 
-use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Local, Thunk, Value};
-
-#[derive(Clone)]
-pub struct Eval {
-    res: Res,
-    rec: Lambda<Eval>,
-}
-
-impl Eval {
-    fn get_term(&self, proj: usize) -> i64 {
-        self.res.get_term(proj)
-    }
-}
-
-#[derive(Clone, Default)]
-pub struct Res {
-    pub inj: Vec<i64>,
-}
+use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Thunk, Val, Value};
 
 #[derive(Default)]
 pub struct Memory {
-    data: Vec<i64>,
+    data: Vec<u8>,
 }
 
-impl Res {
-    fn new(val: i64) -> Self {
-        Self { inj: vec![val] }
-    }
-
-    pub fn make_eval(&self, rec: &Lambda<Eval>) -> Eval {
-        Eval {
-            res: self.clone(),
-            rec: rec.clone(),
-        }
-    }
-
-    fn get_term(&self, proj: usize) -> i64 {
-        self.inj[proj]
-    }
-}
-
-impl Lambda<Eval> {
-    fn inst_arg(&self, arg: &Res) -> Rc<Expr<Eval>> {
-        let arg = arg.make_eval(self);
-        Rc::new(self.inst(&arg))
-    }
-}
-
-impl Local<Eval> {
-    fn get_thunk(&self) -> &Lambda<Eval> {
-        // &self.0.res.thunks[self.1]
-        panic!()
-    }
-
-    fn get_inj(&self) -> i64 {
-        self.0.res.inj[self.1]
-    }
-}
-
-impl Free<Local<Eval>> {
-    pub fn eval(&self) -> i64 {
+impl Free<i32> {
+    pub fn eval(&self) -> i32 {
         match self {
-            Free::Just(idx, _size) => *idx,
-            Free::Var(local) => local.get_inj(),
+            Free::Just(idx, _size) => *idx as i32,
+            Free::Var(local) => *local,
             Free::BinOp { l, r, op } => op.eval(l.eval(), r.eval()),
         }
     }
 }
 
-impl Res {
-    pub fn from_val(val: &Value<Eval>) -> Self {
-        let inj = val.inj.iter().map(|inj| inj.eval());
-        Self { inj: inj.collect() }
+impl Value<i32> {
+    pub fn to_vec(&self) -> Vec<i32> {
+        self.inj.iter().map(|inj| inj.eval()).collect()
+    }
+}
+
+impl Val for i32 {
+    type Func = Rc<Lambda<i32>>;
+    fn make(lamb: &Weak<Lambda<Self>>, _typ: &super::Fun<super::NegTyp>) -> Self::Func {
+        lamb.upgrade().unwrap()
     }
 }
 
 impl Memory {
-    pub fn eval(&mut self, mut expr: Rc<Expr<Eval>>) -> Res {
+    pub fn eval(&mut self, mut expr: Expr<i32>) -> Vec<i32> {
         loop {
-            match expr.as_ref() {
-                Expr::Return(val) => return Res::from_val(val),
+            match &expr {
+                Expr::Return(val) => return val.to_vec(),
                 Expr::Let(bind, e) => {
                     match bind {
                         BoundExpr::App(func, arg) => {
                             let arg = self.call_func(arg, func);
-                            expr = e.inst_arg(&arg);
+                            expr = e.inst(&arg);
                         }
-                        BoundExpr::Cont(cont, _neg) => {
-                            let eval = Eval {
-                                res: Res::default(),
-                                rec: cont.to_owned(),
-                            };
-                            expr = Rc::new((e.0)(&eval));
+                        BoundExpr::Cont(_cont, _neg) => {
+                            expr = e.inst(&[]);
                         }
                     };
                 }
                 Expr::Match(local, e) => {
                     // clip index because last branch is the default
                     let idx = cmp::min(local.eval() as usize, e.len() - 1);
-                    expr = e[idx].inst_arg(&Default::default());
+                    expr = e[idx].inst(&[]);
                 }
-                Expr::Loop(var, arg) => {
-                    let arg = Res::from_val(arg);
-                    expr = var.rec.inst_arg(&arg);
+                Expr::Loop(func, arg) => {
+                    let arg = arg.to_vec();
+                    expr = func.inst(&arg);
                 }
             }
         }
     }
 
-    fn call_func(&mut self, arg: &Rc<Value<Eval>>, func: &Thunk<Eval>) -> Res {
-        let arg = Res::from_val(arg);
+    fn call_func(&mut self, arg: &Value<i32>, func: &Thunk<i32>) -> Vec<i32> {
+        let arg = arg.to_vec();
         match func {
-            Thunk::Local(local) => {
-                let func = local.get_thunk().inst_arg(&arg);
-                self.eval(func)
+            Thunk::Local(func) => {
+                let expr = func.inst(&arg);
+                self.eval(expr)
             }
             Thunk::Builtin(builtin) => match builtin {
                 Builtin::Read => {
-                    let [ptr] = *arg.inj else { panic!() };
-                    Res::new(self.data[ptr as usize])
+                    let [ptr] = *arg else { panic!() };
+                    vec![self.data[ptr as usize] as i32]
                 }
                 Builtin::Write => {
-                    let [ptr, val] = *arg.inj else { panic!() };
-                    self.data[ptr as usize] = val;
-                    Res::default()
+                    let [ptr, val] = *arg else { panic!() };
+                    self.data[ptr as usize] = val as u8;
+                    vec![]
                 }
-                Builtin::Pack(_, _) => Res::default(),
-                Builtin::Alloc => todo!(),
+                Builtin::Pack(_, _) => vec![],
+                Builtin::Alloc => {
+                    let [bytes] = *arg else { panic!() };
+                    let start = self.data.len();
+                    self.data.resize(start + bytes as usize, 0);
+                    vec![start as i32]
+                }
             },
         }
     }

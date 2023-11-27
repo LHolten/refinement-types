@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::marker::PhantomData;
 use std::process::abort;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,7 +20,6 @@ mod unroll;
 mod util;
 mod verify;
 
-pub use typing::Var;
 use z3::ast::{Bool, BV};
 
 use self::heap::{FuncTerm, Heap};
@@ -91,12 +91,6 @@ pub struct Forall {
 }
 
 #[derive(Clone)]
-pub struct FuncDef {
-    ptr: Term,
-    typ: Fun<NegTyp>,
-}
-
-#[derive(Clone)]
 pub struct CtxForall {
     pub have: Forall,
     pub value: FuncTerm,
@@ -107,7 +101,7 @@ pub struct CtxForall {
 pub struct SubContext {
     assume: Vec<Term>,
     forall: Vec<CtxForall>,
-    funcs: Vec<FuncDef>,
+    // funcs: Vec<FuncName>,
 }
 
 impl Drop for SubContext {
@@ -179,27 +173,20 @@ impl<T> Deref for Solved<T> {
     }
 }
 
-impl<V> Lambda<V> {
-    pub fn inst(&self, var: &V) -> Expr<V> {
-        (self.0)(var)
-    }
-
-    pub fn new<F: Fn(&V) -> Expr<V> + 'static>(fun: F) -> Self {
-        Self(Rc::new(fun))
+impl<V: Val> Lambda<V> {
+    pub fn inst(&self, var: &[V]) -> Expr<V> {
+        (self.1)(var)
     }
 }
 
 #[allow(clippy::type_complexity)]
-pub struct Lambda<V>(pub Rc<dyn Fn(&V) -> Expr<V>>);
+pub struct Lambda<V: Val, F = dyn Fn(&[V]) -> Expr<V>>(pub PhantomData<V>, pub F)
+where
+    F: ?Sized + Fn(&[V]) -> Expr<V>;
 
-impl<V> Clone for Lambda<V> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
+#[derive(Clone)]
 pub struct Value<V> {
-    pub inj: Vec<Free<Local<V>>>,
+    pub inj: Vec<Free<V>>,
 }
 
 impl<V> Default for Value<V> {
@@ -210,13 +197,15 @@ impl<V> Default for Value<V> {
     }
 }
 
-pub enum Thunk<V> {
-    Local(Local<V>),
-    Builtin(Builtin),
+pub struct FuncName<V: Val> {
+    func: Weak<Lambda<V>>,
+    typ: Fun<NegTyp>,
 }
 
-#[derive(Clone)]
-pub struct Local<V>(pub V, pub usize);
+pub enum Thunk<V: Val> {
+    Local(V::Func),
+    Builtin(Builtin),
+}
 
 /// Named resource name
 #[derive(Clone)]
@@ -235,27 +224,32 @@ impl Name {
     }
 }
 
-pub enum Expr<V> {
+pub trait Val: Clone + Sized + 'static {
+    type Func: Clone;
+    fn make(lamb: &Weak<Lambda<Self>>, typ: &Fun<NegTyp>) -> Self::Func;
+}
+
+pub enum Expr<V: Val> {
     /// construct a value and return it
-    Return(Rc<Value<V>>),
+    Return(Value<V>),
 
     /// execute an expression and bind the result in the continuation
-    Let(BoundExpr<V>, Lambda<V>),
+    Let(BoundExpr<V>, Rc<Lambda<V>>),
 
     /// match on some inductive type and choose a branch
     /// last branch will be the catch all
-    Match(Free<Local<V>>, Vec<Lambda<V>>),
+    Match(Free<V>, Vec<Rc<Lambda<V>>>),
 
     /// loop back to an assigment
-    Loop(V, Rc<Value<V>>),
+    Loop(V::Func, Value<V>),
 }
 
-pub enum BoundExpr<V> {
+pub enum BoundExpr<V: Val> {
     /// apply a function to some arguments
-    App(Thunk<V>, Rc<Value<V>>),
+    App(Thunk<V>, Value<V>),
 
     /// define a different continuation,
-    Cont(Lambda<V>, Fun<NegTyp>),
+    Cont(Rc<Lambda<V>>, Fun<NegTyp>),
 }
 
 // - Make Prod type any length and povide projections

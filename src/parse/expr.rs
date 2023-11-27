@@ -16,7 +16,6 @@ pub struct FuncDef {
 }
 
 pub struct Let {
-    pub label: Option<String>,
     pub names: Vec<String>,
     pub bind: Bind,
 }

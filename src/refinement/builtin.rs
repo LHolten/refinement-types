@@ -49,18 +49,18 @@ impl BinOp {
         }
     }
 
-    pub fn eval(&self, l: i64, r: i64) -> i64 {
+    pub fn eval(&self, l: i32, r: i32) -> i32 {
         // TODO: make sure that values wrap arround correct
         match self {
             BinOp::Add => l + r,
             BinOp::Sub => l - r,
             BinOp::Div => l / r,
             BinOp::Mul => l * r,
-            BinOp::Eq => (l == r) as i64,
-            BinOp::Less => (l < r) as i64,
+            BinOp::Eq => (l == r) as i32,
+            BinOp::Less => (l < r) as i32,
             BinOp::And => l & r,
-            BinOp::LessEq => (l <= r) as i64,
-            BinOp::NotEq => (l != r) as i64,
+            BinOp::LessEq => (l <= r) as i32,
+            BinOp::NotEq => (l != r) as i32,
         }
     }
 }
@@ -90,10 +90,9 @@ thread_local! {
 static ALLOC_STR: &str = r"
 (pages) -> (start) where {
     @byte for (ptr) if (start != -1) 
-        && (start * 65536 <= ptr)
-        && (ptr < (start + pages) * 65536);
+        && (start <= ptr)
+        && (ptr < (start + pages));
     assert (start != -1) => (start <= (start + pages));
-    assert (start != -1) => ((start + pages) <= 65536);
 }
 ";
 

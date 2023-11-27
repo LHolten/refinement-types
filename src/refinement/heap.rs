@@ -9,9 +9,7 @@ use z3::{ast::Bool, FuncDecl, Sort};
 
 use crate::solver::ctx;
 
-use super::{
-    typing::zip_eq, Cond, CtxForall, Forall, Fun, FuncDef, NegTyp, Resource, SubContext, Term,
-};
+use super::{typing::zip_eq, Cond, CtxForall, Forall, Resource, SubContext, Term};
 
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
@@ -118,7 +116,6 @@ pub trait Heap {
     fn assert_eq(&mut self, x: &Term, y: &Term) {
         self.assert(x.eq(y));
     }
-    fn func(&mut self, ptr: &Term, typ: Fun<NegTyp>);
     fn forall(&mut self, forall: Forall) -> FuncTerm;
     fn switch(&mut self, cond: Cond) {
         let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
@@ -161,17 +158,6 @@ impl Heap for HeapConsume<'_> {
                 panic!("can not pack named resource")
             }
         }
-    }
-
-    fn func(&mut self, ptr: &Term, typ: Fun<NegTyp>) {
-        let have_typ = self.infer_fptr(ptr);
-
-        // We do not want to allow access to resources outside the function
-        // Technically we can allow access if the access is read only
-        // Checking that the final resource is identical is not enough
-        // (Different closures could use the same memory)
-        let this = self.without_alloc();
-        this.sub_neg_type(have_typ, &typ);
     }
 
     /// We can first look at aggregate resources of the correct name.
@@ -272,13 +258,6 @@ impl<'a> std::ops::Deref for HeapProduce<'a> {
 }
 
 impl Heap for HeapProduce<'_> {
-    fn func(&mut self, ptr: &Term, typ: Fun<NegTyp>) {
-        self.funcs.push(FuncDef {
-            ptr: ptr.clone(),
-            typ: typ.clone(),
-        })
-    }
-
     /// Here we just put the aggregate to be used by consumption.
     fn forall(&mut self, forall: Forall) -> FuncTerm {
         let value = FuncTerm::free(&forall.arg_sizes());
