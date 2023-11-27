@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     marker::PhantomData,
-    rc::{Rc, UniqueRc, Weak},
+    rc::{Rc, Weak},
 };
 
 use crate::{
@@ -23,7 +23,7 @@ use super::{
 type LazyName = Box<dyn Fn(WeakNameList) -> refinement::Name>;
 
 #[derive(Default)]
-struct LazyNameList(HashMap<String, (UniqueRc<refinement::Name>, LazyName)>);
+struct LazyNameList(HashMap<String, (UninitRc<refinement::Name>, LazyName)>);
 
 #[derive(Clone)]
 struct WeakNameList(HashMap<String, Weak<refinement::Name>>);
@@ -31,17 +31,16 @@ struct WeakNameList(HashMap<String, Weak<refinement::Name>>);
 impl LazyNameList {
     pub fn weak(&self) -> WeakNameList {
         let iter = self.0.iter();
-        let iter = iter.map(|(k, v)| (k.clone(), UniqueRc::downgrade(&v.0)));
+        let iter = iter.map(|(k, v)| (k.clone(), UninitRc::downgrade(&v.0)));
         WeakNameList(iter.collect())
     }
 
-    pub fn fix(mut self) -> Vec<Rc<refinement::Name>> {
+    pub fn fix(self) -> Vec<Rc<refinement::Name>> {
         let list = self.weak();
 
-        self.0.values_mut().for_each(|v| *v.0 = (v.1)(list.clone()));
         self.0
             .into_values()
-            .map(|v| UniqueRc::into_rc(v.0))
+            .map(|v| v.0.init((v.1)(list.clone())))
             .collect()
     }
 }
@@ -430,18 +429,13 @@ impl LazyNameList {
                 Def::Func(_func) => {}
                 Def::Typ(named) => {
                     let NamedConstraint { name, typ } = named.clone();
-                    let fun = refinement::Fun {
-                        tau: vec![],
-                        fun: Rc::new(|_, _| refinement::PosTyp),
-                    };
 
                     let delayed = Box::new(move |named| {
                         let this = DesugarTypes::new(named);
                         let pos = this.convert_pos(typ.clone());
                         refinement::Name::new(pos)
                     });
-                    list.0
-                        .insert(name, (UniqueRc::new(refinement::Name::new(fun)), delayed));
+                    list.0.insert(name, (UninitRc::new(), delayed));
                 }
             }
         }

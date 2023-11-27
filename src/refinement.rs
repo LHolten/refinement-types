@@ -17,7 +17,6 @@ mod subtyp;
 mod test;
 pub mod typing;
 mod unroll;
-mod util;
 mod verify;
 
 use z3::ast::{Bool, BV};
