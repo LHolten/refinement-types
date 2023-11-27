@@ -4,7 +4,10 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::refinement::Free;
+use crate::{
+    parse::{self, desugar::Desugar},
+    refinement::Free,
+};
 
 use super::{BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, SubContext, Term, Thunk, Val, Value};
 
@@ -35,8 +38,14 @@ impl Fun<PosTyp> {
 
 impl Val for Term {
     type Func = Fun<NegTyp>;
-    fn make(_lamb: &Weak<Lambda<Self>>, typ: &Fun<NegTyp>) -> Self::Func {
-        typ.clone()
+    fn make(
+        this: &Desugar<Self>,
+        _lamb: &Weak<Lambda<Self>>,
+        typ: &parse::types::NegTyp,
+    ) -> Self::Func {
+        let mut types = this.types.clone();
+        types.terms.extend(this.vars.clone());
+        types.convert_neg(typ.clone())
     }
 }
 
@@ -100,7 +109,7 @@ impl SubContext {
                         self.check_expr(l, &bound_p.arrow(p.clone()))
                     }
                     BoundExpr::Cont(c, n) => {
-                        self.clone().check_expr(c, n);
+                        self.without_alloc().check_expr(c, n);
                         let e = l.inst(&[]);
                         self.check_expr_pos(&e, p);
                     }

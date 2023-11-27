@@ -52,7 +52,12 @@ impl Value {
             Value::Var(name) => refinement::Free::Var(
                 lookup
                     .get(name)
-                    .ok_or_else(|| format!("can not find {name}"))
+                    .ok_or_else(|| {
+                        format!(
+                            "can not find `{name}`, have: {:?}",
+                            lookup.keys().collect::<Vec<_>>()
+                        )
+                    })
                     .unwrap()
                     .clone(),
             ),
@@ -104,9 +109,9 @@ impl Prop {
 }
 
 #[derive(Clone)]
-struct DesugarTypes {
+pub struct DesugarTypes {
     named: WeakNameList,
-    terms: HashMap<String, refinement::Term>,
+    pub terms: HashMap<String, refinement::Term>,
 }
 
 impl DesugarTypes {
@@ -209,15 +214,15 @@ impl DesugarTypes {
 
 #[derive(Clone)]
 pub struct Desugar<T: Val> {
-    types: DesugarTypes,
-    vars: HashMap<String, T>,
+    pub types: DesugarTypes,
+    pub vars: HashMap<String, T>,
     labels: HashMap<String, T::Func>,
 }
 
 #[derive(Clone)]
 pub struct WeakFuncDef<T: Val> {
     weak: Weak<Lambda<T>>,
-    typ: refinement::Fun<refinement::NegTyp>,
+    typ: NegTyp,
 }
 
 impl<T: Val> Desugar<T> {
@@ -238,7 +243,7 @@ impl<T: Val> Desugar<T> {
             let mut this = self.clone();
             for (name, def) in &labels {
                 this.labels
-                    .insert(name.clone(), T::make(&def.weak, &def.typ));
+                    .insert(name.clone(), T::make(&this, &def.weak, &def.typ));
             }
 
             for (name, arg) in zip_eq(&names, args) {
@@ -265,6 +270,7 @@ impl<T: Val> Desugar<T> {
                         let builtin = match func_name.as_str() {
                             "@read_u8" => refinement::builtin::Builtin::Read,
                             "@write_u8" => refinement::builtin::Builtin::Write,
+                            "@alloc" => refinement::builtin::Builtin::Alloc,
                             _ => panic!(),
                         };
                         refinement::Thunk::Builtin(builtin)
@@ -283,15 +289,14 @@ impl<T: Val> Desugar<T> {
                     block: def,
                 }) => {
                     let arg_names = typ.args.names.clone();
-                    let typ = this.types.convert_neg(typ.clone());
                     let cont =
                         this.convert_lambda(0, def, Some((name.clone(), typ.clone())), arg_names);
 
-                    this.labels
-                        .insert(name.clone(), T::make(&Rc::downgrade(&cont), &typ));
+                    let label = T::make(&this, &Rc::downgrade(&cont), typ);
+                    this.labels.insert(name.clone(), label.clone());
                     let rest = this.convert_lambda(index + 1, &block, None, vec![]);
 
-                    let bound = refinement::BoundExpr::Cont(cont, typ);
+                    let bound = refinement::BoundExpr::Cont(cont, label);
                     refinement::Expr::Let(bound, rest)
                 }
                 Stmt::IfZero(IfZero { val, block: def }) => {
@@ -329,7 +334,7 @@ impl<T: Val> Desugar<T> {
         &self,
         index: usize,
         block: &Rc<Block>,
-        label: Option<(String, refinement::Fun<refinement::NegTyp>)>,
+        label: Option<(String, NegTyp)>,
         names: Vec<String>,
     ) -> Rc<refinement::Lambda<T>> {
         let func = Rc::new_cyclic(|rec| {
@@ -366,7 +371,7 @@ impl<T: Val> Desugared<T> {
             if let Def::Func(func) = def {
                 let rc = UninitRc::new();
                 let weak = rc.downgrade() as Weak<Lambda<T>>;
-                let typ = types.convert_neg(func.typ.clone());
+                let typ = func.typ.clone();
                 labels.insert(func.name.clone(), WeakFuncDef { weak, typ });
                 funcs_unique.insert(func.name.clone(), rc);
             }

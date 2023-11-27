@@ -89,10 +89,9 @@ thread_local! {
 
 static ALLOC_STR: &str = r"
 (pages) -> (start) where {
-    @byte for (ptr) if (start != -1) 
-        && (start <= ptr)
+    @byte for (ptr) if (start <= ptr)
         && (ptr < (start + pages));
-    assert (start != -1) => (start <= (start + pages));
+    assert start <= (start + pages);
 }
 ";
 

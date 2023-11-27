@@ -1,0 +1,64 @@
+type array(from, len) where {
+    assert from <= (from + len);
+    @byte for (ptr) if (from <= ptr) && (ptr < (from + len));
+}
+
+fn fib(n) where {
+    assert n < (n + 1);
+} -> (out, ptr) where {
+    move _ = array(ptr, n + 1);
+} = {
+    let (ptr) = new_array(n + 1, 1);
+
+    fn final() where {
+        move _ = array(ptr, n + 1);
+    } -> (out, ptr) where {
+        move _ = array(ptr, n + 1);
+    } = {
+        let (val) = @read_u8(ptr + n);
+        return (val, ptr)
+    };
+
+    if_zero (2 <= n) {
+        return final()
+    };
+
+    fn inner(idx) where {
+        move _ = array(ptr, n + 1);
+        assert 2 <= idx;
+    } -> () where {
+        move _ = array(ptr, n + 1);
+    } = {
+        if_zero (idx <= n) {
+            return ()
+        };
+        let (a) = @read_u8(ptr + (idx - 2));
+        let (b) = @read_u8(ptr + (idx - 1));
+        let () = @write_u8(ptr + idx, a + b);
+        return inner(idx + 1)
+    };
+
+    let () = inner(2);
+    return final()
+}
+
+fn new_array(size, val) -> (out) where {
+    move _ = array(out, size);
+} = {
+    let (ptr) = @alloc(size);
+    
+    fn fill(idx) where { 
+        move _ = array(ptr, size);
+    } -> () where { 
+        move _ = array(ptr, size);
+    } = {
+        if_zero (idx < size) {
+            return ()
+        };
+        let () = @write_u8(ptr + idx, val);
+        return fill(idx + 1)
+    };
+
+    let () = fill(0);
+    return (ptr)
+}

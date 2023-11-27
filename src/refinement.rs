@@ -22,6 +22,9 @@ mod verify;
 
 use z3::ast::{Bool, BV};
 
+use crate::parse;
+use crate::parse::desugar::Desugar;
+
 use self::heap::{FuncTerm, Heap};
 
 use self::builtin::Builtin;
@@ -226,7 +229,11 @@ impl Name {
 
 pub trait Val: Clone + Sized + 'static {
     type Func: Clone;
-    fn make(lamb: &Weak<Lambda<Self>>, typ: &Fun<NegTyp>) -> Self::Func;
+    fn make(
+        desugar: &Desugar<Self>,
+        lamb: &Weak<Lambda<Self>>,
+        typ: &parse::types::NegTyp,
+    ) -> Self::Func;
 }
 
 pub enum Expr<V: Val> {
@@ -249,7 +256,7 @@ pub enum BoundExpr<V: Val> {
     App(Thunk<V>, Value<V>),
 
     /// define a different continuation,
-    Cont(Rc<Lambda<V>>, Fun<NegTyp>),
+    Cont(Rc<Lambda<V>>, V::Func),
 }
 
 // - Make Prod type any length and povide projections

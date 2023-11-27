@@ -8,3 +8,12 @@ fn factorial(n) -> (out) = {
     };
     return loop(1, n)
 }
+
+fn fib(n) -> (out) = {
+    if_zero (2 <= n) {
+        return (1)
+    };
+    let (a) = fib(n - 2);
+    let (b) = fib(n - 1);
+    return (a + b)
+}

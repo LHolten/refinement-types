@@ -3,6 +3,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::parse::{self, desugar::Desugar};
+
 use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Thunk, Val, Value};
 
 #[derive(Default)]
@@ -28,7 +30,11 @@ impl Value<i32> {
 
 impl Val for i32 {
     type Func = Rc<Lambda<i32>>;
-    fn make(lamb: &Weak<Lambda<Self>>, _typ: &super::Fun<super::NegTyp>) -> Self::Func {
+    fn make(
+        _this: &Desugar<Self>,
+        lamb: &Weak<Lambda<Self>>,
+        _typ: &parse::types::NegTyp,
+    ) -> Self::Func {
         lamb.upgrade().unwrap()
     }
 }
@@ -44,7 +50,7 @@ impl Memory {
                             let arg = self.call_func(arg, func);
                             expr = e.inst(&arg);
                         }
-                        BoundExpr::Cont(_cont, _neg) => {
+                        BoundExpr::Cont(_cont, _lamb) => {
                             expr = e.inst(&[]);
                         }
                     };
