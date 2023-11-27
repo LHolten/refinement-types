@@ -26,6 +26,7 @@ BinOp: BinOp = {
     "+" => BinOp::Plus,
     "-" => BinOp::Minus,
     "*" => BinOp::Times,
+    "%" => BinOp::Modulo,
 };
 
 Bind: Bind = <func:Var?> "(" <args:(<UnboxedValue> ","?)*> ")" => Bind{<>};

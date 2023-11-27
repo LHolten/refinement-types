@@ -25,6 +25,7 @@ impl SubContext {
             BinOp::Sub => {}
             BinOp::Div => self.verify_prop(&r.not_zero()),
             BinOp::Mul => {}
+            BinOp::Rem => self.verify_prop(&r.not_zero()),
             BinOp::Eq => {}
             BinOp::Less => {}
             BinOp::And => {}
@@ -41,6 +42,7 @@ impl BinOp {
             BinOp::Sub => l.sub(r),
             BinOp::Div => todo!(),
             BinOp::Mul => l.mul(r),
+            BinOp::Rem => l.urem(r),
             BinOp::Eq => l.eq(r),
             BinOp::Less => l.ult(r),
             BinOp::And => l.bool_and(r),
@@ -56,6 +58,7 @@ impl BinOp {
             BinOp::Sub => l - r,
             BinOp::Div => l / r,
             BinOp::Mul => l * r,
+            BinOp::Rem => l % r,
             BinOp::Eq => (l == r) as i32,
             BinOp::Less => (l < r) as i32,
             BinOp::And => l & r,

@@ -74,6 +74,7 @@ impl BinOpValue {
             super::expr::BinOp::Plus => refinement::BinOp::Add,
             super::expr::BinOp::Minus => refinement::BinOp::Sub,
             super::expr::BinOp::Times => refinement::BinOp::Mul,
+            super::expr::BinOp::Modulo => refinement::BinOp::Rem,
         };
         refinement::Free::BinOp {
             l: Rc::new(self.l.convert(lookup)),

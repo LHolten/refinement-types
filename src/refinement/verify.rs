@@ -62,6 +62,10 @@ impl Term {
         assert_eq!(self.get_size(), r.get_size());
         Self::BV(self.to_bv().bvmul(&r.to_bv()))
     }
+    pub fn urem(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::BV(self.to_bv().bvurem(&r.to_bv()))
+    }
     pub fn eq(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
         Self::Bool(self.to_bv()._eq(&r.to_bv()))

@@ -17,3 +17,12 @@ fn fib(n) -> (out) = {
     let (b) = fib(n - 1);
     return (a + b)
 }
+
+fn product_of_two_odd_is_odd(a, b) where {
+    assert (a % 2) == 1;
+    assert (b % 2) == 1;
+} -> (product) where {
+    assert (product % 2) == 1;
+} = {
+    return (a * b)
+}

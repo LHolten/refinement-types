@@ -42,6 +42,7 @@ pub enum BinOp {
     Plus,
     Minus,
     Times,
+    Modulo,
 }
 
 pub enum Stmt {
