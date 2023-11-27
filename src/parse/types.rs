@@ -47,6 +47,7 @@ pub enum PropOp {
     Eq,
     NotEq,
     And,
+    MulSafe,
 }
 
 pub struct Prop {

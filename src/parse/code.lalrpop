@@ -5,7 +5,7 @@ use crate::parse::types::*;
 
 grammar;
 
-Num: i32 = r"[0-9]+" => i32::from_str(<>).unwrap();
+Num: i32 = r"[0-9]+" => u32::from_str(<>).unwrap() as i32;
 Var: String = r"[@]?[_a-zA-Z][_a-zA-z0-9]*" => <>.to_owned();
 
 
@@ -27,6 +27,7 @@ BinOp: BinOp = {
     "-" => BinOp::Minus,
     "*" => BinOp::Times,
     "%" => BinOp::Modulo,
+    "/" => BinOp::Divide,
 };
 
 Bind: Bind = <func:Var?> "(" <args:(<UnboxedValue> ","?)*> ")" => Bind{<>};
@@ -71,6 +72,7 @@ PropOp: PropOp = {
     "==" => PropOp::Eq,
     "!=" => PropOp::NotEq,
     "&&" => PropOp::And,
+    "*?" => PropOp::MulSafe,
 };
 
 NamedConstraint: NamedConstraint = "type" <name:Var> <typ:PosTyp> => NamedConstraint{<>};

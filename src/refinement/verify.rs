@@ -58,9 +58,17 @@ impl Term {
         assert_eq!(self.get_size(), r.get_size());
         Self::BV(self.to_bv().bvsub(&r.to_bv()))
     }
+    pub fn udiv(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::BV(self.to_bv().bvudiv(&r.to_bv()))
+    }
     pub fn mul(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
         Self::BV(self.to_bv().bvmul(&r.to_bv()))
+    }
+    pub fn umul_no_overlow(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::Bool(self.to_bv().bvmul_no_overflow(&r.to_bv(), false))
     }
     pub fn urem(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
@@ -170,7 +178,8 @@ impl SubContext {
             SatResult::Sat => {
                 eprintln!("{:?}", &self.assume);
                 eprintln!("=> {:?}", prop);
-                panic!("failed to verify")
+                let model = s.get_model().unwrap();
+                panic!("failed to verify {model}")
             }
         }
     }

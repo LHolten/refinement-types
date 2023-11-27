@@ -1,4 +1,8 @@
+use mimalloc::MiMalloc;
 use std::{env, fs::File, io::Read};
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     let args: Vec<_> = env::args().collect();

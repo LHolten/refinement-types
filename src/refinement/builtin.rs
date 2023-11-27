@@ -31,6 +31,7 @@ impl SubContext {
             BinOp::And => {}
             BinOp::LessEq => {}
             BinOp::NotEq => {}
+            BinOp::MulSafe => {}
         }
     }
 }
@@ -40,7 +41,7 @@ impl BinOp {
         match self {
             BinOp::Add => l.add(r),
             BinOp::Sub => l.sub(r),
-            BinOp::Div => todo!(),
+            BinOp::Div => l.udiv(r),
             BinOp::Mul => l.mul(r),
             BinOp::Rem => l.urem(r),
             BinOp::Eq => l.eq(r),
@@ -48,6 +49,7 @@ impl BinOp {
             BinOp::And => l.bool_and(r),
             BinOp::LessEq => l.ule(r),
             BinOp::NotEq => l.eq(r).is_zero(),
+            BinOp::MulSafe => l.umul_no_overlow(r),
         }
     }
 
@@ -64,6 +66,7 @@ impl BinOp {
             BinOp::And => l & r,
             BinOp::LessEq => (l <= r) as i32,
             BinOp::NotEq => (l != r) as i32,
+            BinOp::MulSafe => todo!(),
         }
     }
 }

@@ -74,6 +74,7 @@ impl BinOpValue {
             super::expr::BinOp::Minus => refinement::BinOp::Sub,
             super::expr::BinOp::Times => refinement::BinOp::Mul,
             super::expr::BinOp::Modulo => refinement::BinOp::Rem,
+            super::expr::BinOp::Divide => refinement::BinOp::Div,
         };
         refinement::Free::BinOp {
             l: Rc::new(self.l.convert(lookup)),
@@ -104,6 +105,7 @@ impl Prop {
             PropOp::Eq => Op::Eq.free(l, r),
             PropOp::NotEq => Op::NotEq.free(l, r),
             PropOp::And => Op::And.free(l, r),
+            PropOp::MulSafe => Op::MulSafe.free(l, r),
         }
     }
 }
