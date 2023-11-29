@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
+use std::borrow::Borrow;
 use std::marker::PhantomData;
-use std::process::abort;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, ops::Deref};
@@ -19,6 +19,7 @@ pub mod typing;
 mod unroll;
 mod verify;
 
+use miette::{Diagnostic, SourceSpan};
 use z3::ast::{Bool, BV};
 
 use crate::parse;
@@ -78,6 +79,7 @@ pub struct Cond {
     pub cond: Term,
     // these are the arguments to the named resource
     pub args: Vec<Term>,
+    pub span: SourceSpan,
 }
 
 /// a single resource
@@ -92,6 +94,7 @@ pub struct Forall {
     pub named: Resource,
     // mask specifies where is valid
     pub mask: FuncTerm,
+    pub span: Option<SourceSpan>,
 }
 
 #[derive(Clone)]
@@ -106,17 +109,6 @@ pub struct SubContext {
     assume: Vec<Term>,
     forall: Vec<CtxForall>,
     // funcs: Vec<FuncName>,
-}
-
-impl Drop for SubContext {
-    fn drop(&mut self) {
-        use std::backtrace::Backtrace;
-        eprintln!(
-            "dropped SubContext at location: {}",
-            Backtrace::force_capture()
-        );
-        abort()
-    }
 }
 
 #[derive(PartialEq, Eq, Debug, Default, Clone)]
@@ -138,6 +130,7 @@ impl NegTyp {
 pub struct Fun<T> {
     // the arguments that are expected to be in scope
     pub tau: Vec<u32>,
+    pub span: Option<SourceSpan>,
     pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term]) -> T>,
 }
 
@@ -146,6 +139,7 @@ impl<T> Clone for Fun<T> {
         Self {
             tau: self.tau.clone(),
             fun: self.fun.clone(),
+            span: self.span.clone(),
         }
     }
 }
@@ -177,16 +171,36 @@ impl<T> Deref for Solved<T> {
     }
 }
 
+#[derive(Clone)]
+pub struct Spanned<T: ?Sized> {
+    pub span: SourceSpan,
+    pub val: T,
+}
+
+impl<T: ?Sized> Spanned<T> {
+    pub fn as_ref(&self) -> &T {
+        &self.val
+    }
+}
+
 impl<V: Val> Lambda<V> {
-    pub fn inst(&self, var: &[V]) -> Expr<V> {
-        (self.1)(var)
+    pub fn inst(&self, var: &[V]) -> Spanned<Expr<V>> {
+        Spanned {
+            span: self.span,
+            val: (self.func)(var),
+        }
     }
 }
 
 #[allow(clippy::type_complexity)]
-pub struct Lambda<V: Val, F = dyn Fn(&[V]) -> Expr<V>>(pub PhantomData<V>, pub F)
+pub struct Lambda<V: Val, F = dyn Fn(&[V]) -> Expr<V>>
 where
-    F: ?Sized + Fn(&[V]) -> Expr<V>;
+    F: ?Sized + Fn(&[V]) -> Expr<V>,
+{
+    pub _val: PhantomData<V>,
+    pub span: SourceSpan,
+    pub func: F,
+}
 
 #[derive(Clone)]
 pub struct Value<V> {
@@ -235,6 +249,38 @@ pub trait Val: Clone + Sized + 'static {
         lamb: &Weak<Lambda<Self>>,
         typ: &parse::types::NegTyp,
     ) -> Self::Func;
+}
+
+impl<T> From<&Spanned<T>> for SourceSpan {
+    fn from(value: &Spanned<T>) -> Self {
+        value.span
+    }
+}
+
+impl<V: Val> From<&Lambda<V>> for SourceSpan {
+    fn from(value: &Lambda<V>) -> Self {
+        value.span
+    }
+}
+
+impl<T> From<Fun<T>> for Option<SourceSpan> {
+    fn from(value: Fun<T>) -> Self {
+        value.span
+    }
+}
+
+#[derive(Debug)]
+pub struct InnerDiagnostic(Box<dyn Diagnostic + Send + Sync>);
+impl InnerDiagnostic {
+    pub fn new(err: impl Diagnostic + Send + Sync + 'static) -> Self {
+        Self(Box::new(err))
+    }
+}
+
+impl Borrow<dyn Diagnostic> for InnerDiagnostic {
+    fn borrow(&self) -> &(dyn Diagnostic + 'static) {
+        &*self.0 as _
+    }
 }
 
 pub enum Expr<V: Val> {

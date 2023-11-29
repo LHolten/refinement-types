@@ -4,7 +4,7 @@ use std::{env, fs::File, io::Read};
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-fn main() {
+fn main() -> miette::Result<()> {
     let args: Vec<_> = env::args().collect();
     let [_, file, func, args @ ..] = &*args else {
         panic!("not enough arguments")
@@ -14,7 +14,10 @@ fn main() {
     let mut code = String::new();
     file.read_to_string(&mut code).unwrap();
     let m = structural_types::parse::get_module(&code);
-    structural_types::parse::desugar::check(&m);
+    if let Err(err) = structural_types::parse::desugar::check(&m) {
+        return Err(err.with_source_code(code));
+    };
     let result = structural_types::parse::desugar::run(m, func, args);
-    println!("the result is {result:?}")
+    println!("the result is {result:?}");
+    Ok(())
 }

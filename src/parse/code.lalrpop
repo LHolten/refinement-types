@@ -44,16 +44,21 @@ Stmt: Stmt = {
     "pack" <Bind> => Stmt::Pack(<>), 
 };
 
-Block: Rc<Block> = <steps:(<Stmt> ";")*> "return" <end:Bind> => Rc::new(Block{<>});
+BlockInner: Block = {
+    <step:Spanned<Stmt>> ";" <next:Block> => Block::Stmt{<>},
+    "return" <end:Bind> => Block::End(<>),
+};
+Block: Rc<Spanned<Block>> = Spanned<BlockInner> => Rc::new(<>);
 
 FuncDef: FuncDef = "fn" <name: Var> <typ:NegTyp> "=" "{" <block:Block> "}" => FuncDef{<>};
 
 pub NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
-PosTyp: Rc<PosTyp> = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Constraint> ";")*> "}")?> => Rc::new({
+PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spanned<Constraint>> ";")*> "}")?> => {
     let parts = parts.into_iter().flatten().collect();    
     PosTyp{names, parts}
-});
+};
+PosTyp: Rc<Spanned<PosTyp>> = Spanned<PosTypInner> => Rc::new(<>);
 
 Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
 Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Prop> => Switch{<>};
@@ -83,3 +88,7 @@ Def: Def = {
 };
 
 pub Module: Module = Def* => Module(<>);
+
+Spanned<T>: Spanned<T> = {
+    <l:@L> <val:T> <r:@R> => Spanned {span: (l, r), val},
+};

@@ -1,15 +1,21 @@
 use std::{
+    fmt::Debug,
     iter::zip,
-    mem::forget,
     rc::{Rc, Weak},
 };
+
+use miette::{Diagnostic, SourceSpan};
+use thiserror::Error;
 
 use crate::{
     parse::{self, desugar::Desugar},
     refinement::Free,
 };
 
-use super::{BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, SubContext, Term, Thunk, Val, Value};
+use super::{
+    BoundExpr, Expr, Fun, InnerDiagnostic, Lambda, NegTyp, PosTyp, Spanned, SubContext, Term,
+    Thunk, Val, Value,
+};
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
     a: A,
@@ -28,6 +34,7 @@ impl Fun<PosTyp> {
     pub fn arrow(self, ret: Fun<PosTyp>) -> Fun<NegTyp> {
         Fun {
             tau: self.tau,
+            span: ret.span,
             fun: Rc::new(move |args, heap| NegTyp {
                 arg: (self.fun)(args, heap),
                 ret: ret.clone(),
@@ -89,29 +96,37 @@ impl SubContext {
         typ.ret
     }
 
-    pub fn check_expr(mut self, l: &Lambda<Term>, n: &Fun<NegTyp>) {
+    pub fn check_expr(mut self, l: &Lambda<Term>, n: &Fun<NegTyp>) -> Result<(), ExprErr> {
         let neg = self.extract(n);
         let e = l.inst(&neg.terms);
-        self.check_expr_pos(&e, &neg.inner.ret);
+        self.check_expr_pos(e, &neg.inner.ret)
     }
 
-    pub fn check_expr_pos(mut self, e: &Expr<Term>, p: &Fun<PosTyp>) {
-        match e {
+    pub fn check_expr_pos(
+        mut self,
+        e: Spanned<Expr<Term>>,
+        p: &Fun<PosTyp>,
+    ) -> Result<(), ExprErr> {
+        match e.as_ref() {
             Expr::Return(v) => {
                 self.check_value(v, p);
-                self.check_empty();
+                self.check_empty().map_err(|err| ExprErr {
+                    e: e.span,
+                    p: p.span,
+                    err: InnerDiagnostic::new(err),
+                })?;
             }
             Expr::Let(g, l) => {
                 match g {
                     BoundExpr::App(func, s) => {
                         let n = self.infer_func(func);
                         let bound_p = self.spine(&n, s);
-                        self.check_expr(l, &bound_p.arrow(p.clone()))
+                        self.check_expr(l, &bound_p.arrow(p.clone()))?;
                     }
                     BoundExpr::Cont(c, n) => {
-                        self.without_alloc().check_expr(c, n);
+                        self.without_alloc().check_expr(c, n)?;
                         let e = l.inst(&[]);
-                        self.check_expr_pos(&e, p);
+                        self.check_expr_pos(e, p)?;
                     }
                 };
             }
@@ -125,18 +140,23 @@ impl SubContext {
                     let this = self.clone();
                     let phi = term.eq(&Term::nat(i as i64, size));
                     let match_p = this.unroll_prod_univ(phi);
-                    this.check_expr(l, &match_p.arrow(p.clone()));
+                    this.check_expr(l, &match_p.arrow(p.clone()))?;
                 }
 
                 let phi = Term::nat(pats.len() as i64, size).ule(&term);
                 let match_p = self.unroll_prod_univ(phi);
-                self.check_expr(last, &match_p.arrow(p.clone()));
+                self.check_expr(last, &match_p.arrow(p.clone()))?;
             }
             Expr::Loop(n, s) => {
                 let res = self.spine(n, s);
-                self.sub_pos_typ(&res, p);
+                self.sub_pos_typ(&res, p).map_err(|err| ExprErr {
+                    e: e.span,
+                    p: p.span,
+                    err: InnerDiagnostic::new(err),
+                })?;
             }
         }
+        Ok(())
     }
 
     pub fn without_alloc(&self) -> Self {
@@ -146,11 +166,30 @@ impl SubContext {
         }
     }
 
-    pub fn check_empty(mut self) {
-        // leaking resources is not allowed
-        // TODO: make sure this doesn't leak
-        assert!(self.forall.is_empty(), "can not leak resources");
-        self.assume.clear();
-        forget(self);
+    pub fn check_empty(mut self) -> Result<(), EmptyErr> {
+        if let Some(thing) = self.forall.pop() {
+            let span = thing.have.span.unwrap();
+            println!("{span:?}");
+            return Err(EmptyErr { span: Some(span) });
+        };
+        Ok(())
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Can not leak resource")]
+pub struct EmptyErr {
+    #[label = "The resource"]
+    span: Option<SourceSpan>,
+}
+
+#[derive(Diagnostic, Error, Debug)]
+#[error("Expr does not check against type")]
+pub struct ExprErr {
+    #[label = "The expr"]
+    e: SourceSpan,
+    #[label = "The type"]
+    p: Option<SourceSpan>,
+    #[diagnostic_source]
+    err: InnerDiagnostic,
 }

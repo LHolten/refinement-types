@@ -95,8 +95,7 @@ thread_local! {
 
 static ALLOC_STR: &str = r"
 (pages) -> (start) where {
-    @byte for (ptr) if (start <= ptr)
-        && (ptr < (start + pages));
+    @byte for (ptr) if (ptr - start) < pages;
     assert start <= (start + pages);
 }
 ";
@@ -113,11 +112,13 @@ impl Builtin {
                 let named = named.clone();
                 Fun {
                     tau: named_rc.typ.tau.clone(),
+                    span: None,
                     fun: Rc::new(move |heap, args| {
                         let args = args.to_owned();
                         let forall = Forall {
                             named: Resource::Named(named.clone()),
                             mask: FuncTerm::exactly(&args),
+                            span: None,
                         };
                         type HeapOp = Box<dyn Fn(&mut dyn Heap)>;
                         let fun = named_rc.typ.fun.clone();
@@ -135,6 +136,7 @@ impl Builtin {
 
                         NegTyp::new(Fun {
                             tau: vec![],
+                            span: None,
                             fun: Rc::new(move |heap, _args| {
                                 (res)(heap);
                                 PosTyp

@@ -2,23 +2,23 @@
 
 use std::rc::Rc;
 
-use super::expr::{Bind, Value};
+use super::expr::{Bind, Spanned, Value};
 
 #[derive(Clone)]
 pub struct NamedConstraint {
     pub name: String,
-    pub typ: Rc<PosTyp>,
+    pub typ: Rc<Spanned<PosTyp>>,
 }
 
 pub struct PosTyp {
     pub names: Vec<String>,
-    pub parts: Vec<Constraint>,
+    pub parts: Vec<Spanned<Constraint>>,
 }
 
 #[derive(Clone)]
 pub struct NegTyp {
-    pub args: Rc<PosTyp>,
-    pub ret: Rc<PosTyp>,
+    pub args: Rc<Spanned<PosTyp>>,
+    pub ret: Rc<Spanned<PosTyp>>,
 }
 
 pub enum Constraint {

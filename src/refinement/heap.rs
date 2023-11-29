@@ -109,6 +109,7 @@ pub trait Heap {
         let value = self.forall(Forall {
             named: Resource::Owned,
             mask: FuncTerm::exactly(&[ptr.to_owned()]),
+            span: None,
         });
         value.apply(&[ptr.to_owned()])
     }
@@ -122,6 +123,7 @@ pub trait Heap {
         self.forall(Forall {
             named: Resource::Named(cond.named),
             mask: FuncTerm::exactly(&cond.args).and(&condition),
+            span: Some(cond.span),
         });
     }
 }
@@ -148,6 +150,7 @@ impl Heap for HeapConsume<'_> {
         let need = Forall {
             named: Resource::Named(cond.named.clone()),
             mask: FuncTerm::exactly(&cond.args).and(&condition),
+            span: Some(cond.span),
         };
 
         if let Err(need) = self.try_remove(need) {

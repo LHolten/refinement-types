@@ -12,6 +12,7 @@ impl SubContext {
                 heap.assert(phi.clone());
                 PosTyp {}
             }),
+            span: None,
         }
     }
 }

@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use miette::SourceSpan;
+
 use super::types::{NamedConstraint, NegTyp, Prop};
 
 pub enum Def {
@@ -7,12 +9,23 @@ pub enum Def {
     Typ(NamedConstraint),
 }
 
+pub struct Spanned<T> {
+    pub span: (usize, usize),
+    pub val: T,
+}
+
+impl<T> Spanned<T> {
+    pub fn source_span(&self) -> SourceSpan {
+        (self.span.0, self.span.1 - self.span.0).into()
+    }
+}
+
 pub struct Module(pub Vec<Def>);
 
 pub struct FuncDef {
     pub name: String,
     pub typ: NegTyp,
-    pub block: Rc<Block>,
+    pub block: Rc<Spanned<Block>>,
 }
 
 pub struct Let {
@@ -54,12 +67,15 @@ pub enum Stmt {
     Pack(Bind),
 }
 
-pub struct Block {
-    pub steps: Vec<Stmt>,
-    pub end: Bind,
+pub enum Block {
+    Stmt {
+        step: Spanned<Stmt>,
+        next: Rc<Spanned<Block>>,
+    },
+    End(Bind),
 }
 
 pub struct IfZero {
     pub val: Value,
-    pub block: Rc<Block>,
+    pub block: Rc<Spanned<Block>>,
 }

@@ -48,21 +48,21 @@ impl Memory {
                     match bind {
                         BoundExpr::App(func, arg) => {
                             let arg = self.call_func(arg, func);
-                            expr = e.inst(&arg);
+                            expr = e.inst(&arg).val;
                         }
                         BoundExpr::Cont(_cont, _lamb) => {
-                            expr = e.inst(&[]);
+                            expr = e.inst(&[]).val;
                         }
                     };
                 }
                 Expr::Match(local, e) => {
                     // clip index because last branch is the default
                     let idx = cmp::min(local.eval() as usize, e.len() - 1);
-                    expr = e[idx].inst(&[]);
+                    expr = e[idx].inst(&[]).val;
                 }
                 Expr::Loop(func, arg) => {
                     let arg = arg.to_vec();
-                    expr = func.inst(&arg);
+                    expr = func.inst(&arg).val;
                 }
             }
         }
@@ -72,7 +72,7 @@ impl Memory {
         let arg = arg.to_vec();
         match func {
             Thunk::Local(func) => {
-                let expr = func.inst(&arg);
+                let expr = func.inst(&arg).val;
                 self.eval(expr)
             }
             Thunk::Builtin(builtin) => match builtin {
