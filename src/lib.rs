@@ -1,5 +1,6 @@
 #![feature(extract_if)]
 #![feature(unique_rc_arc)]
+#![feature(never_type)]
 // mod lpi;
 // mod selfref;
 // mod typ_check;

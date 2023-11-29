@@ -35,7 +35,7 @@ pub struct Let {
 
 pub struct Bind {
     pub func: Option<String>,
-    pub args: Vec<Value>,
+    pub args: Spanned<Vec<Value>>,
 }
 
 pub enum Value {

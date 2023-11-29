@@ -2,6 +2,7 @@ type vec3(ptr) where {
     move x = @byte(ptr + 0);
     move y = @byte(ptr + 1);
     move z = @byte(ptr + 2);
+    move _ = @byte(ptr + 3);
 }
 
 fn add_vec3(from, to) where {
@@ -46,4 +47,29 @@ fn sum_vec3_array(start, len, out) where {
     pack vec3(start);
     
     return sum_vec3_array(start + 4, len - 1, out)
+}
+
+fn generate_array(len) where {
+    assert len *? 4;
+} -> (ptr) where {
+    move _ = vec3_array(ptr, len);
+} = {
+    let (start) = @alloc(len * 4);
+
+    fn loop(idx) where {
+        assert idx <= len;
+        move _ = vec3_array(start, idx);
+        @byte for (ptr) if ((ptr - start) < (len * 4))
+            && ((idx * 4) <= (ptr - start));
+    } -> (ptr) where {
+        move _ = vec3_array(ptr, len);
+    } = {
+        if_zero (idx < len) {
+            return (start)
+        };
+        pack vec3(start + (idx * 4));
+        return loop(idx + 1)
+    };
+
+    return loop(0)
 }

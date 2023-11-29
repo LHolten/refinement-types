@@ -8,7 +8,7 @@ use crate::{
     parse::expr::{IfZero, Let, Stmt},
     refinement::{
         self,
-        heap::{FuncTerm, Heap},
+        heap::{ConsumeErr, FuncTerm, Heap},
         typing::zip_eq,
         Lambda, Resource, Val,
     },
@@ -127,9 +127,9 @@ impl DesugarTypes {
                 this.terms
                     .extend(zip_eq(pos.val.names.clone(), terms.to_owned()));
 
-                this.convert_constraint(&pos.val.parts, heap);
+                this.convert_constraint(&pos.val.parts, heap)?;
 
-                refinement::PosTyp
+                Ok(refinement::PosTyp)
             }),
         }
     }
@@ -146,12 +146,12 @@ impl DesugarTypes {
                 this.terms
                     .extend(zip_eq(args.val.names.clone(), terms.to_owned()));
 
-                this.convert_constraint(&args.val.parts, heap);
+                this.convert_constraint(&args.val.parts, heap)?;
 
-                refinement::NegTyp {
+                Ok(refinement::NegTyp {
                     arg: refinement::PosTyp,
                     ret: this.convert_pos(ret.clone()),
-                }
+                })
             }),
         }
     }
@@ -168,7 +168,11 @@ impl DesugarTypes {
         vals.iter().map(|x| self.convert_val(x)).collect()
     }
 
-    pub fn convert_constraint(&mut self, parts: &[Spanned<Constraint>], heap: &mut dyn Heap) {
+    pub fn convert_constraint(
+        &mut self,
+        parts: &[Spanned<Constraint>],
+        heap: &mut dyn Heap,
+    ) -> Result<(), ConsumeErr> {
         for part in parts {
             match &part.val {
                 Constraint::Forall(forall) => {
@@ -188,7 +192,7 @@ impl DesugarTypes {
                             this.terms.extend(zip_eq(names.clone(), terms.to_owned()));
                             this.convert_prop(&cond).to_bool()
                         }),
-                    });
+                    })?;
                 }
                 Constraint::Switch(Switch { cond, named, args }) => {
                     let named = self.named.0.get(named).unwrap();
@@ -198,23 +202,28 @@ impl DesugarTypes {
                         span: part.source_span(),
                         cond: self.convert_prop(cond),
                         args: self.convert_vals(args),
-                    })
+                    })?;
                 }
-                Constraint::Assert(cond) => heap.assert(self.convert_prop(cond)),
+                Constraint::Assert(cond) => {
+                    heap.assert(self.convert_prop(cond))?;
+                }
                 Constraint::Builtin(new_name, call) => {
                     let name = call.func.as_ref().unwrap();
                     if name.starts_with('@') {
                         assert_eq!(name, "@byte");
-                        let [ptr] = &*call.args else { panic!() };
-                        let heap_val = heap.owned(&self.convert_val(ptr), 1, 32);
-                        self.terms.insert(new_name.to_owned(), heap_val);
+                        let [ptr] = &*call.args.val else { panic!() };
+                        let heap_val =
+                            heap.owned_byte(&self.convert_val(ptr), Some(part.source_span()))?;
+                        self.terms
+                            .insert(new_name.to_owned(), heap_val.extend_to(32));
                     } else {
                         let named = self.named.0.get(name).unwrap().upgrade().unwrap();
-                        (named.typ.fun)(heap, &self.convert_vals(&call.args));
+                        (named.typ.fun)(heap, &self.convert_vals(&call.args.val))?;
                     }
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -232,9 +241,11 @@ pub struct WeakFuncDef<T: Val> {
 }
 
 impl<T: Val> Desugar<T> {
-    pub fn convert_value(&self, value: &[Value]) -> refinement::Value<T> {
+    pub fn convert_value(&self, value: &Spanned<Vec<Value>>) -> refinement::Value<T> {
+        let value_iter = value.val.iter();
         refinement::Value {
-            inj: value.iter().map(|val| val.convert(&self.vars)).collect(),
+            span: Some(value.source_span()),
+            inj: value_iter.map(|val| val.convert(&self.vars)).collect(),
         }
     }
 

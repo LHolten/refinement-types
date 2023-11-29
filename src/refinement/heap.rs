@@ -5,6 +5,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use miette::{Diagnostic, SourceSpan};
+use thiserror::Error;
 use z3::{ast::Bool, FuncDecl, Sort};
 
 use crate::solver::ctx;
@@ -94,37 +96,38 @@ impl FuncTerm {
 
 pub trait Heap {
     // load bytes and store in size bits
-    fn owned(&mut self, ptr: &Term, bytes: u32, size: u32) -> Term {
-        let mut res = self.owned_byte(ptr);
+    fn owned(&mut self, ptr: &Term, bytes: u32, size: u32) -> Result<Term, ConsumeErr> {
+        let mut res = self.owned_byte(ptr, None)?;
         let mut ptr = ptr.clone();
         for _ in 1..bytes {
             ptr = ptr.add(&Term::nat(1, 32));
             // little endian, so new value is more significant
-            let val = self.owned_byte(&ptr);
+            let val = self.owned_byte(&ptr, None)?;
             res = val.concat(&res);
         }
-        res.extend_to(size)
+        Ok(res.extend_to(size))
     }
-    fn owned_byte(&mut self, ptr: &Term) -> Term {
+    fn owned_byte(&mut self, ptr: &Term, span: Option<SourceSpan>) -> Result<Term, ConsumeErr> {
         let value = self.forall(Forall {
             named: Resource::Owned,
             mask: FuncTerm::exactly(&[ptr.to_owned()]),
-            span: None,
-        });
-        value.apply(&[ptr.to_owned()])
+            span,
+        })?;
+        Ok(value.apply(&[ptr.to_owned()]))
     }
-    fn assert(&mut self, phi: Term);
-    fn assert_eq(&mut self, x: &Term, y: &Term) {
-        self.assert(x.eq(y));
+    fn assert(&mut self, phi: Term) -> Result<(), ConsumeErr>;
+    fn assert_eq(&mut self, x: &Term, y: &Term) -> Result<(), ConsumeErr> {
+        self.assert(x.eq(y))
     }
-    fn forall(&mut self, forall: Forall) -> FuncTerm;
-    fn switch(&mut self, cond: Cond) {
+    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr>;
+    fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
         let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
         self.forall(Forall {
             named: Resource::Named(cond.named),
             mask: FuncTerm::exactly(&cond.args).and(&condition),
             span: Some(cond.span),
-        });
+        })?;
+        Ok(())
     }
 }
 
@@ -145,7 +148,7 @@ impl<'a> std::ops::Deref for HeapConsume<'a> {
 }
 
 impl Heap for HeapConsume<'_> {
-    fn switch(&mut self, cond: Cond) {
+    fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
         let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
         let need = Forall {
             named: Resource::Named(cond.named.clone()),
@@ -156,18 +159,22 @@ impl Heap for HeapConsume<'_> {
         if let Err(need) = self.try_remove(need) {
             let res = need.mask.apply_bool(&cond.args);
             if self.is_always_true(res) {
-                (cond.named.upgrade().unwrap().typ.fun)(self, &cond.args);
+                // TODO: add a wrapper to make this clearer
+                (cond.named.upgrade().unwrap().typ.fun)(self, &cond.args)?;
             } else {
-                panic!("can not pack named resource")
+                return Err(ConsumeErr::MissingResource {
+                    resource: need.span,
+                });
             }
         }
+        Ok(())
     }
 
     /// We can first look at aggregate resources of the correct name.
     /// After that we can iterate over the remaining resources one by one.
-    fn forall(&mut self, need: Forall) -> FuncTerm {
+    fn forall(&mut self, need: Forall) -> Result<FuncTerm, ConsumeErr> {
         match self.try_remove(need) {
-            Ok(res) => res,
+            Ok(res) => Ok(res),
             Err(need) => {
                 let idx = need.make_fresh_args();
                 for ctx_forall in &self.forall {
@@ -178,13 +185,17 @@ impl Heap for HeapConsume<'_> {
                 for assume in &self.assume {
                     println!("assume {assume:?}");
                 }
-                panic!("missing {}", need.mask.apply_bool(&idx));
+                println!("missing {}", need.mask.apply_bool(&idx));
+                Err(ConsumeErr::MissingResource {
+                    resource: need.span,
+                })
             }
         }
     }
 
-    fn assert(&mut self, phi: Term) {
+    fn assert(&mut self, phi: Term) -> Result<(), ConsumeErr> {
         self.verify_prop(&phi);
+        Ok(())
     }
 }
 
@@ -262,16 +273,26 @@ impl<'a> std::ops::Deref for HeapProduce<'a> {
 
 impl Heap for HeapProduce<'_> {
     /// Here we just put the aggregate to be used by consumption.
-    fn forall(&mut self, forall: Forall) -> FuncTerm {
+    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr> {
         let value = FuncTerm::free(&forall.arg_sizes());
         self.forall.push(CtxForall {
             have: forall,
             value: value.clone(),
         });
-        value
+        Ok(value)
     }
 
-    fn assert(&mut self, phi: Term) {
+    fn assert(&mut self, phi: Term) -> Result<(), ConsumeErr> {
         self.assume.push(phi);
+        Ok(())
     }
+}
+
+#[derive(Debug, Diagnostic, Error)]
+pub enum ConsumeErr {
+    #[error("Can not find resource")]
+    MissingResource {
+        #[label = "The resource"]
+        resource: Option<SourceSpan>,
+    },
 }

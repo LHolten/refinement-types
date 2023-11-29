@@ -30,7 +30,8 @@ BinOp: BinOp = {
     "/" => BinOp::Divide,
 };
 
-Bind: Bind = <func:Var?> "(" <args:(<UnboxedValue> ","?)*> ")" => Bind{<>};
+Tuple: Vec<Value> = "(" <(<UnboxedValue> ","?)*> ")" => <>;
+Bind: Bind = <func:Var?> <args:Spanned<Tuple>> => Bind{<>};
 
 Let: Let = "let" "(" <names:Var*> ")" "=" <bind:Bind> => Let{<>};
 

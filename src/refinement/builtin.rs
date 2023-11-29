@@ -5,7 +5,10 @@ use std::{
 
 use crate::{
     parse,
-    refinement::{heap::FuncTerm, Forall, Resource},
+    refinement::{
+        heap::{ConsumeErr, FuncTerm},
+        Forall, Resource,
+    },
 };
 
 use super::{heap::Heap, BinOp, Free, Fun, Name, NegTyp, PosTyp, SubContext, Term};
@@ -112,7 +115,7 @@ impl Builtin {
                 let named = named.clone();
                 Fun {
                     tau: named_rc.typ.tau.clone(),
-                    span: None,
+                    span: named_rc.typ.span,
                     fun: Rc::new(move |heap, args| {
                         let args = args.to_owned();
                         let forall = Forall {
@@ -120,28 +123,30 @@ impl Builtin {
                             mask: FuncTerm::exactly(&args),
                             span: None,
                         };
-                        type HeapOp = Box<dyn Fn(&mut dyn Heap)>;
+                        type HeapOp = Box<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
                         let fun = named_rc.typ.fun.clone();
                         let mut need: HeapOp = Box::new(move |heap| {
-                            (fun)(heap, &args);
+                            (fun)(heap, &args)?;
+                            Ok(())
                         });
                         let mut res: HeapOp = Box::new(move |heap| {
-                            heap.forall(forall.clone());
+                            heap.forall(forall.clone())?;
+                            Ok(())
                         });
 
                         if unpack {
                             swap(&mut res, &mut need);
                         }
-                        (need)(heap);
+                        (need)(heap)?;
 
-                        NegTyp::new(Fun {
+                        Ok(NegTyp::new(Fun {
                             tau: vec![],
-                            span: None,
+                            span: named_rc.typ.span,
                             fun: Rc::new(move |heap, _args| {
-                                (res)(heap);
-                                PosTyp
+                                (res)(heap)?;
+                                Ok(PosTyp)
                             }),
-                        })
+                        }))
                     }),
                 }
             }

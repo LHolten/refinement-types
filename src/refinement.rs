@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use std::borrow::Borrow;
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,7 +24,7 @@ use z3::ast::{Bool, BV};
 use crate::parse;
 use crate::parse::desugar::Desugar;
 
-use self::heap::{FuncTerm, Heap};
+use self::heap::{ConsumeErr, FuncTerm, Heap};
 
 use self::builtin::Builtin;
 
@@ -131,7 +130,7 @@ pub struct Fun<T> {
     // the arguments that are expected to be in scope
     pub tau: Vec<u32>,
     pub span: Option<SourceSpan>,
-    pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term]) -> T>,
+    pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term]) -> Result<T, ConsumeErr>>,
 }
 
 impl<T> Clone for Fun<T> {
@@ -139,7 +138,7 @@ impl<T> Clone for Fun<T> {
         Self {
             tau: self.tau.clone(),
             fun: self.fun.clone(),
-            span: self.span.clone(),
+            span: self.span,
         }
     }
 }
@@ -205,12 +204,14 @@ where
 #[derive(Clone)]
 pub struct Value<V> {
     pub inj: Vec<Free<V>>,
+    pub span: Option<SourceSpan>,
 }
 
 impl<V> Default for Value<V> {
     fn default() -> Self {
         Self {
             inj: Default::default(),
+            span: None,
         }
     }
 }
@@ -277,9 +278,9 @@ impl InnerDiagnostic {
     }
 }
 
-impl Borrow<dyn Diagnostic> for InnerDiagnostic {
-    fn borrow(&self) -> &(dyn Diagnostic + 'static) {
-        &*self.0 as _
+impl InnerDiagnostic {
+    pub fn iter(&self) -> impl Iterator<Item = &dyn Diagnostic> {
+        Some(&*self.0 as _).into_iter()
     }
 }
 

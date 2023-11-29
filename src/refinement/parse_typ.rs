@@ -115,10 +115,10 @@ macro_rules! neg_typ {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $arg) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $arg_bound);
-            $crate::refinement::NegTyp {
+            Ok($crate::refinement::NegTyp {
                 arg: crate::refinement::PosTyp,
                 ret: pos_typ!($($ret)*),
-            }
+            })
         })};
         add_tau!(@start fun; $arg);
         fun
@@ -138,7 +138,7 @@ macro_rules! pos_typ {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $part) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $bound);
-            $crate::refinement::PosTyp
+            Ok($crate::refinement::PosTyp)
         })};
         add_tau!(@start fun; $part);
         fun
@@ -162,16 +162,16 @@ macro_rules! bounds {
         bounds!($heap; $($tail)*);
     };
     ($heap:ident; $l:tt == $r:tt $(;$($tail:tt)*)?) => {
-        $heap.assert_eq(term!($l), term!($r));
+        $heap.assert_eq(term!($l), term!($r))?;
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; $l:tt <= $r:tt $(;$($tail:tt)*)?) => {
-        let phi = term!($l).ule(&term!($r));
+        let phi = term!($l).ule(&term!($r))?;
         $heap.assert(phi);
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; let $var:pat = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {
-        let tmp = $heap.owned($val, 1, 32);
+        let tmp = $heap.owned($val, 1, 32)?;
         let $var = Box::leak(Box::new(tmp));
         bounds!($heap; $($($tail)*)?);
     };

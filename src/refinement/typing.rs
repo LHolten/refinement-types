@@ -35,9 +35,11 @@ impl Fun<PosTyp> {
         Fun {
             tau: self.tau,
             span: ret.span,
-            fun: Rc::new(move |args, heap| NegTyp {
-                arg: (self.fun)(args, heap),
-                ret: ret.clone(),
+            fun: Rc::new(move |args, heap| {
+                Ok(NegTyp {
+                    arg: (self.fun)(args, heap)?,
+                    ret: ret.clone(),
+                })
             }),
         }
     }
@@ -85,18 +87,19 @@ impl SubContext {
     }
 
     // This resolves value determined indices in `p`
-    pub fn check_value(&mut self, v: &Value<Term>, p: &Fun<PosTyp>) {
+    pub fn check_value(&mut self, v: &Value<Term>, p: &Fun<PosTyp>) -> Result<(), ValueErr> {
         let p_args = self.calc_args(v);
-        let PosTyp = self.with_terms(p, &p_args);
+        let PosTyp = self.with_terms(p, &p_args).using_val(v, p)?;
+        Ok(())
     }
 
-    pub fn spine(&mut self, n: &Fun<NegTyp>, s: &Value<Term>) -> Fun<PosTyp> {
+    pub fn spine(&mut self, n: &Fun<NegTyp>, s: &Value<Term>) -> Result<Fun<PosTyp>, ValueErr> {
         let n_args = self.calc_args(s);
-        let typ = self.with_terms(n, &n_args);
-        typ.ret
+        let typ = self.with_terms(n, &n_args).using_val(s, n)?;
+        Ok(typ.ret)
     }
 
-    pub fn check_expr(mut self, l: &Lambda<Term>, n: &Fun<NegTyp>) -> Result<(), ExprErr> {
+    pub fn check_expr(mut self, l: &Lambda<Term>, n: &Fun<NegTyp>) -> Result<(), ValueErr> {
         let neg = self.extract(n);
         let e = l.inst(&neg.terms);
         self.check_expr_pos(e, &neg.inner.ret)
@@ -106,21 +109,17 @@ impl SubContext {
         mut self,
         e: Spanned<Expr<Term>>,
         p: &Fun<PosTyp>,
-    ) -> Result<(), ExprErr> {
+    ) -> Result<(), ValueErr> {
         match e.as_ref() {
             Expr::Return(v) => {
-                self.check_value(v, p);
-                self.check_empty().map_err(|err| ExprErr {
-                    e: e.span,
-                    p: p.span,
-                    err: InnerDiagnostic::new(err),
-                })?;
+                self.check_value(v, p).using(&e, p)?;
+                self.check_empty().using(&e, p)?;
             }
             Expr::Let(g, l) => {
                 match g {
                     BoundExpr::App(func, s) => {
                         let n = self.infer_func(func);
-                        let bound_p = self.spine(&n, s);
+                        let bound_p = self.spine(&n, s)?;
                         self.check_expr(l, &bound_p.arrow(p.clone()))?;
                     }
                     BoundExpr::Cont(c, n) => {
@@ -148,12 +147,8 @@ impl SubContext {
                 self.check_expr(last, &match_p.arrow(p.clone()))?;
             }
             Expr::Loop(n, s) => {
-                let res = self.spine(n, s);
-                self.sub_pos_typ(&res, p).map_err(|err| ExprErr {
-                    e: e.span,
-                    p: p.span,
-                    err: InnerDiagnostic::new(err),
-                })?;
+                let res = self.spine(n, s).using(&e, p)?;
+                self.sub_pos_typ(&res, p).using(&e, p)?;
             }
         }
         Ok(())
@@ -166,13 +161,40 @@ impl SubContext {
         }
     }
 
-    pub fn check_empty(mut self) -> Result<(), EmptyErr> {
-        if let Some(thing) = self.forall.pop() {
-            let span = thing.have.span.unwrap();
-            println!("{span:?}");
-            return Err(EmptyErr { span: Some(span) });
-        };
+    pub fn check_empty(self) -> Result<(), EmptyErr> {
+        for ctx_forall in &self.forall {
+            if self.still_possible(&ctx_forall.have) {
+                let span = ctx_forall.have.span;
+                return Err(EmptyErr { span });
+            }
+        }
         Ok(())
+    }
+}
+
+trait IntoExprErr<T> {
+    fn using(self, expr: &Spanned<Expr<Term>>, typ: &Fun<PosTyp>) -> Result<T, ValueErr>;
+    fn using_val<X>(self, expr: &Value<Term>, typ: &Fun<X>) -> Result<T, ValueErr>;
+}
+
+impl<T, E> IntoExprErr<T> for Result<T, E>
+where
+    E: Diagnostic + Send + Sync + 'static,
+{
+    fn using(self, expr: &Spanned<Expr<Term>>, typ: &Fun<PosTyp>) -> Result<T, ValueErr> {
+        self.map_err(|err| ValueErr {
+            e: Some(expr.span),
+            p: typ.span,
+            err: InnerDiagnostic::new(err),
+        })
+    }
+
+    fn using_val<X>(self, expr: &Value<Term>, typ: &Fun<X>) -> Result<T, ValueErr> {
+        self.map_err(|err| ValueErr {
+            e: expr.span,
+            p: typ.span,
+            err: InnerDiagnostic::new(err),
+        })
     }
 }
 
@@ -184,12 +206,12 @@ pub struct EmptyErr {
 }
 
 #[derive(Diagnostic, Error, Debug)]
-#[error("Expr does not check against type")]
-pub struct ExprErr {
-    #[label = "The expr"]
-    e: SourceSpan,
+#[error("While checking that value has type")]
+pub struct ValueErr {
+    #[label = "The value"]
+    e: Option<SourceSpan>,
     #[label = "The type"]
     p: Option<SourceSpan>,
-    #[diagnostic_source]
+    #[related]
     err: InnerDiagnostic,
 }
