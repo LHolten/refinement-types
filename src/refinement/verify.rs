@@ -1,6 +1,6 @@
 use z3::{
     ast::{Ast, Bool, BV},
-    SatResult, Solver,
+    Model, SatResult, Solver,
 };
 
 use crate::solver::{ctx, solver};
@@ -102,7 +102,7 @@ impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
         self.arg_sizes()
             .iter()
-            .map(|size| Term::fresh("index", *size))
+            .map(|(size, prefix)| Term::fresh(prefix, *size))
             .collect()
     }
     pub fn id(&self) -> Option<usize> {
@@ -111,10 +111,10 @@ impl Forall {
             Resource::Owned => None,
         }
     }
-    pub fn arg_sizes(&self) -> Vec<u32> {
+    pub fn arg_sizes(&self) -> Vec<(u32, String)> {
         match &self.named {
             Resource::Named(name) => name.upgrade().unwrap().typ.tau.clone(),
-            Resource::Owned => vec![32],
+            Resource::Owned => vec![(32, "ptr".to_owned())],
         }
     }
 }
@@ -166,21 +166,17 @@ impl SubContext {
         self.is_always_true(cond)
     }
 
-    pub fn verify_prop(&self, prop: &Term) {
+    pub fn verify_prop(&self, prop: &Term) -> Result<(), Model<'static>> {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
         match s.check_assumptions(&[prop.to_bool().not()]) {
             SatResult::Unsat => {
                 // Yay, verification succeeded
+                Ok(())
             }
             SatResult::Unknown => todo!(),
-            SatResult::Sat => {
-                eprintln!("{:?}", &self.assume);
-                eprintln!("=> {:?}", prop);
-                let model = s.get_model().unwrap();
-                panic!("failed to verify {model}")
-            }
+            SatResult::Sat => Err(s.get_model().unwrap()),
         }
     }
 

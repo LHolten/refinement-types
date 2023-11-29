@@ -68,7 +68,7 @@ macro_rules! add_tau {
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; $var:ident:Nat $(,$($tail:tt)*)?) => {
-        $fun.tau.push(32);
+        $fun.tau.push((32, "extract".to_owned()));
         add_tau!($fun; $($($tail)*)?)
     };
     ($fun:expr; Nat $(,$($tail:tt)*)?) => {
@@ -162,12 +162,12 @@ macro_rules! bounds {
         bounds!($heap; $($tail)*);
     };
     ($heap:ident; $l:tt == $r:tt $(;$($tail:tt)*)?) => {
-        $heap.assert_eq(term!($l), term!($r))?;
+        $heap.assert(term!($l).eq(term!($r)), None)?;
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; $l:tt <= $r:tt $(;$($tail:tt)*)?) => {
         let phi = term!($l).ule(&term!($r))?;
-        $heap.assert(phi);
+        $heap.assert(phi, None);
         bounds!($heap; $($($tail)*)?);
     };
     ($heap:ident; let $var:pat = $val:ident[$idx:literal] $(;$($tail:tt)*)?) => {

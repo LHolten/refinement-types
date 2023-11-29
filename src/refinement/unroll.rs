@@ -9,7 +9,7 @@ impl SubContext {
         Fun {
             tau: vec![], // no arguments
             fun: Rc::new(move |heap, _terms| {
-                heap.assert(phi.clone())?;
+                heap.assert(phi.clone(), None)?;
                 Ok(PosTyp {})
             }),
             span: None,

@@ -11,8 +11,8 @@ use super::{heap::ConsumeErr, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved, Term
 impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
         let mut terms = vec![];
-        for tau in &n.tau {
-            let term = Term::fresh("extract", *tau);
+        for (tau, prefix) in &n.tau {
+            let term = Term::fresh(prefix, *tau);
             terms.push(term);
         }
 

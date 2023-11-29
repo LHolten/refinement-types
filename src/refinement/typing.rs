@@ -112,7 +112,7 @@ impl SubContext {
     ) -> Result<(), ValueErr> {
         match e.as_ref() {
             Expr::Return(v) => {
-                self.check_value(v, p).using(&e, p)?;
+                self.check_value(v, p)?;
                 self.check_empty().using(&e, p)?;
             }
             Expr::Let(g, l) => {
@@ -206,7 +206,7 @@ pub struct EmptyErr {
 }
 
 #[derive(Diagnostic, Error, Debug)]
-#[error("While checking that value has type")]
+#[error("While checking that a value has this type..")]
 pub struct ValueErr {
     #[label = "The value"]
     e: Option<SourceSpan>,

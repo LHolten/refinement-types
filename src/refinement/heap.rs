@@ -1,13 +1,15 @@
 use std::{
     cell::RefCell,
+    fmt::Write,
     mem::take,
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use indenter::indented;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
-use z3::{ast::Bool, FuncDecl, Sort};
+use z3::{ast::Bool, FuncDecl, Model, Sort};
 
 use crate::solver::ctx;
 
@@ -81,12 +83,12 @@ impl FuncTerm {
         Self::new_bool(move |idx| this.apply_bool(idx) & other.apply_bool(idx))
     }
 
-    fn free(arg_size: &[u32]) -> Self {
+    fn free(arg_size: &[(u32, String)]) -> Self {
         static ID: AtomicUsize = AtomicUsize::new(0);
         let name = format!("heap-{}", ID.fetch_add(1, Ordering::Relaxed));
         let domain: Vec<_> = arg_size
             .iter()
-            .map(|sz| Sort::bitvector(ctx(), *sz))
+            .map(|(sz, _name)| Sort::bitvector(ctx(), *sz))
             .collect();
         let domain: Vec<_> = domain.iter().collect();
         let f = FuncDecl::new(ctx(), name, &domain, &Sort::bitvector(ctx(), 8));
@@ -115,10 +117,7 @@ pub trait Heap {
         })?;
         Ok(value.apply(&[ptr.to_owned()]))
     }
-    fn assert(&mut self, phi: Term) -> Result<(), ConsumeErr>;
-    fn assert_eq(&mut self, x: &Term, y: &Term) -> Result<(), ConsumeErr> {
-        self.assert(x.eq(y))
-    }
+    fn assert(&mut self, phi: Term, span: Option<SourceSpan>) -> Result<(), ConsumeErr>;
     fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr>;
     fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
         let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
@@ -164,6 +163,7 @@ impl Heap for HeapConsume<'_> {
             } else {
                 return Err(ConsumeErr::MissingResource {
                     resource: need.span,
+                    help: self.counter_example(need),
                 });
             }
         }
@@ -175,26 +175,25 @@ impl Heap for HeapConsume<'_> {
     fn forall(&mut self, need: Forall) -> Result<FuncTerm, ConsumeErr> {
         match self.try_remove(need) {
             Ok(res) => Ok(res),
-            Err(need) => {
-                let idx = need.make_fresh_args();
-                for ctx_forall in &self.forall {
-                    if ctx_forall.have.id() == need.id() {
-                        println!("have {}", ctx_forall.have.mask.apply_bool(&idx))
-                    }
-                }
-                for assume in &self.assume {
-                    println!("assume {assume:?}");
-                }
-                println!("missing {}", need.mask.apply_bool(&idx));
-                Err(ConsumeErr::MissingResource {
-                    resource: need.span,
-                })
-            }
+            Err(need) => Err(ConsumeErr::MissingResource {
+                resource: need.span,
+                help: self.counter_example(need),
+            }),
         }
     }
 
-    fn assert(&mut self, phi: Term) -> Result<(), ConsumeErr> {
-        self.verify_prop(&phi);
+    fn assert(&mut self, phi: Term, span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
+        if let Err(model) = self.verify_prop(&phi) {
+            let mut out = String::new();
+            format_model(indented(&mut out), model);
+            return Err(ConsumeErr::InvalidAssert {
+                assert: span,
+                help: format!(
+                    "Here is a valid example for which \n\
+                    the assertion is false: \n{out}"
+                ),
+            });
+        };
         Ok(())
     }
 }
@@ -212,7 +211,35 @@ fn build_value(removals: Vec<Removal>, last: Option<FuncTerm>) -> FuncTerm {
     out
 }
 
+pub fn format_model<F: Write>(mut f: F, model: Model<'_>) {
+    for x in &model {
+        let name = x.name();
+        let name = name.split('!').next().unwrap();
+        let res = model.eval(&x.apply(&[]), false).unwrap();
+        writeln!(f, "{name} = {}", res.as_bv().unwrap().as_u64().unwrap()).unwrap();
+    }
+}
+
 impl SubContext {
+    fn counter_example(&mut self, need: Forall) -> String {
+        let idx = need.make_fresh_args();
+        let s = self.assume();
+        s.assert(&need.mask.apply_bool(&idx));
+        for ctx_forall in &self.forall {
+            if ctx_forall.have.id() == need.id() {
+                s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
+            }
+        }
+        s.check();
+        let model = s.get_model().unwrap();
+        let mut out = String::new();
+        format_model(indented(&mut out), model);
+        format!(
+            "Here is a valid example for which \n\
+            the resource does not exist: \n{out}"
+        )
+    }
+
     fn try_remove(&mut self, need: Forall) -> Result<FuncTerm, Forall> {
         let required = RefCell::new(need);
         let mut forall_list = take(&mut self.forall);
@@ -282,7 +309,7 @@ impl Heap for HeapProduce<'_> {
         Ok(value)
     }
 
-    fn assert(&mut self, phi: Term) -> Result<(), ConsumeErr> {
+    fn assert(&mut self, phi: Term, _span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
         self.assume.push(phi);
         Ok(())
     }
@@ -290,9 +317,19 @@ impl Heap for HeapProduce<'_> {
 
 #[derive(Debug, Diagnostic, Error)]
 pub enum ConsumeErr {
-    #[error("Can not find resource")]
+    #[error("The resource does not always exist")]
     MissingResource {
         #[label = "The resource"]
         resource: Option<SourceSpan>,
+        #[help]
+        help: String,
+    },
+
+    #[error("The assertion is not always true")]
+    InvalidAssert {
+        #[label = "The assertion"]
+        assert: Option<SourceSpan>,
+        #[help]
+        help: String,
     },
 }

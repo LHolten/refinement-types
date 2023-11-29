@@ -26,9 +26,9 @@ impl SubContext {
         match op {
             BinOp::Add => {}
             BinOp::Sub => {}
-            BinOp::Div => self.verify_prop(&r.not_zero()),
+            BinOp::Div => self.verify_prop(&r.not_zero()).unwrap(),
             BinOp::Mul => {}
-            BinOp::Rem => self.verify_prop(&r.not_zero()),
+            BinOp::Rem => self.verify_prop(&r.not_zero()).unwrap(),
             BinOp::Eq => {}
             BinOp::Less => {}
             BinOp::And => {}

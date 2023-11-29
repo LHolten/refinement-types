@@ -128,7 +128,7 @@ impl NegTyp {
 #[allow(clippy::type_complexity)]
 pub struct Fun<T> {
     // the arguments that are expected to be in scope
-    pub tau: Vec<u32>,
+    pub tau: Vec<(u32, String)>,
     pub span: Option<SourceSpan>,
     pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term]) -> Result<T, ConsumeErr>>,
 }

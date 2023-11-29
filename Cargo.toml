@@ -12,6 +12,7 @@ lalrpop-util = { version = "0.20", features = ["lexer", "unicode"] }
 mimalloc = "0.1.39"
 thiserror = "1.0.50"
 miette = { git = "https://github.com/zkat/miette.git", rev = "7ff4f87", features = ["fancy-no-backtrace"] }
+indenter = "0.3.3"
 
 [build-dependencies]
 lalrpop = "0.20"

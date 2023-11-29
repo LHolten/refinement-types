@@ -119,8 +119,9 @@ pub struct DesugarTypes {
 impl DesugarTypes {
     pub fn convert_pos(&self, pos: Rc<Spanned<PosTyp>>) -> refinement::Fun<refinement::PosTyp> {
         let this = self.clone();
+        let names = &pos.val.names;
         refinement::Fun {
-            tau: pos.val.names.iter().map(|_| 32).collect(),
+            tau: names.iter().map(|name| (32, name.clone())).collect(),
             span: Some(pos.source_span()),
             fun: Rc::new(move |heap, terms| {
                 let mut this = this.clone();
@@ -138,8 +139,9 @@ impl DesugarTypes {
         let NegTyp { args, ret } = neg;
 
         let this = self.clone();
+        let names = &args.val.names;
         refinement::Fun {
-            tau: args.val.names.iter().map(|_| 32).collect(),
+            tau: names.iter().map(|name| (32, name.clone())).collect(),
             span: Some(args.source_span()),
             fun: Rc::new(move |heap, terms| {
                 let mut this = this.clone();
@@ -205,7 +207,7 @@ impl DesugarTypes {
                     })?;
                 }
                 Constraint::Assert(cond) => {
-                    heap.assert(self.convert_prop(cond))?;
+                    heap.assert(self.convert_prop(cond), Some(part.source_span()))?;
                 }
                 Constraint::Builtin(new_name, call) => {
                     let name = call.func.as_ref().unwrap();
