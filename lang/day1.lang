@@ -5,7 +5,7 @@ type array(from, len) where {
 type arrayln(from, len) where {
     assert 1 <= len;
     move last = @byte(from + (len - 1));
-    assert last == 10;
+    assert last == '\n';
     array(from, len - 1);
 }
 
@@ -27,11 +27,11 @@ fn part1(len) where {
             arrayln(0, len);
         } = {
             let (val) = @read_u8(idx);
-            if val == 10 {
+            if val == '\n' {
                 return (idx, prev)
             };
-            if (48 <= val) && (val <= 57) {
-                return (idx + 1, val - 48)
+            if ('0' <= val) && (val <= '9') {
+                return (idx + 1, val - '0')
             };
             return find_first(idx + 1, prev)
         };
@@ -41,11 +41,11 @@ fn part1(len) where {
             arrayln(0, len);
         } = {
             let (val) = @read_u8(idx);
-            if val == 10 {
+            if val == '\n' {
                 return (idx, prev)
             };
-            if (48 <= val) && (val <= 57) {
-                return find_last(idx + 1, val - 48)
+            if ('0' <= val) && (val <= '9') {
+                return find_last(idx + 1, val - '0')
             };
             return find_last(idx + 1, prev)
         };

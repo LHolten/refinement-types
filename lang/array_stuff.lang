@@ -7,57 +7,55 @@ fn fib(n) where {
 } -> (out, ptr) where {
     move _ = array(ptr, n + 1);
 } = {
-    let (ptr) = new_array(n + 1, 1);
+    let (start) = new_array(n + 1, 1);
 
     fn final() where {
-        move _ = array(ptr, n + 1);
+        array(start, n + 1);
     } -> (out, ptr) where {
-        move _ = array(ptr, n + 1);
+        array(ptr, n + 1);
     } = {
-        let (val) = @read_u8(ptr + n);
-        return (val, ptr)
+        let (val) = @read_u8(start + n);
+        return (val, start)
     };
 
-    if_zero (2 <= n) {
+    if (n < 2) {
         return final()
     };
 
-    fn inner(idx) where {
-        move _ = array(ptr, n + 1);
-        assert 2 <= idx;
-    } -> () where {
-        move _ = array(ptr, n + 1);
+    loop inner(ptr) where {
+        assert 2 <= (ptr - start);
+        assert (ptr - start) <= (n + 1);
+        array(start, n + 1);
     } = {
-        if_zero (idx <= n) {
-            return ()
+        if (ptr - start) == (n + 1) {
+            return (ptr)
         };
-        let (a) = @read_u8(ptr + (idx - 2));
-        let (b) = @read_u8(ptr + (idx - 1));
-        let () = @write_u8(ptr + idx, a + b);
-        return inner(idx + 1)
+        let (a) = @read_u8(ptr - 2);
+        let (b) = @read_u8(ptr - 1);
+        let () = @write_u8(ptr, a + b);
+        return inner(ptr + 1)
     };
 
-    let () = inner(2);
+    let (_) = inner(start + 2);
     return final()
 }
 
 fn new_array(size, val) -> (out) where {
     move _ = array(out, size);
 } = {
-    let (ptr) = @alloc(size);
+    let (start) = @alloc(size);
     
-    fn fill(idx) where { 
-        move _ = array(ptr, size);
-    } -> () where { 
-        move _ = array(ptr, size);
+    loop fill(ptr) where { 
+        assert (ptr - start) <= size;
+        array(start, size);
     } = {
-        if_zero (idx < size) {
-            return ()
+        if (ptr - start) == size {
+            return (ptr)
         };
-        let () = @write_u8(ptr + idx, val);
-        return fill(idx + 1)
+        let () = @write_u8(ptr, val);
+        return fill(ptr + 1)
     };
 
-    let () = fill(0);
-    return (ptr)
+    let (_) = fill(start);
+    return (start)
 }

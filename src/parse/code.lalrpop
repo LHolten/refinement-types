@@ -5,7 +5,11 @@ use crate::parse::types::*;
 
 grammar;
 
-Num: i32 = r"[0-9]+" => u32::from_str(<>).unwrap() as i32;
+Num: i32 = {
+    r"[0-9]+" => u32::from_str(<>).unwrap() as i32,
+    r"'[0-9]'" => <>.as_bytes()[1] as i32,
+    r"'\\n'" => 10,
+};
 Var: String = r"[@]?[_a-zA-Z][_a-zA-z0-9]*" => <>.to_owned();
 
 
