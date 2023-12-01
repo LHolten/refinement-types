@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    parse::expr::{IfZero, Let, Stmt},
+    parse::expr::{Let, Stmt},
     refinement::{
         self,
         heap::{ConsumeErr, FuncTerm, Heap},
@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    expr::{BinOpValue, Block, Def, FuncDef, Module, Spanned, Value},
+    expr::{BinOpValue, Block, Def, FuncDef, If, Module, Spanned, Value},
     types::{Constraint, NamedConstraint, NegTyp, PosTyp, Prop, PropOp, Switch},
 };
 
@@ -320,12 +320,12 @@ impl<T: Val> Desugar<T> {
                         let bound = refinement::BoundExpr::Cont(cont, label);
                         refinement::Expr::Let(bound, rest)
                     }
-                    Stmt::IfZero(IfZero { val, block: def }) => {
+                    Stmt::If(If { val, block: def }) => {
                         let rest = this.convert_lambda(next, None, vec![]);
 
                         let cont = this.convert_lambda(def, None, vec![]);
                         let local = val.convert(&this.vars);
-                        refinement::Expr::Match(local, vec![cont, rest])
+                        refinement::Expr::Match(local, vec![rest, cont])
                     }
                     Stmt::Unpack(bind) => {
                         let rest = this.convert_lambda(next, None, vec![]);

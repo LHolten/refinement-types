@@ -35,12 +35,12 @@ Bind: Bind = <func:Var?> <args:Spanned<Tuple>> => Bind{<>};
 
 Let: Let = "let" "(" <names:(<Var> ","?)*> ")" "=" <bind:Bind> => Let{<>};
 
-IfZero: IfZero = "if_zero" <val:Value> "{" <block:Block> "}" => IfZero{<>};
+If: If = "if" <val:UnboxedValue> "{" <block:Block> "}" => If{<>};
 
 Stmt: Stmt = {
     Let => Stmt::Let(<>),
     FuncDef => Stmt::FuncDef(<>),
-    IfZero => Stmt::IfZero(<>),
+    If => Stmt::If(<>),
     "unpack" <Bind> => Stmt::Unpack(<>), 
     "pack" <Bind> => Stmt::Pack(<>), 
 };

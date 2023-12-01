@@ -18,7 +18,7 @@ fn part1(len) where {
         assert idx <= len;
         arrayln(0, len);
     } = {
-        if_zero (idx != len) {
+        if idx == len {
             return (sum, idx)
         };
 
@@ -27,13 +27,13 @@ fn part1(len) where {
             arrayln(0, len);
         } = {
             let (val) = @read_u8(idx);
-            if_zero (val != 10) {
+            if val == 10 {
                 return (idx, prev)
             };
-            if_zero ((48 <= val) && (val <= 57)) {
-                return find_first(idx + 1, prev)
+            if (48 <= val) && (val <= 57) {
+                return (idx + 1, val - 48)
             };
-            return (idx + 1, val - 48)
+            return find_first(idx + 1, prev)
         };
 
         loop find_last(idx, prev) where {
@@ -41,13 +41,13 @@ fn part1(len) where {
             arrayln(0, len);
         } = {
             let (val) = @read_u8(idx);
-            if_zero (val != 10) {
+            if val == 10 {
                 return (idx, prev)
             };
-            if_zero ((48 <= val) && (val <= 57)) {
-                return find_last(idx + 1, prev)
+            if (48 <= val) && (val <= 57) {
+                return find_last(idx + 1, val - 48)
             };
-            return find_last(idx + 1, val - 48)
+            return find_last(idx + 1, prev)
         };
 
         let (idx, first) = find_first(idx, 0);

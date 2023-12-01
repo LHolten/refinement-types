@@ -62,7 +62,7 @@ pub enum BinOp {
 pub enum Stmt {
     Let(Let),
     FuncDef(FuncDef),
-    IfZero(IfZero),
+    If(If),
     Unpack(Bind),
     Pack(Bind),
 }
@@ -76,6 +76,11 @@ pub enum Block {
 }
 
 pub struct IfZero {
+    pub val: Value,
+    pub block: Rc<Spanned<Block>>,
+}
+
+pub struct If {
     pub val: Value,
     pub block: Rc<Spanned<Block>>,
 }
