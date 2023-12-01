@@ -216,8 +216,9 @@ impl DesugarTypes {
                         let [ptr] = &*call.args.val else { panic!() };
                         let heap_val =
                             heap.owned_byte(&self.convert_val(ptr), Some(part.source_span()))?;
-                        self.terms
-                            .insert(new_name.to_owned(), heap_val.extend_to(32));
+                        if let Some(new_name) = new_name.to_owned() {
+                            self.terms.insert(new_name, heap_val.extend_to(32));
+                        }
                     } else {
                         let named = self.named.0.get(name).unwrap().upgrade().unwrap();
                         (named.typ.fun)(heap, &self.convert_vals(&call.args.val))?;
@@ -479,14 +480,14 @@ pub fn check(m: &Module) -> miette::Result<()> {
     Ok(())
 }
 
-pub fn run(m: Module, name: &str, args: Vec<i32>) -> Vec<i32> {
+pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
     let list = LazyNameList::new(&m);
     let this = Desugared::<i32>::new(list, &m);
 
     let (lambda, _typ) = &this.funcs[name];
 
     let expr = lambda.inst(&args);
-    let mut memory = refinement::eval::Memory::default();
+    let mut memory = refinement::eval::Memory::new(heap);
     memory.eval(expr.val)
 }
 

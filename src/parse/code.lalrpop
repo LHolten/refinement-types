@@ -33,7 +33,7 @@ BinOp: BinOp = {
 Tuple: Vec<Value> = "(" <(<UnboxedValue> ","?)*> ")" => <>;
 Bind: Bind = <func:Var?> <args:Spanned<Tuple>> => Bind{<>};
 
-Let: Let = "let" "(" <names:Var*> ")" "=" <bind:Bind> => Let{<>};
+Let: Let = "let" "(" <names:(<Var> ","?)*> ")" "=" <bind:Bind> => Let{<>};
 
 IfZero: IfZero = "if_zero" <val:Value> "{" <block:Block> "}" => IfZero{<>};
 
@@ -51,7 +51,17 @@ BlockInner: Block = {
 };
 Block: Rc<Spanned<Block>> = Spanned<BlockInner> => Rc::new(<>);
 
-FuncDef: FuncDef = "fn" <name: Var> <typ:NegTyp> "=" "{" <block:Block> "}" => FuncDef{<>};
+FuncDef: FuncDef = {
+    "fn" <name: Var> <typ:NegTyp> "=" "{" <block:Block> "}" => FuncDef{<>},
+    "loop" <name: Var> <typ:PosTyp> "=" "{" <block:Block> "}" => FuncDef{
+        name,
+        typ: NegTyp {
+            args: typ.clone(),
+            ret: typ,
+        },
+        block,
+    }
+};
 
 pub NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
@@ -67,7 +77,7 @@ Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Pr
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
     Switch => Constraint::Switch(<>),
-    "move" <Var> "=" <Bind> => Constraint::Builtin(<>),
+    <("move" <Var> "=")?> <Bind> => Constraint::Builtin(<>),
     "assert" <Prop> => Constraint::Assert(<>),
 };
 

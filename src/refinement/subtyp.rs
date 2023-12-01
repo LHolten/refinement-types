@@ -25,7 +25,9 @@ impl SubContext {
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
         let mut heap = HeapConsume(self);
 
-        assert_eq!(typ.tau.len(), terms.len());
+        if typ.tau.len() != terms.len() {
+            return Err(ConsumeErr::NumArgs);
+        }
         (typ.fun)(&mut heap, terms)
     }
 
@@ -62,7 +64,7 @@ where
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[error("not a subtype")]
+#[error("Not a subtype")]
 pub struct SubTypErr {
     #[label]
     have: Option<SourceSpan>,

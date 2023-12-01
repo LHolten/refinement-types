@@ -12,6 +12,12 @@ pub struct Memory {
     data: Vec<u8>,
 }
 
+impl Memory {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+}
+
 impl Free<i32> {
     pub fn eval(&self) -> i32 {
         match self {

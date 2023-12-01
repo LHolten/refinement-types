@@ -147,7 +147,7 @@ impl SubContext {
                 self.check_expr(last, &match_p.arrow(p.clone()))?;
             }
             Expr::Loop(n, s) => {
-                let res = self.spine(n, s).using(&e, p)?;
+                let res = self.spine(n, s)?;
                 self.sub_pos_typ(&res, p).using(&e, p)?;
             }
         }

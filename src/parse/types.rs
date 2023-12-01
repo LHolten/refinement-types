@@ -25,7 +25,7 @@ pub enum Constraint {
     Forall(Forall),
     Assert(Prop),
     // Func(Term, NegTyp),
-    Builtin(String, Bind),
+    Builtin(Option<String>, Bind),
     Switch(Switch),
 }
 

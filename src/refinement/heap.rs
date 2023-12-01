@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     fmt::Write,
     mem::take,
     rc::Rc,
@@ -9,7 +8,7 @@ use std::{
 use indenter::indented;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
-use z3::{ast::Bool, FuncDecl, Model, Sort};
+use z3::{ast::Bool, FuncDecl, Model, SatResult, Sort};
 
 use crate::solver::ctx;
 
@@ -212,12 +211,14 @@ fn build_value(removals: Vec<Removal>, last: Option<FuncTerm>) -> FuncTerm {
 }
 
 pub fn format_model<F: Write>(mut f: F, model: Model<'_>) {
-    for x in &model {
-        let name = x.name();
-        let name = name.split('!').next().unwrap();
-        let res = model.eval(&x.apply(&[]), false).unwrap();
-        writeln!(f, "{name} = {}", res.as_bv().unwrap().as_u64().unwrap()).unwrap();
-    }
+    writeln!(f, "{model}").unwrap();
+    // for x in &model {
+    //     let name = x.name();
+    //     let name = name.split('!').next().unwrap();
+    //     assert_eq!(x.arity(), 0);
+    //     let res = model.eval(&x.apply(&[]), false).unwrap();
+    //     writeln!(f, "{name} = {}", res.as_bv().unwrap().as_u64().unwrap()).unwrap();
+    // }
 }
 
 impl SubContext {
@@ -230,7 +231,7 @@ impl SubContext {
                 s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
             }
         }
-        s.check();
+        let SatResult::Sat = s.check() else { panic!() };
         let model = s.get_model().unwrap();
         let mut out = String::new();
         format_model(indented(&mut out), model);
@@ -240,45 +241,38 @@ impl SubContext {
         )
     }
 
-    fn try_remove(&mut self, need: Forall) -> Result<FuncTerm, Forall> {
-        let required = RefCell::new(need);
+    fn try_remove(&mut self, mut need: Forall) -> Result<FuncTerm, Forall> {
         let mut forall_list = take(&mut self.forall);
         let mut removals = vec![];
 
         // first we consume small allocations
-        for alloc in forall_list
-            .extract_if(|ctx_forall| self.always_contains(&required.borrow(), &ctx_forall.have))
-        {
-            let new_mask = required.borrow().mask.difference(&alloc.have.mask);
-            required.borrow_mut().mask = new_mask;
+        for alloc in forall_list.iter_mut() {
+            if alloc.have.id() != need.id() {
+                continue;
+            }
+            let overlap = Forall {
+                named: need.named.clone(),
+                mask: alloc.have.mask.and(&need.mask),
+                span: None,
+            };
+            if !self.still_possible(&overlap) {
+                continue;
+            }
+            let old_alloc_mask = alloc.have.mask.clone();
+            alloc.have.mask = old_alloc_mask.difference(&need.mask);
+            need.mask = need.mask.difference(&old_alloc_mask);
             removals.push(Removal {
-                mask: alloc.have.mask,
-                value: alloc.value,
+                mask: old_alloc_mask,
+                value: alloc.value.clone(),
             })
         }
         self.forall = forall_list;
-        let required = required.into_inner();
 
-        if !self.still_possible(&required) {
-            let value = build_value(removals, None);
-            return Ok(value);
+        if self.still_possible(&need) {
+            Err(need)
+        } else {
+            Ok(build_value(removals, None))
         }
-
-        // then we find a larger allocation to take the remainder from
-        let idx = self
-            .forall
-            .iter()
-            .position(|ctx_forall| self.always_contains(&ctx_forall.have, &required));
-        let Some(idx) = idx else {
-            return Err(required);
-        };
-
-        let ctx_forall = &mut self.forall[idx];
-        // regions can not be equal in size, it would already be consumed
-        ctx_forall.have.mask = ctx_forall.have.mask.difference(&required.mask);
-
-        let value = build_value(removals, Some(ctx_forall.value.clone()));
-        Ok(value)
     }
 }
 
@@ -317,6 +311,9 @@ impl Heap for HeapProduce<'_> {
 
 #[derive(Debug, Diagnostic, Error)]
 pub enum ConsumeErr {
+    #[error("Number of args is not equal")]
+    NumArgs,
+
     #[error("The resource does not always exist")]
     MissingResource {
         #[label = "The resource"]
