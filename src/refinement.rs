@@ -5,9 +5,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, ops::Deref};
 
-#[macro_use]
-mod parse_typ;
-
 pub mod builtin;
 pub mod eval;
 pub mod func_term;

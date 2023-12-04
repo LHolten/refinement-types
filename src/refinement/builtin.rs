@@ -81,18 +81,6 @@ impl Free<Term> {
     }
 }
 
-// TODO: these leak a bit of memory for each thread
-thread_local! {
-    static READ: Fun<NegTyp> = neg_typ!(
-        (ptr:Nat) where {let val = ptr[0]}
-            -> (ret:Nat) where {ret == val; let new = ptr[0]; new == val}
-    );
-    static WRITE: Fun<NegTyp> = neg_typ!(
-        (ptr:Nat, val:Nat) where {let _ = ptr[0]}
-            -> () where {let new = ptr[0]; new == val}
-    );
-}
-
 static ALLOC_STR: &str = r"
 (pages) -> (start) where {
     @byte for (ptr) if (ptr - start) < pages;
@@ -100,11 +88,30 @@ static ALLOC_STR: &str = r"
 }
 ";
 
+static READ_STR: &str = r"
+(ptr) where {
+    move val = @byte(ptr);
+} -> (ret) where {
+    assert ret == val;
+    move new = @byte(ptr);
+    assert new == val;
+}
+";
+
+static WRITE_STR: &str = r"
+(ptr, val) where {
+    @byte(ptr);
+} -> () where {
+    move new = @byte(ptr);
+    assert new == val;
+}
+";
+
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
         match self {
-            Builtin::Read => READ.with(Clone::clone),
-            Builtin::Write => WRITE.with(Clone::clone),
+            Builtin::Read => parse::convert_neg(READ_STR),
+            Builtin::Write => parse::convert_neg(WRITE_STR),
             Builtin::Alloc => parse::convert_neg(ALLOC_STR),
             Builtin::Pack(named, unpack) => {
                 let unpack = *unpack;
