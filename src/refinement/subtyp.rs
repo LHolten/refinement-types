@@ -6,7 +6,7 @@ use crate::refinement::{
     SubContext,
 };
 
-use super::{heap::ConsumeErr, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved, Term};
+use super::{heap::ConsumeErr, term::Term, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved};
 
 impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {

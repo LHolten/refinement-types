@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    BoundExpr, Expr, Fun, InnerDiagnostic, Lambda, NegTyp, PosTyp, Spanned, SubContext, Term,
+    term::Term, BoundExpr, Expr, Fun, InnerDiagnostic, Lambda, NegTyp, PosTyp, Spanned, SubContext,
     Thunk, Val, Value,
 };
 

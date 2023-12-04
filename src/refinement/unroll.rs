@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::refinement::SubContext;
 
-use super::{Fun, PosTyp, Term};
+use super::{term::Term, Fun, PosTyp};
 
 impl SubContext {
     pub fn unroll_prod_univ(&self, phi: Term) -> Fun<PosTyp> {

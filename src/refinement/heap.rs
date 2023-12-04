@@ -1,97 +1,43 @@
-use std::{
-    fmt::Write,
-    mem::take,
-    rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::mem::take;
 
 use indenter::indented;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
-use z3::{ast::Bool, FuncDecl, Model, SatResult, Sort};
 
-use crate::solver::ctx;
+use super::{
+    func_term::FuncTerm, term::Term, verify::format_model, Cond, CtxForall, Forall, Resource,
+    SubContext,
+};
 
-use super::{typing::zip_eq, Cond, CtxForall, Forall, Resource, SubContext, Term};
+pub(super) struct HeapConsume<'a>(pub &'a mut SubContext);
 
-#[derive(Clone)]
-#[allow(clippy::type_complexity)]
-pub enum FuncTerm {
-    Free(Rc<FuncDecl<'static>>),
-    User(Rc<dyn Fn(&[Term]) -> Term>),
+impl<'a> std::ops::DerefMut for HeapConsume<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
 }
 
-impl FuncTerm {
-    pub fn new<F: Fn(&[Term]) -> Term + 'static>(f: F) -> Self {
-        Self::User(Rc::new(f))
-    }
+impl<'a> std::ops::Deref for HeapConsume<'a> {
+    type Target = SubContext;
 
-    pub fn new_bool<F: Fn(&[Term]) -> Bool<'static> + 'static>(f: F) -> Self {
-        Self::new(move |x| Term::Bool((f)(x)))
+    fn deref(&self) -> &Self::Target {
+        self.0
     }
+}
 
-    pub fn apply_bool(&self, idx: &[Term]) -> Bool<'static> {
-        self.apply(idx).to_bool()
+pub(super) struct HeapProduce<'a>(pub &'a mut SubContext);
+
+impl<'a> std::ops::DerefMut for HeapProduce<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
     }
+}
 
-    pub fn apply(&self, idx: &[Term]) -> Term {
-        match self {
-            FuncTerm::Free(f) => {
-                let args: Vec<_> = idx.iter().map(|x| x.to_bv()).collect();
-                let args: Vec<_> = args.iter().map(|x| x as _).collect();
-                let val = f.apply(&args);
-                if let Some(b) = val.as_bool() {
-                    Term::Bool(b)
-                } else if let Some(bv) = val.as_bv() {
-                    Term::BV(bv)
-                } else {
-                    panic!()
-                }
-            }
-            FuncTerm::User(func) => (func)(idx),
-        }
-    }
+impl<'a> std::ops::Deref for HeapProduce<'a> {
+    type Target = SubContext;
 
-    pub fn difference(&self, other: &Self) -> Self {
-        let this = self.clone();
-        let other = other.clone();
-        Self::new_bool(move |idx| this.apply_bool(idx) & !other.apply_bool(idx))
-    }
-
-    pub fn ite(&self, then: &Self, other: &Self) -> Self {
-        let (cond, then, other) = (self.clone(), then.clone(), other.clone());
-        Self::new(move |idx| {
-            let (then, other) = (then.apply(idx).to_bv(), other.apply(idx).to_bv());
-            assert_eq!(then.get_size(), other.get_size());
-            Term::BV(cond.apply_bool(idx).ite(&then, &other))
-        })
-    }
-
-    pub fn exactly(ptr: &[Term]) -> Self {
-        let ptr = ptr.to_owned();
-        Self::new_bool(move |val| {
-            zip_eq(&ptr, val)
-                .map(|(l, r)| l.eq(r).to_bool())
-                .fold(Bool::from_bool(ctx(), true), |l, r| l & r)
-        })
-    }
-
-    pub fn and(&self, other: &Self) -> Self {
-        let this = self.clone();
-        let other = other.clone();
-        Self::new_bool(move |idx| this.apply_bool(idx) & other.apply_bool(idx))
-    }
-
-    fn free(arg_size: &[(u32, String)]) -> Self {
-        static ID: AtomicUsize = AtomicUsize::new(0);
-        let name = format!("heap-{}", ID.fetch_add(1, Ordering::Relaxed));
-        let domain: Vec<_> = arg_size
-            .iter()
-            .map(|(sz, _name)| Sort::bitvector(ctx(), *sz))
-            .collect();
-        let domain: Vec<_> = domain.iter().collect();
-        let f = FuncDecl::new(ctx(), name, &domain, &Sort::bitvector(ctx(), 8));
-        Self::Free(Rc::new(f))
+    fn deref(&self) -> &Self::Target {
+        self.0
     }
 }
 
@@ -126,22 +72,6 @@ pub trait Heap {
             span: Some(cond.span),
         })?;
         Ok(())
-    }
-}
-
-pub(super) struct HeapConsume<'a>(pub &'a mut SubContext);
-
-impl<'a> std::ops::DerefMut for HeapConsume<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
-    }
-}
-
-impl<'a> std::ops::Deref for HeapConsume<'a> {
-    type Target = SubContext;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
     }
 }
 
@@ -197,51 +127,38 @@ impl Heap for HeapConsume<'_> {
     }
 }
 
-struct Removal {
-    mask: FuncTerm,
-    value: FuncTerm,
-}
-
-fn build_value(removals: Vec<Removal>, last: Option<FuncTerm>) -> FuncTerm {
-    let mut out = last.unwrap_or(FuncTerm::new(|_| Term::nat(0, 8)));
-    for removal in removals.iter() {
-        out = removal.mask.ite(&removal.value, &out);
+impl Heap for HeapProduce<'_> {
+    /// Here we just put the aggregate to be used by consumption.
+    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr> {
+        let value = FuncTerm::free(&forall.arg_sizes());
+        self.forall.push(CtxForall {
+            have: forall,
+            value: value.clone(),
+        });
+        Ok(value)
     }
-    out
-}
 
-pub fn format_model<F: Write>(mut f: F, model: Model<'_>) {
-    writeln!(f, "{model}").unwrap();
-    // for x in &model {
-    //     let name = x.name();
-    //     let name = name.split('!').next().unwrap();
-    //     assert_eq!(x.arity(), 0);
-    //     let res = model.eval(&x.apply(&[]), false).unwrap();
-    //     writeln!(f, "{name} = {}", res.as_bv().unwrap().as_u64().unwrap()).unwrap();
-    // }
+    fn assert(&mut self, phi: Term, _span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
+        self.assume.push(phi);
+        Ok(())
+    }
 }
 
 impl SubContext {
-    fn counter_example(&mut self, need: Forall) -> String {
-        let idx = need.make_fresh_args();
-        let s = self.assume();
-        s.assert(&need.mask.apply_bool(&idx));
-        for ctx_forall in &self.forall {
-            if ctx_forall.have.id() == need.id() {
-                s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
-            }
-        }
-        let SatResult::Sat = s.check() else { panic!() };
-        let model = s.get_model().unwrap();
-        let mut out = String::new();
-        format_model(indented(&mut out), model);
-        format!(
-            "Here is a valid example for which \n\
-            the resource does not exist: \n{out}"
-        )
-    }
-
     fn try_remove(&mut self, mut need: Forall) -> Result<FuncTerm, Forall> {
+        struct Removal {
+            mask: FuncTerm,
+            value: FuncTerm,
+        }
+
+        fn build_value(removals: Vec<Removal>, last: Option<FuncTerm>) -> FuncTerm {
+            let mut out = last.unwrap_or(FuncTerm::new(|_| Term::nat(0, 8)));
+            for removal in removals.iter() {
+                out = removal.mask.ite(&removal.value, &out);
+            }
+            out
+        }
+
         let mut forall_list = take(&mut self.forall);
         let mut removals = vec![];
 
@@ -273,39 +190,6 @@ impl SubContext {
         } else {
             Ok(build_value(removals, None))
         }
-    }
-}
-
-pub(super) struct HeapProduce<'a>(pub &'a mut SubContext);
-
-impl<'a> std::ops::DerefMut for HeapProduce<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
-    }
-}
-
-impl<'a> std::ops::Deref for HeapProduce<'a> {
-    type Target = SubContext;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl Heap for HeapProduce<'_> {
-    /// Here we just put the aggregate to be used by consumption.
-    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr> {
-        let value = FuncTerm::free(&forall.arg_sizes());
-        self.forall.push(CtxForall {
-            have: forall,
-            value: value.clone(),
-        });
-        Ok(value)
-    }
-
-    fn assert(&mut self, phi: Term, _span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
-        self.assume.push(phi);
-        Ok(())
     }
 }
 

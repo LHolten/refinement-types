@@ -8,7 +8,9 @@ use crate::{
     parse::expr::{Let, Stmt},
     refinement::{
         self,
-        heap::{ConsumeErr, FuncTerm, Heap},
+        func_term::FuncTerm,
+        heap::{ConsumeErr, Heap},
+        term::Term,
         typing::zip_eq,
         Lambda, Resource, Val,
     },
@@ -113,7 +115,7 @@ impl Prop {
 #[derive(Clone)]
 pub struct DesugarTypes {
     named: WeakNameList,
-    pub terms: HashMap<String, refinement::Term>,
+    pub terms: HashMap<String, Term>,
 }
 
 impl DesugarTypes {
@@ -158,15 +160,15 @@ impl DesugarTypes {
         }
     }
 
-    pub fn convert_prop(&self, prop: &Prop) -> refinement::Term {
+    pub fn convert_prop(&self, prop: &Prop) -> Term {
         prop.convert(&self.terms).make_term()
     }
 
-    pub fn convert_val(&self, val: &Value) -> refinement::Term {
+    pub fn convert_val(&self, val: &Value) -> Term {
         val.convert(&self.terms).make_term()
     }
 
-    pub fn convert_vals(&self, vals: &[Value]) -> Vec<refinement::Term> {
+    pub fn convert_vals(&self, vals: &[Value]) -> Vec<Term> {
         vals.iter().map(|x| self.convert_val(x)).collect()
     }
 

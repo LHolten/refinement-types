@@ -5,13 +5,10 @@ use std::{
 
 use crate::{
     parse,
-    refinement::{
-        heap::{ConsumeErr, FuncTerm},
-        Forall, Resource,
-    },
+    refinement::{func_term::FuncTerm, heap::ConsumeErr, Forall, Resource},
 };
 
-use super::{heap::Heap, BinOp, Free, Fun, Name, NegTyp, PosTyp, SubContext, Term};
+use super::{heap::Heap, term::Term, BinOp, Free, Fun, Name, NegTyp, PosTyp, SubContext};
 
 pub enum Builtin {
     Read,

@@ -10,8 +10,10 @@ mod parse_typ;
 
 pub mod builtin;
 pub mod eval;
+pub mod func_term;
 pub mod heap;
 mod subtyp;
+pub mod term;
 #[cfg(test)]
 mod test;
 pub mod typing;
@@ -19,29 +21,15 @@ mod unroll;
 mod verify;
 
 use miette::{Diagnostic, SourceSpan};
-use z3::ast::{Bool, BV};
 
 use crate::parse;
 use crate::parse::desugar::Desugar;
 
-use self::heap::{ConsumeErr, FuncTerm, Heap};
+use self::func_term::FuncTerm;
+use self::heap::{ConsumeErr, Heap};
 
 use self::builtin::Builtin;
-
-#[derive(Clone)]
-pub enum Term {
-    BV(BV<'static>),
-    Bool(Bool<'static>),
-}
-
-impl Debug for Term {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Term::BV(bv) => bv.fmt(f),
-            Term::Bool(b) => b.fmt(f),
-        }
-    }
-}
+use self::term::Term;
 
 // Side effect free expression
 #[derive(Clone)]
