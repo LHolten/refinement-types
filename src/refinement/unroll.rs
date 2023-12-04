@@ -8,9 +8,9 @@ impl SubContext {
     pub fn unroll_prod_univ(&self, phi: Term) -> Fun<PosTyp> {
         Fun {
             tau: vec![], // no arguments
-            fun: Rc::new(move |heap, _terms| {
+            fun: Rc::new(move |heap, _terms, ()| {
                 heap.assert(phi.clone(), None)?;
-                Ok(PosTyp {})
+                Ok(PosTyp::default())
             }),
             span: None,
         }

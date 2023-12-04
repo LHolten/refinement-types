@@ -8,16 +8,18 @@ use crate::{
     parse::expr::{Let, Stmt},
     refinement::{
         self,
-        heap::{ConsumeErr, FuncTerm, Heap},
+        heap::{ConsumeErr, Heap},
         typing::zip_eq,
-        Lambda, Resource, Val,
+        Lambda, Val,
     },
     uninit_rc::UninitRc,
 };
 
+use self::constraint::Free;
+
 use super::{
     expr::{BinOpValue, Block, Def, FuncDef, If, Module, Spanned, Value},
-    types::{Constraint, NamedConstraint, NegTyp, PosTyp, Prop, PropOp, Switch},
+    types::{NamedConstraint, NegTyp, PosTyp, Prop, PropOp},
 };
 
 type LazyName = Box<dyn Fn(WeakNameList) -> refinement::Name>;
@@ -114,6 +116,12 @@ impl Prop {
 pub struct DesugarTypes {
     named: WeakNameList,
     pub terms: HashMap<String, refinement::Term>,
+    pub for_terms: HashMap<String, Instance>,
+}
+
+#[derive(Clone)]
+pub struct Instance {
+    func: Rc<dyn Fn(&mut dyn Heap) -> Result<refinement::PosTyp, ConsumeErr>>,
 }
 
 impl DesugarTypes {
@@ -123,13 +131,12 @@ impl DesugarTypes {
         refinement::Fun {
             tau: names.iter().map(|name| (32, name.clone())).collect(),
             span: Some(pos.source_span()),
-            fun: Rc::new(move |heap, terms| {
+            fun: Rc::new(move |heap, terms, ()| {
                 let mut this = this.clone();
                 this.terms
                     .extend(zip_eq(pos.val.names.clone(), terms.to_owned()));
 
-                this.convert_constraint(&pos.val.parts, heap)?;
-
+                this.convert_constraint(&pos.val.parts, heap, &mut Free::default())?;
                 Ok(refinement::PosTyp)
             }),
         }
@@ -143,13 +150,12 @@ impl DesugarTypes {
         refinement::Fun {
             tau: names.iter().map(|name| (32, name.clone())).collect(),
             span: Some(args.source_span()),
-            fun: Rc::new(move |heap, terms| {
+            fun: Rc::new(move |heap, terms, ()| {
                 let mut this = this.clone();
                 this.terms
                     .extend(zip_eq(args.val.names.clone(), terms.to_owned()));
 
-                this.convert_constraint(&args.val.parts, heap)?;
-
+                this.convert_constraint(&args.val.parts, heap, &mut Free::default())?;
                 Ok(refinement::NegTyp {
                     arg: refinement::PosTyp,
                     ret: this.convert_pos(ret.clone()),
@@ -169,66 +175,9 @@ impl DesugarTypes {
     pub fn convert_vals(&self, vals: &[Value]) -> Vec<refinement::Term> {
         vals.iter().map(|x| self.convert_val(x)).collect()
     }
-
-    pub fn convert_constraint(
-        &mut self,
-        parts: &[Spanned<Constraint>],
-        heap: &mut dyn Heap,
-    ) -> Result<(), ConsumeErr> {
-        for part in parts {
-            match &part.val {
-                Constraint::Forall(forall) => {
-                    let named = if forall.named == "@byte" {
-                        Resource::Owned
-                    } else {
-                        Resource::Named(self.named.0.get(&forall.named).unwrap().clone())
-                    };
-                    let cond = forall.cond.clone();
-                    let names = forall.names.clone();
-                    let this = self.clone();
-                    heap.forall(refinement::Forall {
-                        named,
-                        span: Some(part.source_span()),
-                        mask: FuncTerm::new_bool(move |terms| {
-                            let mut this = this.clone();
-                            this.terms.extend(zip_eq(names.clone(), terms.to_owned()));
-                            this.convert_prop(&cond).to_bool()
-                        }),
-                    })?;
-                }
-                Constraint::Switch(Switch { cond, named, args }) => {
-                    let named = self.named.0.get(named).unwrap();
-
-                    heap.switch(refinement::Cond {
-                        named: named.clone(),
-                        span: part.source_span(),
-                        cond: self.convert_prop(cond),
-                        args: self.convert_vals(args),
-                    })?;
-                }
-                Constraint::Assert(cond) => {
-                    heap.assert(self.convert_prop(cond), Some(part.source_span()))?;
-                }
-                Constraint::Builtin(new_name, call) => {
-                    let name = call.func.as_ref().unwrap();
-                    if name.starts_with('@') {
-                        assert_eq!(name, "@byte");
-                        let [ptr] = &*call.args.val else { panic!() };
-                        let heap_val =
-                            heap.owned_byte(&self.convert_val(ptr), Some(part.source_span()))?;
-                        if let Some(new_name) = new_name.to_owned() {
-                            self.terms.insert(new_name, heap_val.extend_to(32));
-                        }
-                    } else {
-                        let named = self.named.0.get(name).unwrap().upgrade().unwrap();
-                        (named.typ.fun)(heap, &self.convert_vals(&call.args.val))?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 }
+
+mod constraint;
 
 #[derive(Clone)]
 pub struct Desugar<T: Val> {
@@ -441,6 +390,7 @@ impl DesugarTypes {
         Self {
             named: list,
             terms: HashMap::new(),
+            for_terms: HashMap::new(),
         }
     }
 }
@@ -458,7 +408,8 @@ impl LazyNameList {
                     let delayed = Box::new(move |named| {
                         let this = DesugarTypes::new(named);
                         let pos = this.convert_pos(typ.clone());
-                        refinement::Name::new(pos)
+                        // refinement::Name::new(pos)
+                        todo!()
                     });
                     list.0.insert(name, (UninitRc::new(), delayed));
                 }
@@ -492,9 +443,7 @@ pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
 }
 
 pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
-    let desugar = DesugarTypes {
-        named: WeakNameList(Default::default()),
-        terms: Default::default(),
-    };
+    let list = WeakNameList(Default::default());
+    let desugar = DesugarTypes::new(list);
     desugar.convert_neg(neg)
 }

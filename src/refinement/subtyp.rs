@@ -2,11 +2,11 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 use crate::refinement::{
-    heap::{HeapConsume, HeapProduce},
+    heap::{ConsumeFree, ProduceExact},
     SubContext,
 };
 
-use super::{heap::ConsumeErr, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved, Term};
+use super::{heap::ConsumeErr, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved, Term, UnTerm};
 
 impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
@@ -16,19 +16,19 @@ impl SubContext {
             terms.push(term);
         }
 
-        let mut heap = HeapProduce(self);
-        let typ = (n.fun)(&mut heap, &terms).unwrap();
+        let mut heap = ProduceExact(self, &mut Data::UnTerm(UnTerm::fresh()));
+        let typ = (n.fun)(&mut heap, &terms, ()).unwrap();
 
         Solved { inner: typ, terms }
     }
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
-        let mut heap = HeapConsume(self);
+        let mut heap = ConsumeFree(self, &mut vec![]);
 
         if typ.tau.len() != terms.len() {
             return Err(ConsumeErr::NumArgs);
         }
-        (typ.fun)(&mut heap, terms)
+        (typ.fun)(&mut heap, terms, ())
     }
 
     pub fn sub_pos_typ(mut self, q: &Fun<PosTyp>, p: &Fun<PosTyp>) -> Result<(), SubTypErr> {

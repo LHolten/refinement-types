@@ -111,12 +111,12 @@ macro_rules! neg_typ {
         let mut fun = $crate::refinement::Fun {
             tau: vec![],
             span: None,
-            fun: ::std::rc::Rc::new(|heap, args| {
+            fun: ::std::rc::Rc::new(|heap, args, ()| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $arg) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $arg_bound);
             Ok($crate::refinement::NegTyp {
-                arg: crate::refinement::PosTyp,
+                arg: crate::refinement::PosTyp::default(),
                 ret: pos_typ!($($ret)*),
             })
         })};
@@ -134,11 +134,11 @@ macro_rules! pos_typ {
         let mut fun = $crate::refinement::Fun {
             tau: vec![],
             span: None,
-            fun: ::std::rc::Rc::new(|heap, args| {
+            fun: ::std::rc::Rc::new(|heap, args, ()| {
             // NOTE: this is a memory leak, but it is only for tests
             let list_var!(@start $part) = Vec::leak(args.to_owned()) else { panic!() };
             bounds!(@start heap; $bound);
-            Ok($crate::refinement::PosTyp)
+            Ok($crate::refinement::PosTyp::default())
         })};
         add_tau!(@start fun; $part);
         fun

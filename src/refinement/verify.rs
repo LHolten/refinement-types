@@ -120,7 +120,7 @@ impl Forall {
 }
 
 impl SubContext {
-    pub fn is_always_true(&self, cond: Bool<'static>) -> bool {
+    pub fn is_always_true(&self, cond: Bool<'_>) -> bool {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
@@ -166,18 +166,20 @@ impl SubContext {
         self.is_always_true(cond)
     }
 
-    pub fn verify_prop(&self, prop: &Term) -> Result<(), Model<'static>> {
+    pub fn assume_verify_prop(&self, assume: &Bool<'_>, prop: &Term) -> Result<(), Model<'static>> {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
+        s.assert(assume);
         match s.check_assumptions(&[prop.to_bool().not()]) {
-            SatResult::Unsat => {
-                // Yay, verification succeeded
-                Ok(())
-            }
+            SatResult::Unsat => Ok(()), // Yay, verification succeeded
             SatResult::Unknown => todo!(),
             SatResult::Sat => Err(s.get_model().unwrap()),
         }
+    }
+
+    pub fn verify_prop(&self, prop: &Term) -> Result<(), Model<'static>> {
+        self.assume_verify_prop(&Term::bool(true).to_bool(), prop)
     }
 
     pub fn get_value(&self, term: &Term) -> Option<u32> {

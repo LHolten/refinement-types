@@ -2,7 +2,6 @@
 
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, ops::Deref};
 
 #[macro_use]
@@ -19,10 +18,12 @@ mod unroll;
 mod verify;
 
 use miette::{Diagnostic, SourceSpan};
-use z3::ast::{Bool, BV};
+use z3::ast::{Ast, Bool, Dynamic, BV};
+use z3::Sort;
 
 use crate::parse;
 use crate::parse::desugar::Desugar;
+use crate::solver::ctx;
 
 use self::heap::{ConsumeErr, FuncTerm, Heap};
 
@@ -32,6 +33,39 @@ use self::builtin::Builtin;
 pub enum Term {
     BV(BV<'static>),
     Bool(Bool<'static>),
+}
+
+/// Uninterpreted term
+#[derive(Clone)]
+pub struct UnTerm {
+    inner: Dynamic<'static>,
+}
+
+impl UnTerm {
+    // pub fn new(val: &dyn Ast) -> Self {
+    //     Self {
+    //         inner: Dynamic::from_ast(val),
+    //     }
+    // }
+
+    pub fn byte(&self) -> Term {
+        todo!()
+    }
+}
+
+impl UnTerm {
+    pub fn eq(&self, other: &Self) -> Term {
+        Term::Bool(self.inner._eq(&other.inner))
+    }
+}
+
+impl UnTerm {
+    pub fn fresh() -> Self {
+        let sort = Sort::uninterpreted(ctx(), "World".into());
+        Self {
+            inner: Dynamic::fresh_const(ctx(), "world", &sort),
+        }
+    }
 }
 
 impl Debug for Term {
@@ -97,40 +131,34 @@ pub struct Forall {
 }
 
 #[derive(Clone)]
-pub struct CtxForall {
-    pub have: Forall,
-    pub value: FuncTerm,
+pub struct ForallTerm {
+    pub forall: Forall,
+    pub func: FuncTerm,
 }
 
 #[derive(Clone, Default)]
 #[must_use]
 pub struct SubContext {
     assume: Vec<Term>,
-    forall: Vec<CtxForall>,
+    forall: Vec<ForallTerm>,
     // funcs: Vec<FuncName>,
 }
 
-#[derive(PartialEq, Eq, Debug, Default, Clone)]
+#[derive(Clone, Default)]
 pub struct PosTyp;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone)]
 pub struct NegTyp {
     pub arg: PosTyp,
     pub ret: Fun<PosTyp>,
 }
 
-impl NegTyp {
-    pub fn new(ret: Fun<PosTyp>) -> Self {
-        NegTyp { arg: PosTyp, ret }
-    }
-}
-
 #[allow(clippy::type_complexity)]
-pub struct Fun<T> {
+pub struct Fun<T, A = ()> {
     // the arguments that are expected to be in scope
     pub tau: Vec<(u32, String)>,
     pub span: Option<SourceSpan>,
-    pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term]) -> Result<T, ConsumeErr>>,
+    pub fun: Rc<dyn Fn(&mut dyn Heap, &[Term], A) -> Result<T, ConsumeErr>>,
 }
 
 impl<T> Clone for Fun<T> {
@@ -143,18 +171,37 @@ impl<T> Clone for Fun<T> {
     }
 }
 
-impl<T> PartialEq for Fun<T> {
-    fn eq(&self, _other: &Self) -> bool {
-        panic!()
-    }
-}
+// #[derive(Clone)]
+// pub enum Data {
+//     Func(FuncTerm),
+//     UnTerm(UnTerm),
+//     Named(Vec<Data>),
+// }
 
-impl<T> Eq for Fun<T> {}
+// impl Data {
+//     pub fn as_func(&mut self, name: Resource) -> FuncTerm {
+//         match self {
+//             Data::Func(func) => func.clone(),
+//             Data::UnTerm(unterm) => todo!(),
+//             Data::Named(_) => panic!(),
+//         }
+//     }
 
-impl<T> Debug for Fun<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("MyFun").finish()
-    }
+//     pub fn as_named(&mut self) -> Data {
+//         match self {
+//             Data::Func(_) => panic!(),
+//             Data::UnTerm(inner) => Data::UnTerm(inner.clone()),
+//             Data::Named(list) => list.remove(0),
+//         }
+//     }
+// }
+
+/// Named resource name
+pub struct Name {
+    pub id: usize,
+    pub func: Rc<dyn Fn(&mut dyn Heap, &mut dyn Dir, &[Term]) -> Result<(), ConsumeErr>>,
+    // pub free: Fun<Data>,
+    // pub exact: Fun<PosTyp, Data>,
 }
 
 pub struct Solved<T> {
@@ -224,23 +271,6 @@ pub struct FuncName<V: Val> {
 pub enum Thunk<V: Val> {
     Local(V::Func),
     Builtin(Builtin),
-}
-
-/// Named resource name
-#[derive(Clone)]
-pub struct Name {
-    pub id: usize,
-    pub typ: Fun<PosTyp>,
-}
-
-impl Name {
-    pub fn new(typ: Fun<PosTyp>) -> Self {
-        static NAME_ID: AtomicUsize = AtomicUsize::new(0);
-        Self {
-            id: NAME_ID.fetch_add(1, Ordering::Relaxed),
-            typ,
-        }
-    }
 }
 
 pub trait Val: Clone + Sized + 'static {

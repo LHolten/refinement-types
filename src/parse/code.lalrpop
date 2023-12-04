@@ -79,7 +79,8 @@ Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop
 Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Prop> => Switch{<>};
 
 Constraint: Constraint = {
-    Forall => Constraint::Forall(<>),
+    "move" <Var> => Constraint::ForallEq(<>),
+    ("move" <Var> "=")? Forall => Constraint::Forall(<>),
     Switch => Constraint::Switch(<>),
     <("move" <Var> "=")?> <Bind> => Constraint::Builtin(<>),
     "assert" <Prop> => Constraint::Assert(<>),

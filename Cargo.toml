@@ -7,7 +7,7 @@ edition = "2021"
 panic = "abort"
 
 [dependencies]
-z3 = "0.12.1"
+z3 = { path = "../z3.rs/z3" }
 lalrpop-util = { version = "0.20", features = ["lexer", "unicode"] }
 mimalloc = "0.1.39"
 thiserror = "1.0.50"

@@ -35,9 +35,9 @@ impl Fun<PosTyp> {
         Fun {
             tau: self.tau,
             span: ret.span,
-            fun: Rc::new(move |args, heap| {
+            fun: Rc::new(move |args, heap, ()| {
                 Ok(NegTyp {
-                    arg: (self.fun)(args, heap)?,
+                    arg: (self.fun)(args, heap, ())?,
                     ret: ret.clone(),
                 })
             }),
@@ -163,8 +163,8 @@ impl SubContext {
 
     pub fn check_empty(self) -> Result<(), EmptyErr> {
         for ctx_forall in &self.forall {
-            if self.still_possible(&ctx_forall.have) {
-                let span = ctx_forall.have.span;
+            if self.still_possible(&ctx_forall.forall) {
+                let span = ctx_forall.forall.span;
                 return Err(EmptyErr { span });
             }
         }

@@ -1,51 +1,54 @@
 use std::{
     fmt::Write,
     mem::take,
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use indenter::indented;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
-use z3::{ast::Bool, FuncDecl, Model, SatResult, Sort};
+use z3::{
+    ast::{Bool, Dynamic},
+    FuncDecl, Model, SatResult, Sort,
+};
 
 use crate::solver::ctx;
 
-use super::{typing::zip_eq, Cond, CtxForall, Forall, Resource, SubContext, Term};
+use super::{
+    typing::zip_eq, Cond, Data, Forall, ForallTerm, Name, PosTyp, Resource, SubContext, Term,
+    UnTerm,
+};
 
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
 pub enum FuncTerm {
     Free(Rc<FuncDecl<'static>>),
-    User(Rc<dyn Fn(&[Term]) -> Term>),
+    User(Rc<dyn Fn(&[Term]) -> UnTerm>),
 }
 
 impl FuncTerm {
-    pub fn new<F: Fn(&[Term]) -> Term + 'static>(f: F) -> Self {
+    pub fn new<F: Fn(&[Term]) -> UnTerm + 'static>(f: F) -> Self {
         Self::User(Rc::new(f))
     }
 
     pub fn new_bool<F: Fn(&[Term]) -> Bool<'static> + 'static>(f: F) -> Self {
-        Self::new(move |x| Term::Bool((f)(x)))
+        Self::new(move |x| UnTerm {
+            inner: Dynamic::from_ast(&(f)(x)),
+        })
     }
 
     pub fn apply_bool(&self, idx: &[Term]) -> Bool<'static> {
-        self.apply(idx).to_bool()
+        self.apply(idx).inner.as_bool().unwrap()
     }
 
-    pub fn apply(&self, idx: &[Term]) -> Term {
+    pub fn apply(&self, idx: &[Term]) -> UnTerm {
         match self {
             FuncTerm::Free(f) => {
                 let args: Vec<_> = idx.iter().map(|x| x.to_bv()).collect();
                 let args: Vec<_> = args.iter().map(|x| x as _).collect();
-                let val = f.apply(&args);
-                if let Some(b) = val.as_bool() {
-                    Term::Bool(b)
-                } else if let Some(bv) = val.as_bv() {
-                    Term::BV(bv)
-                } else {
-                    panic!()
+                UnTerm {
+                    inner: f.apply(&args),
                 }
             }
             FuncTerm::User(func) => (func)(idx),
@@ -61,9 +64,10 @@ impl FuncTerm {
     pub fn ite(&self, then: &Self, other: &Self) -> Self {
         let (cond, then, other) = (self.clone(), then.clone(), other.clone());
         Self::new(move |idx| {
-            let (then, other) = (then.apply(idx).to_bv(), other.apply(idx).to_bv());
-            assert_eq!(then.get_size(), other.get_size());
-            Term::BV(cond.apply_bool(idx).ite(&then, &other))
+            let (then, other) = (then.apply(idx), other.apply(idx));
+            UnTerm {
+                inner: cond.apply_bool(idx).ite(&then.inner, &other.inner),
+            }
         })
     }
 
@@ -95,6 +99,27 @@ impl FuncTerm {
     }
 }
 
+impl Resource {
+    fn free_func(&self) -> FuncTerm {
+        match self {
+            Resource::Named(named) => {
+                let named = named.upgrade().unwrap();
+                let name = format!("name-{}", named.id);
+                let arg_sizes = named.typ.tau.iter();
+                let mut domain: Vec<_> = arg_sizes
+                    .map(|(sz, _name)| Sort::bitvector(ctx(), *sz))
+                    .collect();
+                domain.push(Sort::uninterpreted(ctx(), "world".into()));
+                let domain: Vec<_> = domain.iter().collect();
+                let f = FuncDecl::new(ctx(), name, &domain, &Sort::bitvector(ctx(), 8));
+
+                FuncTerm::Free(Rc::new(f))
+            }
+            Resource::Owned => todo!(),
+        }
+    }
+}
+
 pub trait Heap {
     // load bytes and store in size bits
     fn owned(&mut self, ptr: &Term, bytes: u32, size: u32) -> Result<Term, ConsumeErr> {
@@ -114,10 +139,11 @@ pub trait Heap {
             mask: FuncTerm::exactly(&[ptr.to_owned()]),
             span,
         })?;
-        Ok(value.apply(&[ptr.to_owned()]))
+        Ok(value.apply(&[ptr.to_owned()]).byte())
     }
     fn assert(&mut self, phi: Term, span: Option<SourceSpan>) -> Result<(), ConsumeErr>;
     fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr>;
+    fn forall_term(&mut self, term: ForallTerm) -> Result<(), ConsumeErr>;
     fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
         let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
         self.forall(Forall {
@@ -127,25 +153,30 @@ pub trait Heap {
         })?;
         Ok(())
     }
+
+    fn named(&mut self, name: Weak<Name>, args: &[Term]) -> Result<Data, ConsumeErr>;
+    fn named_exact(
+        &mut self,
+        name: Weak<Name>,
+        args: &[Term],
+        data: Data,
+    ) -> Result<(), ConsumeErr>;
 }
+pub(super) struct ConsumeFree<'a>(pub &'a mut SubContext, pub &'a mut Vec<Data>);
 
-pub(super) struct HeapConsume<'a>(pub &'a mut SubContext);
-
-impl<'a> std::ops::DerefMut for HeapConsume<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
+impl ConsumeFree<'_> {
+    fn forall_inner(&mut self, need: Forall) -> Result<FuncTerm, ConsumeErr> {
+        match self.try_remove(need) {
+            Ok(res) => Ok(res),
+            Err(need) => Err(ConsumeErr::MissingResource {
+                resource: need.span,
+                help: self.counter_example(need),
+            }),
+        }
     }
 }
 
-impl<'a> std::ops::Deref for HeapConsume<'a> {
-    type Target = SubContext;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl Heap for HeapConsume<'_> {
+impl Heap for ConsumeFree<'_> {
     fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
         let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
         let need = Forall {
@@ -158,7 +189,7 @@ impl Heap for HeapConsume<'_> {
             let res = need.mask.apply_bool(&cond.args);
             if self.is_always_true(res) {
                 // TODO: add a wrapper to make this clearer
-                (cond.named.upgrade().unwrap().typ.fun)(self, &cond.args)?;
+                (cond.named.upgrade().unwrap().typ.fun)(self, &cond.args, ())?;
             } else {
                 return Err(ConsumeErr::MissingResource {
                     resource: need.span,
@@ -169,16 +200,21 @@ impl Heap for HeapConsume<'_> {
         Ok(())
     }
 
-    /// We can first look at aggregate resources of the correct name.
-    /// After that we can iterate over the remaining resources one by one.
+    // This one stores the result
     fn forall(&mut self, need: Forall) -> Result<FuncTerm, ConsumeErr> {
-        match self.try_remove(need) {
-            Ok(res) => Ok(res),
-            Err(need) => Err(ConsumeErr::MissingResource {
-                resource: need.span,
-                help: self.counter_example(need),
-            }),
-        }
+        let res = self.forall_inner(need)?;
+        self.1.push(Data::Func(res.clone()));
+        Ok(res)
+    }
+
+    fn forall_term(&mut self, need: ForallTerm) -> Result<(), ConsumeErr> {
+        let fresh = need.forall.make_fresh_args();
+        let assume = need.forall.mask.apply_bool(&fresh);
+
+        let have = self.forall_inner(need.forall)?;
+        let cond = have.apply(&fresh).eq(&need.func.apply(&fresh));
+        self.assume_verify_prop(&assume, &cond).unwrap();
+        Ok(())
     }
 
     fn assert(&mut self, phi: Term, span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
@@ -195,6 +231,108 @@ impl Heap for HeapConsume<'_> {
         };
         Ok(())
     }
+
+    fn named(&mut self, name: Weak<Name>, args: &[Term]) -> Result<Data, ConsumeErr> {
+        let named = name.upgrade().unwrap();
+        let mut new = vec![];
+        let mut free = ConsumeFree(&mut self.0, &mut new);
+        let PosTyp = (named.typ.fun)(&mut free, args, ())?;
+        self.1.push(Data::Named(new.clone()));
+        Ok(Data::Named(new))
+    }
+
+    fn named_exact(
+        &mut self,
+        name: Weak<Name>,
+        args: &[Term],
+        unterm: Data,
+    ) -> Result<(), ConsumeErr> {
+        let named = name.upgrade().unwrap();
+        let mut new = vec![];
+        let mut free = ConsumeFree(&mut self.0, &mut new);
+        let PosTyp = (named.typ.fun)(&mut free, args, ())?;
+        self.verify_equal(unterm, Data::Named(new));
+        Ok(())
+    }
+}
+
+impl SubContext {
+    fn verify_equal(&self, left: Data, right: Data) {
+        todo!()
+    }
+}
+
+impl<'a> std::ops::DerefMut for ConsumeFree<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
+impl<'a> std::ops::Deref for ConsumeFree<'a> {
+    type Target = SubContext;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+pub(super) struct ProduceExact<'a>(pub &'a mut SubContext, pub &'a mut Data);
+
+impl Heap for ProduceExact<'_> {
+    // This one removes the result
+    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr> {
+        let value = self.1.as_func(forall.named);
+        self.forall.push(ForallTerm {
+            forall,
+            func: value.clone(),
+        });
+        Ok(value)
+    }
+
+    fn forall_term(&mut self, term: ForallTerm) -> Result<(), ConsumeErr> {
+        self.forall.push(term);
+        Ok(())
+    }
+
+    fn assert(&mut self, phi: Term, _span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
+        self.assume.push(phi);
+        Ok(())
+    }
+
+    fn named(&mut self, name: Weak<Name>, args: &[Term]) -> Result<Data, ConsumeErr> {
+        let named = name.upgrade().unwrap();
+        let mut new = self.1.as_named();
+        let new_clone = new.clone();
+        let mut free = ProduceExact(&mut self.0, &mut new);
+        let PosTyp = (named.typ.fun)(&mut free, args, ())?;
+        Ok(new_clone)
+    }
+
+    fn named_exact(
+        &mut self,
+        name: Weak<Name>,
+        args: &[Term],
+        mut new: Data,
+    ) -> Result<(), ConsumeErr> {
+        let named = name.upgrade().unwrap();
+        let mut free = ProduceExact(&mut self.0, &mut new);
+        let PosTyp = (named.typ.fun)(&mut free, args, ())?;
+        Ok(())
+    }
+}
+
+impl<'a> std::ops::DerefMut for ProduceExact<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
+impl<'a> std::ops::Deref for ProduceExact<'a> {
+    type Target = SubContext;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
 }
 
 struct Removal {
@@ -202,8 +340,8 @@ struct Removal {
     value: FuncTerm,
 }
 
-fn build_value(removals: Vec<Removal>, last: Option<FuncTerm>) -> FuncTerm {
-    let mut out = last.unwrap_or(FuncTerm::new(|_| Term::nat(0, 8)));
+fn build_value(mut removals: Vec<Removal>) -> FuncTerm {
+    let mut out = removals.pop().unwrap().value;
     for removal in removals.iter() {
         out = removal.mask.ite(&removal.value, &out);
     }
@@ -227,8 +365,8 @@ impl SubContext {
         let s = self.assume();
         s.assert(&need.mask.apply_bool(&idx));
         for ctx_forall in &self.forall {
-            if ctx_forall.have.id() == need.id() {
-                s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
+            if ctx_forall.forall.id() == need.id() {
+                s.assert(&ctx_forall.forall.mask.apply_bool(&idx).not());
             }
         }
         let SatResult::Sat = s.check() else { panic!() };
@@ -247,23 +385,23 @@ impl SubContext {
 
         // first we consume small allocations
         for alloc in forall_list.iter_mut() {
-            if alloc.have.id() != need.id() {
+            if alloc.forall.id() != need.id() {
                 continue;
             }
             let overlap = Forall {
                 named: need.named.clone(),
-                mask: alloc.have.mask.and(&need.mask),
+                mask: alloc.forall.mask.and(&need.mask),
                 span: None,
             };
             if !self.still_possible(&overlap) {
                 continue;
             }
-            let old_alloc_mask = alloc.have.mask.clone();
-            alloc.have.mask = old_alloc_mask.difference(&need.mask);
+            let old_alloc_mask = alloc.forall.mask.clone();
+            alloc.forall.mask = old_alloc_mask.difference(&need.mask);
             need.mask = need.mask.difference(&old_alloc_mask);
             removals.push(Removal {
                 mask: old_alloc_mask,
-                value: alloc.value.clone(),
+                value: alloc.func.clone(),
             })
         }
         self.forall = forall_list;
@@ -271,41 +409,8 @@ impl SubContext {
         if self.still_possible(&need) {
             Err(need)
         } else {
-            Ok(build_value(removals, None))
+            Ok(build_value(removals))
         }
-    }
-}
-
-pub(super) struct HeapProduce<'a>(pub &'a mut SubContext);
-
-impl<'a> std::ops::DerefMut for HeapProduce<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
-    }
-}
-
-impl<'a> std::ops::Deref for HeapProduce<'a> {
-    type Target = SubContext;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl Heap for HeapProduce<'_> {
-    /// Here we just put the aggregate to be used by consumption.
-    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr> {
-        let value = FuncTerm::free(&forall.arg_sizes());
-        self.forall.push(CtxForall {
-            have: forall,
-            value: value.clone(),
-        });
-        Ok(value)
-    }
-
-    fn assert(&mut self, phi: Term, _span: Option<SourceSpan>) -> Result<(), ConsumeErr> {
-        self.assume.push(phi);
-        Ok(())
     }
 }
 

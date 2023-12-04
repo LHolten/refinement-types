@@ -26,6 +26,7 @@ pub enum Constraint {
     Assert(Prop),
     // Func(Term, NegTyp),
     Builtin(Option<String>, Bind),
+    BuiltinEq(String),
     Switch(Switch),
 }
 

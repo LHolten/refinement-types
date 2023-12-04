@@ -7,7 +7,7 @@ use crate::{
     parse,
     refinement::{
         heap::{ConsumeErr, FuncTerm},
-        Forall, Resource,
+         Forall, Resource, UnTerm,
     },
 };
 
@@ -116,37 +116,51 @@ impl Builtin {
                 Fun {
                     tau: named_rc.typ.tau.clone(),
                     span: named_rc.typ.span,
-                    fun: Rc::new(move |heap, args| {
+                    fun: Rc::new(move |heap, args, ()| {
                         let args = args.to_owned();
                         let forall = Forall {
                             named: Resource::Named(named.clone()),
                             mask: FuncTerm::exactly(&args),
                             span: None,
                         };
-                        type HeapOp = Box<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
+                        type HeapOp =
+                            Box<dyn Fn(&mut dyn Heap, Option<Data>) -> Result<Data, ConsumeErr>>;
                         let fun = named_rc.typ.fun.clone();
-                        let mut need: HeapOp = Box::new(move |heap| {
-                            (fun)(heap, &args)?;
-                            Ok(())
+                        let move_args = args.clone();
+                        let mut need: HeapOp = Box::new(move |heap, data| {
+                            if let Some(data) = data {
+                                heap.named_exact(named, &move_args, data)?;
+                                Ok(data)
+                            } else {
+                                heap.named(named, &move_args)
+                            }
                         });
-                        let mut res: HeapOp = Box::new(move |heap| {
-                            heap.forall(forall.clone())?;
-                            Ok(())
+                        let mut res: HeapOp = Box::new(move |heap, data| {
+                            if let Some(data) = data {
+                                let Data::Named(func) = data
+                            }
+                            let func = heap.forall(forall.clone())?;
+
+                            Ok(func.apply(&args))
                         });
 
                         if unpack {
                             swap(&mut res, &mut need);
                         }
-                        (need)(heap)?;
 
-                        Ok(NegTyp::new(Fun {
-                            tau: vec![],
-                            span: named_rc.typ.span,
-                            fun: Rc::new(move |heap, _args| {
-                                (res)(heap)?;
-                                Ok(PosTyp)
-                            }),
-                        }))
+                        let first = (need)(heap)?;
+                        Ok(NegTyp {
+                            arg: PosTyp::default(),
+                            ret: Fun {
+                                tau: vec![],
+                                span: named_rc.typ.span,
+                                fun: Rc::new(move |heap, _args| {
+                                    let second = (res)(heap)?;
+                                    heap.assert(first.eq(&second), None)?;
+                                    Ok(PosTyp::default())
+                                }),
+                            },
+                        })
                     }),
                 }
             }
