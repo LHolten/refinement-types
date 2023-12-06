@@ -131,11 +131,11 @@ impl SubContext {
         let idx = need.make_fresh_args();
         let s = self.assume();
         s.assert(&need.mask.apply_bool(&idx));
-        for ctx_forall in &self.forall {
-            if ctx_forall.have.id() == need.id() {
-                s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
-            }
-        }
+        // for ctx_forall in &self.forall {
+        //     if ctx_forall.have.id() == need.id() {
+        //         s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
+        //     }
+        // }
         let SatResult::Sat = s.check() else { panic!() };
         let model = s.get_model().unwrap();
         let mut out = String::new();

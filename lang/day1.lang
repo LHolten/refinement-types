@@ -4,41 +4,50 @@ type array(from, len) where {
 
 type arrayln(from, len) where {
     assert 1 <= len;
-    move last = @byte(from + (len - 1));
+    last = move @byte(from + (len - 1));
     assert last == '\n';
-    array(from, len - 1);
+    move array(from, len - 1);
 }
 
 fn part1(len) where {
-    arrayln(0, len);
-} -> (out) where {
-    arrayln(0, len);
+    arr = move arrayln(0, len);
+} -> (out) where { 
+    arr;
 } = {
-    loop inner(sum, idx) where {
+    fn inner(sum, idx) where {
         assert idx <= len;
-        arrayln(0, len);
+        arr = move arrayln(0, len);
+    } -> (sum, idx) where {
+        assert idx <= len;
+        arr;
     } = {
         if idx == len {
             return (sum, idx)
         };
 
-        loop find_first(idx, prev) where {
-            assert idx < len;
-            arrayln(0, len);
+        fn find_first(i, prev) where {
+            assert i < len;
+            arr = move arrayln(0, len);
+        } -> (i, prev) where {
+            assert i < len;
+            arr;
         } = {
-            let (val) = @read_u8(idx);
+            let (val) = @read_u8(i);
             if val == '\n' {
-                return (idx, prev)
+                return (i, prev)
             };
             if ('0' <= val) && (val <= '9') {
-                return (idx + 1, val - '0')
+                return (i + 1, val - '0')
             };
-            return find_first(idx + 1, prev)
+            return find_first(i + 1, prev)
         };
 
-        loop find_last(idx, prev) where {
+        fn find_last(idx, prev) where {
             assert idx < len;
-            arrayln(0, len);
+            arr = move arrayln(0, len);
+        } -> (idx, prev) where {
+            assert idx < len;
+            arr;
         } = {
             let (val) = @read_u8(idx);
             if val == '\n' {

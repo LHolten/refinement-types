@@ -323,6 +323,7 @@ pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
     let desugar = types::DesugarTypes {
         named: NameList(Default::default()),
         terms: Default::default(),
+        exactly: Default::default(),
     };
     desugar.convert_neg(neg)
 }

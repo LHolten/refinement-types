@@ -127,11 +127,15 @@ impl SubContext {
 
         // first we consume small allocations
         for alloc in forall_list.iter_mut() {
-            if !self.always_contains(&need, &alloc.have) {
+            if alloc.have.id() != need.id() {
                 continue;
             }
-            if !self.still_possible(&alloc.have) {
-                // it is never necessary to borrow empty arrays
+            let overlap = Forall {
+                named: need.named.clone(),
+                mask: alloc.have.mask.and(&need.mask),
+                span: None,
+            };
+            if !self.still_possible(&overlap) {
                 continue;
             }
             let old_alloc_mask = alloc.have.mask.clone();
@@ -142,23 +146,13 @@ impl SubContext {
                 value: alloc.value.clone(),
             })
         }
-
-        if !self.still_possible(&need) {
-            self.forall = forall_list;
-            return Ok(build_value(removals, None));
-        }
-
-        // then we find a larger allocation to take the remainder from
-        let mut last = None;
-        for alloc in forall_list.iter_mut() {
-            if self.always_contains(&alloc.have, &need) {
-                alloc.have.mask = alloc.have.mask.difference(&need.mask);
-                last = Some(alloc.value.clone());
-            }
-        }
-
         self.forall = forall_list;
-        last.map(|x| build_value(removals, Some(x))).ok_or(need)
+
+        if self.still_possible(&need) {
+            Err(need)
+        } else {
+            Ok(build_value(removals, None))
+        }
     }
 }
 

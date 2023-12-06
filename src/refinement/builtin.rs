@@ -82,19 +82,19 @@ static ALLOC_STR: &str = r"
 
 static READ_STR: &str = r"
 (ptr) where {
-    move val = @byte(ptr);
+    val = move @byte(ptr);
 } -> (ret) where {
     assert ret == val;
-    move new = @byte(ptr);
+    new = move @byte(ptr);
     assert new == val;
 }
 ";
 
 static WRITE_STR: &str = r"
 (ptr, val) where {
-    @byte(ptr);
+    move @byte(ptr);
 } -> () where {
-    move new = @byte(ptr);
+    new = move @byte(ptr);
     assert new == val;
 }
 ";

@@ -31,6 +31,14 @@ pub struct NameList(pub HashMap<String, Named>);
 pub struct DesugarTypes {
     pub(super) named: NameList,
     pub terms: HashMap<String, Term>,
+    pub exactly: HashMap<String, NameExact>,
+}
+
+#[derive(Clone)]
+pub struct NameExact {
+    named: Named,
+    args: Vec<Term>,
+    res: Vec<Exactly>,
 }
 
 #[derive(Clone)]
@@ -60,6 +68,7 @@ impl DesugarTypes {
         Self {
             named: list,
             terms: HashMap::new(),
+            exactly: HashMap::new(),
         }
     }
 
@@ -148,7 +157,7 @@ impl DesugarTypes {
 
                     let equal = exactly
                         .as_mut()
-                        .and_then(|x| x.pop())
+                        .map(|x| x.pop().unwrap())
                         .map(Exactly::unwrap_forall);
                     let res = heap.forall(forall, equal)?;
                     out.push(Exactly::Forall(res));
@@ -170,7 +179,7 @@ impl DesugarTypes {
                         };
                         let equal = exactly
                             .as_mut()
-                            .and_then(|x| x.pop())
+                            .map(|x| x.pop().unwrap())
                             .map(Exactly::unwrap_forall);
                         let value = heap.forall(forall, equal)?;
                         out.push(Exactly::Forall(value.clone()));
@@ -184,17 +193,45 @@ impl DesugarTypes {
                         let args = self.convert_vals(&call.args.val);
 
                         let mut this = self.clone();
-                        this.terms.extend(zip_eq(named.typ.val.names.clone(), args));
+                        this.terms
+                            .extend(zip_eq(named.typ.val.names.clone(), args.clone()));
 
                         let equal = exactly
                             .as_mut()
-                            .and_then(|x| x.pop())
+                            .map(|x| x.pop().unwrap())
                             .map(Exactly::unwrap_named);
                         let res = this.convert_constraint(&named.typ.val.parts, heap, equal)?;
-                        out.push(Exactly::Named(res));
+                        out.push(Exactly::Named(res.clone()));
+
+                        if let Some(new_name) = new_name.to_owned() {
+                            let name_exact = NameExact {
+                                named: named.clone(),
+                                args,
+                                res,
+                            };
+                            self.exactly.insert(new_name, name_exact);
+                        }
                     }
                 }
+                Constraint::Exactly(name) => {
+                    let name_exact = self.exactly.get(name).unwrap();
+
+                    let mut this = self.clone();
+                    this.terms.extend(zip_eq(
+                        name_exact.named.typ.val.names.clone(),
+                        name_exact.args.clone(),
+                    ));
+
+                    this.convert_constraint(
+                        &name_exact.named.typ.val.parts,
+                        heap,
+                        Some(name_exact.res.clone()),
+                    )?;
+                }
             }
+        }
+        if let Some(eq) = exactly {
+            assert!(eq.is_empty())
         }
 
         out.reverse();

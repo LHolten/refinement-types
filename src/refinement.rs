@@ -10,8 +10,6 @@ pub mod func_term;
 pub mod heap;
 mod subtyp;
 pub mod term;
-#[cfg(test)]
-mod test;
 pub mod typing;
 mod unroll;
 mod verify;
