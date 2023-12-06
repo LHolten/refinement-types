@@ -42,26 +42,6 @@ impl<'a> std::ops::Deref for HeapProduce<'a> {
 }
 
 pub trait Heap {
-    // load bytes and store in size bits
-    fn owned(&mut self, ptr: &Term, bytes: u32, size: u32) -> Result<Term, ConsumeErr> {
-        let mut res = self.owned_byte(ptr, None)?;
-        let mut ptr = ptr.clone();
-        for _ in 1..bytes {
-            ptr = ptr.add(&Term::nat(1, 32));
-            // little endian, so new value is more significant
-            let val = self.owned_byte(&ptr, None)?;
-            res = val.concat(&res);
-        }
-        Ok(res.extend_to(size))
-    }
-    fn owned_byte(&mut self, ptr: &Term, span: Option<SourceSpan>) -> Result<Term, ConsumeErr> {
-        let value = self.forall(Forall {
-            named: Resource::Owned,
-            mask: FuncTerm::exactly(&[ptr.to_owned()]),
-            span,
-        })?;
-        Ok(value.apply(&[ptr.to_owned()]))
-    }
     fn assert(&mut self, phi: Term, span: Option<SourceSpan>) -> Result<(), ConsumeErr>;
     fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr>;
     fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
@@ -145,6 +125,7 @@ impl Heap for HeapProduce<'_> {
 }
 
 impl SubContext {
+    // we make sure to return the minimal set of loans that is sufficient
     fn try_remove(&mut self, mut need: Forall) -> Result<FuncTerm, Forall> {
         struct Removal {
             mask: FuncTerm,
@@ -164,15 +145,11 @@ impl SubContext {
 
         // first we consume small allocations
         for alloc in forall_list.iter_mut() {
-            if alloc.have.id() != need.id() {
+            if !self.always_contains(&need, &alloc.have) {
                 continue;
             }
-            let overlap = Forall {
-                named: need.named.clone(),
-                mask: alloc.have.mask.and(&need.mask),
-                span: None,
-            };
-            if !self.still_possible(&overlap) {
+            if !self.still_possible(&alloc.have) {
+                // it is never necessary to borrow empty arrays
                 continue;
             }
             let old_alloc_mask = alloc.have.mask.clone();
@@ -183,13 +160,23 @@ impl SubContext {
                 value: alloc.value.clone(),
             })
         }
-        self.forall = forall_list;
 
-        if self.still_possible(&need) {
-            Err(need)
-        } else {
-            Ok(build_value(removals, None))
+        if !self.still_possible(&need) {
+            self.forall = forall_list;
+            return Ok(build_value(removals, None));
         }
+
+        // then we find a larger allocation to take the remainder from
+        let mut last = None;
+        for alloc in forall_list.iter_mut() {
+            if self.always_contains(&alloc.have, &need) {
+                alloc.have.mask = alloc.have.mask.difference(&need.mask);
+                last = Some(alloc.value.clone());
+            }
+        }
+
+        self.forall = forall_list;
+        last.map(|x| build_value(removals, Some(x))).ok_or(need)
     }
 }
 

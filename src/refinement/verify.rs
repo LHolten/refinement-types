@@ -59,10 +59,12 @@ impl SubContext {
 
     pub fn exactly_equal() {}
     pub fn never_overlap() {}
+
     pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
         if large.id() != small.id() {
             return false;
         }
+
         // debug_assert_eq!(large_named.typ.tau, small_named.typ.tau);
         let idx = large.make_fresh_args();
 

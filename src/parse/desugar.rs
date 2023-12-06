@@ -216,8 +216,15 @@ impl DesugarTypes {
                     if name.starts_with('@') {
                         assert_eq!(name, "@byte");
                         let [ptr] = &*call.args.val else { panic!() };
-                        let heap_val =
-                            heap.owned_byte(&self.convert_val(ptr), Some(part.source_span()))?;
+                        let args = [self.convert_val(ptr)];
+
+                        let value = heap.forall(refinement::Forall {
+                            named: Resource::Owned,
+                            mask: FuncTerm::exactly(&args),
+                            span: Some(part.source_span()),
+                        })?;
+                        let heap_val = value.apply(&args);
+
                         if let Some(new_name) = new_name.to_owned() {
                             self.terms.insert(new_name, heap_val.extend_to(32));
                         }
