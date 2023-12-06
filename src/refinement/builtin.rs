@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    parse,
+    desugar,
     refinement::{func_term::FuncTerm, heap::ConsumeErr, Forall, Resource},
 };
 
@@ -110,9 +110,9 @@ static WRITE_STR: &str = r"
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
         match self {
-            Builtin::Read => parse::convert_neg(READ_STR),
-            Builtin::Write => parse::convert_neg(WRITE_STR),
-            Builtin::Alloc => parse::convert_neg(ALLOC_STR),
+            Builtin::Read => desugar::convert_neg(READ_STR),
+            Builtin::Write => desugar::convert_neg(WRITE_STR),
+            Builtin::Alloc => desugar::convert_neg(ALLOC_STR),
             Builtin::Pack(named, unpack) => {
                 let unpack = *unpack;
                 let named_rc = named.upgrade().unwrap();

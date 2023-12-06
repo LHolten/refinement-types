@@ -7,10 +7,7 @@ use std::{
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use crate::{
-    parse::{self, desugar::Desugar},
-    refinement::Free,
-};
+use crate::{desugar::Desugar, parse, refinement::Free};
 
 use super::{
     term::Term, BoundExpr, Expr, Fun, InnerDiagnostic, Lambda, NegTyp, PosTyp, Spanned, SubContext,

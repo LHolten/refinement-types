@@ -4,244 +4,21 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::{
-    parse::expr::{Let, Stmt},
-    refinement::{
-        self,
-        func_term::FuncTerm,
-        heap::{ConsumeErr, Heap},
-        term::Term,
-        typing::zip_eq,
-        Lambda, Resource, Val,
-    },
-    uninit_rc::UninitRc,
-};
+use crate::parse::code::NegTypParser;
+use crate::parse::expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value};
+use crate::parse::types::{NamedConstraint, NegTyp};
+use crate::refinement::{self, typing::zip_eq, Lambda, Val};
+use crate::uninit_rc::UninitRc;
 
-use super::{
-    expr::{BinOpValue, Block, Def, FuncDef, If, Module, Spanned, Value},
-    types::{Constraint, NamedConstraint, NegTyp, PosTyp, Prop, PropOp, Switch},
-};
-
-type LazyName = Box<dyn Fn(WeakNameList) -> refinement::Name>;
-
-#[derive(Default)]
-struct LazyNameList(HashMap<String, (UninitRc<refinement::Name>, LazyName)>);
+mod types;
+mod value;
 
 #[derive(Clone)]
 struct WeakNameList(HashMap<String, Weak<refinement::Name>>);
 
-impl LazyNameList {
-    pub fn weak(&self) -> WeakNameList {
-        let iter = self.0.iter();
-        let iter = iter.map(|(k, v)| (k.clone(), UninitRc::downgrade(&v.0)));
-        WeakNameList(iter.collect())
-    }
-
-    pub fn fix(self) -> Vec<Rc<refinement::Name>> {
-        let list = self.weak();
-
-        self.0
-            .into_values()
-            .map(|v| v.0.init((v.1)(list.clone())))
-            .collect()
-    }
-}
-
-impl Value {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
-        match self {
-            Value::Var(name) => refinement::Free::Var(
-                lookup
-                    .get(name)
-                    .ok_or_else(|| {
-                        format!(
-                            "can not find `{name}`, have: {:?}",
-                            lookup.keys().collect::<Vec<_>>()
-                        )
-                    })
-                    .unwrap()
-                    .clone(),
-            ),
-            Value::Int32(val) => refinement::Free::Just(*val as i64, 32),
-            Value::BinOp(binop) => binop.convert(lookup),
-            Value::Prop(prop) => prop.convert(lookup),
-        }
-    }
-}
-
-impl BinOpValue {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
-        let op = match self.op {
-            super::expr::BinOp::Plus => refinement::BinOp::Add,
-            super::expr::BinOp::Minus => refinement::BinOp::Sub,
-            super::expr::BinOp::Times => refinement::BinOp::Mul,
-            super::expr::BinOp::Modulo => refinement::BinOp::Rem,
-            super::expr::BinOp::Divide => refinement::BinOp::Div,
-        };
-        refinement::Free::BinOp {
-            l: Rc::new(self.l.convert(lookup)),
-            r: Rc::new(self.r.convert(lookup)),
-            op,
-        }
-    }
-}
-
-impl refinement::BinOp {
-    pub fn free<T>(self, l: refinement::Free<T>, r: refinement::Free<T>) -> refinement::Free<T> {
-        refinement::Free::BinOp {
-            l: Rc::new(l),
-            r: Rc::new(r),
-            op: self,
-        }
-    }
-}
-
-impl Prop {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
-        let l = self.l.convert(lookup);
-        let r = self.r.convert(lookup);
-        use refinement::BinOp as Op;
-        match self.op {
-            PropOp::Less => Op::Less.free(l, r),
-            PropOp::LessEq => Op::LessEq.free(l, r),
-            PropOp::Eq => Op::Eq.free(l, r),
-            PropOp::NotEq => Op::NotEq.free(l, r),
-            PropOp::And => Op::And.free(l, r),
-            PropOp::MulSafe => Op::MulSafe.free(l, r),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct DesugarTypes {
-    named: WeakNameList,
-    pub terms: HashMap<String, Term>,
-}
-
-impl DesugarTypes {
-    pub fn convert_pos(&self, pos: Rc<Spanned<PosTyp>>) -> refinement::Fun<refinement::PosTyp> {
-        let this = self.clone();
-        let names = &pos.val.names;
-        refinement::Fun {
-            tau: names.iter().map(|name| (32, name.clone())).collect(),
-            span: Some(pos.source_span()),
-            fun: Rc::new(move |heap, terms| {
-                let mut this = this.clone();
-                this.terms
-                    .extend(zip_eq(pos.val.names.clone(), terms.to_owned()));
-
-                this.convert_constraint(&pos.val.parts, heap)?;
-
-                Ok(refinement::PosTyp)
-            }),
-        }
-    }
-
-    pub fn convert_neg(&self, neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
-        let NegTyp { args, ret } = neg;
-
-        let this = self.clone();
-        let names = &args.val.names;
-        refinement::Fun {
-            tau: names.iter().map(|name| (32, name.clone())).collect(),
-            span: Some(args.source_span()),
-            fun: Rc::new(move |heap, terms| {
-                let mut this = this.clone();
-                this.terms
-                    .extend(zip_eq(args.val.names.clone(), terms.to_owned()));
-
-                this.convert_constraint(&args.val.parts, heap)?;
-
-                Ok(refinement::NegTyp {
-                    arg: refinement::PosTyp,
-                    ret: this.convert_pos(ret.clone()),
-                })
-            }),
-        }
-    }
-
-    pub fn convert_prop(&self, prop: &Prop) -> Term {
-        prop.convert(&self.terms).make_term()
-    }
-
-    pub fn convert_val(&self, val: &Value) -> Term {
-        val.convert(&self.terms).make_term()
-    }
-
-    pub fn convert_vals(&self, vals: &[Value]) -> Vec<Term> {
-        vals.iter().map(|x| self.convert_val(x)).collect()
-    }
-
-    pub fn convert_constraint(
-        &mut self,
-        parts: &[Spanned<Constraint>],
-        heap: &mut dyn Heap,
-    ) -> Result<(), ConsumeErr> {
-        for part in parts {
-            match &part.val {
-                Constraint::Forall(forall) => {
-                    let named = if forall.named == "@byte" {
-                        Resource::Owned
-                    } else {
-                        Resource::Named(self.named.0.get(&forall.named).unwrap().clone())
-                    };
-                    let cond = forall.cond.clone();
-                    let names = forall.names.clone();
-                    let this = self.clone();
-                    heap.forall(refinement::Forall {
-                        named,
-                        span: Some(part.source_span()),
-                        mask: FuncTerm::new_bool(move |terms| {
-                            let mut this = this.clone();
-                            this.terms.extend(zip_eq(names.clone(), terms.to_owned()));
-                            this.convert_prop(&cond).to_bool()
-                        }),
-                    })?;
-                }
-                Constraint::Switch(Switch { cond, named, args }) => {
-                    let named = self.named.0.get(named).unwrap();
-
-                    heap.switch(refinement::Cond {
-                        named: named.clone(),
-                        span: part.source_span(),
-                        cond: self.convert_prop(cond),
-                        args: self.convert_vals(args),
-                    })?;
-                }
-                Constraint::Assert(cond) => {
-                    heap.assert(self.convert_prop(cond), Some(part.source_span()))?;
-                }
-                Constraint::Builtin(new_name, call) => {
-                    let name = call.func.as_ref().unwrap();
-                    if name.starts_with('@') {
-                        assert_eq!(name, "@byte");
-                        let [ptr] = &*call.args.val else { panic!() };
-                        let args = [self.convert_val(ptr)];
-
-                        let value = heap.forall(refinement::Forall {
-                            named: Resource::Owned,
-                            mask: FuncTerm::exactly(&args),
-                            span: Some(part.source_span()),
-                        })?;
-                        let heap_val = value.apply(&args);
-
-                        if let Some(new_name) = new_name.to_owned() {
-                            self.terms.insert(new_name, heap_val.extend_to(32));
-                        }
-                    } else {
-                        let named = self.named.0.get(name).unwrap().upgrade().unwrap();
-                        (named.typ.fun)(heap, &self.convert_vals(&call.args.val))?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 #[derive(Clone)]
 pub struct Desugar<T: Val> {
-    pub types: DesugarTypes,
+    pub types: types::DesugarTypes,
     pub vars: HashMap<String, T>,
     labels: HashMap<String, T::Func>,
 }
@@ -397,7 +174,7 @@ struct Desugared<T: Val> {
 
 impl<T: Val> Desugared<T> {
     fn new(list: LazyNameList, m: &Module) -> Self {
-        let types = DesugarTypes::new(list.weak());
+        let types = types::DesugarTypes::new(list.weak());
 
         let mut labels = HashMap::new();
         let mut funcs_uninit = HashMap::new();
@@ -445,12 +222,25 @@ impl<T: Val> Desugared<T> {
     }
 }
 
-impl DesugarTypes {
-    fn new(list: WeakNameList) -> Self {
-        Self {
-            named: list,
-            terms: HashMap::new(),
-        }
+type LazyName = Box<dyn Fn(WeakNameList) -> refinement::Name>;
+
+#[derive(Default)]
+struct LazyNameList(HashMap<String, (UninitRc<refinement::Name>, LazyName)>);
+
+impl LazyNameList {
+    pub fn weak(&self) -> WeakNameList {
+        let iter = self.0.iter();
+        let iter = iter.map(|(k, v)| (k.clone(), UninitRc::downgrade(&v.0)));
+        WeakNameList(iter.collect())
+    }
+
+    pub fn fix(self) -> Vec<Rc<refinement::Name>> {
+        let list = self.weak();
+
+        self.0
+            .into_values()
+            .map(|v| v.0.init((v.1)(list.clone())))
+            .collect()
     }
 }
 
@@ -465,7 +255,7 @@ impl LazyNameList {
                     let NamedConstraint { name, typ } = named.clone();
 
                     let delayed = Box::new(move |named| {
-                        let this = DesugarTypes::new(named);
+                        let this = types::DesugarTypes::new(named);
                         let pos = this.convert_pos(typ.clone());
                         refinement::Name::new(pos)
                     });
@@ -501,9 +291,14 @@ pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
 }
 
 pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
-    let desugar = DesugarTypes {
+    let desugar = types::DesugarTypes {
         named: WeakNameList(Default::default()),
         terms: Default::default(),
     };
     desugar.convert_neg(neg)
+}
+
+pub fn convert_neg(code: &str) -> refinement::Fun<refinement::NegTyp> {
+    let parsed = NegTypParser::new().parse(code).unwrap();
+    convert_neg_builtin(parsed)
 }

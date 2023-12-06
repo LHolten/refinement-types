@@ -19,8 +19,8 @@ mod verify;
 
 use miette::{Diagnostic, SourceSpan};
 
+use crate::desugar::Desugar;
 use crate::parse;
-use crate::parse::desugar::Desugar;
 
 use self::func_term::FuncTerm;
 use self::heap::{ConsumeErr, Heap};

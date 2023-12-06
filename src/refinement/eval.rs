@@ -3,7 +3,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::parse::{self, desugar::Desugar};
+use crate::{desugar::Desugar, parse};
 
 use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Thunk, Val, Value};
 

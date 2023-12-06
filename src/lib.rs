@@ -6,6 +6,7 @@
 // mod typ_check;
 // mod untyped;
 // mod gadt;
+pub mod desugar;
 pub mod parse;
 mod refinement;
 mod solver;
