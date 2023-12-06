@@ -4,6 +4,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use self::types::{NameList, Named};
 use crate::parse::code::NegTypParser;
 use crate::parse::expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value};
 use crate::parse::types::{NamedConstraint, NegTyp};
@@ -12,9 +13,6 @@ use crate::uninit_rc::UninitRc;
 
 mod types;
 mod value;
-
-#[derive(Clone)]
-struct WeakNameList(HashMap<String, Weak<refinement::Name>>);
 
 #[derive(Clone)]
 pub struct Desugar<T: Val> {
@@ -115,21 +113,84 @@ impl<T: Val> Desugar<T> {
                     }
                     Stmt::Unpack(bind) => {
                         let rest = this.convert_lambda(next, None, vec![]);
-                        let func = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
+                        let named = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
+                        let named = this.types.convert_named(named);
 
-                        let arg = this.convert_value(&bind.args);
-                        let builtin = refinement::builtin::Builtin::Pack(func.clone(), true);
+                        let typ = refinement::Fun {
+                            tau: vec![],
+                            span: named.typ.span,
+                            fun: Rc::new(move |heap, terms| {
+                                let once = refinement::Once {
+                                    named: named.clone(),
+                                    args: terms.to_owned(),
+                                    span: None,
+                                };
+                                heap.once(once, None)?;
+
+                                let terms = terms.to_owned();
+                                let named = named.clone();
+                                let ret = refinement::Fun {
+                                    tau: vec![],
+                                    span: named.typ.span,
+                                    fun: Rc::new(move |heap, _| {
+                                        (named.typ.fun)(heap, &terms)?;
+
+                                        Ok(refinement::PosTyp)
+                                    }),
+                                };
+
+                                Ok(refinement::NegTyp {
+                                    arg: refinement::PosTyp,
+                                    ret,
+                                })
+                            }),
+                        };
+
+                        let builtin = refinement::builtin::Builtin::Pack(typ);
                         let func = refinement::Thunk::Builtin(builtin);
+                        let arg = this.convert_value(&bind.args);
                         let bound = refinement::BoundExpr::App(func, arg);
                         refinement::Expr::Let(bound, rest)
                     }
                     Stmt::Pack(bind) => {
                         let rest = this.convert_lambda(next, None, vec![]);
-                        let func = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
+                        let named = this.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
 
-                        let arg = this.convert_value(&bind.args);
-                        let builtin = refinement::builtin::Builtin::Pack(func.clone(), false);
+                        let named = this.types.convert_named(named);
+
+                        let typ = refinement::Fun {
+                            tau: vec![],
+                            span: named.typ.span,
+                            fun: Rc::new(move |heap, terms| {
+                                (named.typ.fun)(heap, terms)?;
+
+                                let terms = terms.to_owned();
+                                let named = named.clone();
+                                let ret = refinement::Fun {
+                                    tau: vec![],
+                                    span: named.typ.span,
+                                    fun: Rc::new(move |heap, _| {
+                                        let once = refinement::Once {
+                                            named: named.clone(),
+                                            args: terms.clone(),
+                                            span: None,
+                                        };
+                                        heap.once(once, None)?;
+
+                                        Ok(refinement::PosTyp)
+                                    }),
+                                };
+
+                                Ok(refinement::NegTyp {
+                                    arg: refinement::PosTyp,
+                                    ret,
+                                })
+                            }),
+                        };
+
+                        let builtin = refinement::builtin::Builtin::Pack(typ);
                         let func = refinement::Thunk::Builtin(builtin);
+                        let arg = this.convert_value(&bind.args);
                         let bound = refinement::BoundExpr::App(func, arg);
                         refinement::Expr::Let(bound, rest)
                     }
@@ -168,13 +229,12 @@ impl<T: Val> Desugar<T> {
 }
 
 struct Desugared<T: Val> {
-    _named: Vec<Rc<refinement::Name>>,
     funcs: HashMap<String, (Rc<Lambda<T>>, refinement::Fun<refinement::NegTyp>)>,
 }
 
 impl<T: Val> Desugared<T> {
-    fn new(list: LazyNameList, m: &Module) -> Self {
-        let types = types::DesugarTypes::new(list.weak());
+    fn new(list: NameList, m: &Module) -> Self {
+        let types = types::DesugarTypes::new(list);
 
         let mut labels = HashMap::new();
         let mut funcs_uninit = HashMap::new();
@@ -215,51 +275,20 @@ impl<T: Val> Desugared<T> {
 
         assert!(funcs_uninit.is_empty());
 
-        Desugared {
-            _named: list.fix(),
-            funcs: funcs_init,
-        }
+        Desugared { funcs: funcs_init }
     }
 }
 
-type LazyName = Box<dyn Fn(WeakNameList) -> refinement::Name>;
-
-#[derive(Default)]
-struct LazyNameList(HashMap<String, (UninitRc<refinement::Name>, LazyName)>);
-
-impl LazyNameList {
-    pub fn weak(&self) -> WeakNameList {
-        let iter = self.0.iter();
-        let iter = iter.map(|(k, v)| (k.clone(), UninitRc::downgrade(&v.0)));
-        WeakNameList(iter.collect())
-    }
-
-    pub fn fix(self) -> Vec<Rc<refinement::Name>> {
-        let list = self.weak();
-
-        self.0
-            .into_values()
-            .map(|v| v.0.init((v.1)(list.clone())))
-            .collect()
-    }
-}
-
-impl LazyNameList {
+impl NameList {
     pub fn new(m: &Module) -> Self {
-        let mut list = LazyNameList::default();
+        let mut list = NameList::default();
 
         for def in &m.0 {
             match def {
                 Def::Func(_func) => {}
                 Def::Typ(named) => {
                     let NamedConstraint { name, typ } = named.clone();
-
-                    let delayed = Box::new(move |named| {
-                        let this = types::DesugarTypes::new(named);
-                        let pos = this.convert_pos(typ.clone());
-                        refinement::Name::new(pos)
-                    });
-                    list.0.insert(name, (UninitRc::new(), delayed));
+                    list.0.insert(name, Named::new(typ));
                 }
             }
         }
@@ -269,7 +298,7 @@ impl LazyNameList {
 }
 
 pub fn check(m: &Module) -> miette::Result<()> {
-    let list = LazyNameList::new(m);
+    let list = NameList::new(m);
     let this = Desugared::new(list, m);
 
     for (lambda, neg) in this.funcs.values() {
@@ -280,7 +309,7 @@ pub fn check(m: &Module) -> miette::Result<()> {
 }
 
 pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
-    let list = LazyNameList::new(&m);
+    let list = NameList::new(&m);
     let this = Desugared::<i32>::new(list, &m);
 
     let (lambda, _typ) = &this.funcs[name];
@@ -292,7 +321,7 @@ pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
 
 pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
     let desugar = types::DesugarTypes {
-        named: WeakNameList(Default::default()),
+        named: NameList(Default::default()),
         terms: Default::default(),
     };
     desugar.convert_neg(neg)

@@ -71,6 +71,10 @@ impl FuncTerm {
         })
     }
 
+    pub fn always(val: Term) -> Self {
+        Self::new(move |_x| val.clone())
+    }
+
     pub fn and(&self, other: &Self) -> Self {
         let this = self.clone();
         let other = other.clone();

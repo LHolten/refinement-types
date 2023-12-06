@@ -14,10 +14,10 @@ fn main() -> miette::Result<()> {
     let mut code = String::new();
     file.read_to_string(&mut code).unwrap();
     let m = structural_types::parse::get_module(&code);
-    if let Err(err) = structural_types::parse::desugar::check(&m) {
+    if let Err(err) = structural_types::desugar::check(&m) {
         return Err(err.with_source_code(code));
     };
-    let result = structural_types::parse::desugar::run(m, func, args, vec![]);
+    let result = structural_types::desugar::run(m, func, args, vec![]);
     println!("the result is {result:?}");
     Ok(())
 }

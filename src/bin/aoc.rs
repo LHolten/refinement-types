@@ -24,13 +24,13 @@ fn main() -> miette::Result<()> {
     file.read_to_string(&mut code).unwrap();
 
     let m = structural_types::parse::get_module(&code);
-    if let Err(err) = structural_types::parse::desugar::check(&m) {
+    if let Err(err) = structural_types::desugar::check(&m) {
         return Err(err.with_source_code(code));
     };
 
     println!("typechecking succeeded!");
     let instant = Instant::now();
-    let result = structural_types::parse::desugar::run(m, func, args, input);
+    let result = structural_types::desugar::run(m, func, args, input);
     println!("the result is {result:?}");
     println!("took: {:.2} seconds", instant.elapsed().as_secs_f32());
     Ok(())

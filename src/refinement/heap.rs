@@ -5,7 +5,7 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 use super::{
-    func_term::FuncTerm, term::Term, verify::format_model, Cond, CtxForall, Forall, Resource,
+    func_term::FuncTerm, term::Term, verify::format_model, CtxForall, Forall, Once, Resource,
     SubContext,
 };
 
@@ -43,47 +43,29 @@ impl<'a> std::ops::Deref for HeapProduce<'a> {
 
 pub trait Heap {
     fn assert(&mut self, phi: Term, span: Option<SourceSpan>) -> Result<(), ConsumeErr>;
-    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr>;
-    fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
-        let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
-        self.forall(Forall {
-            named: Resource::Named(cond.named),
-            mask: FuncTerm::exactly(&cond.args).and(&condition),
-            span: Some(cond.span),
-        })?;
-        Ok(())
+    fn forall(&mut self, forall: Forall, value: Option<FuncTerm>) -> Result<FuncTerm, ConsumeErr>;
+    fn once(&mut self, once: Once, value: Option<Term>) -> Result<Term, ConsumeErr> {
+        let forall = Forall {
+            named: Resource::Named(once.named),
+            mask: FuncTerm::exactly(&once.args),
+            span: once.span,
+        };
+        let out = self.forall(forall, value.map(FuncTerm::always))?;
+        Ok(out.apply(&once.args))
     }
 }
 
 impl Heap for HeapConsume<'_> {
-    fn switch(&mut self, cond: Cond) -> Result<(), ConsumeErr> {
-        let condition = FuncTerm::new_bool(move |_| cond.cond.to_bool());
-        let need = Forall {
-            named: Resource::Named(cond.named.clone()),
-            mask: FuncTerm::exactly(&cond.args).and(&condition),
-            span: Some(cond.span),
-        };
-
-        if let Err(need) = self.try_remove(need) {
-            let res = need.mask.apply_bool(&cond.args);
-            if self.is_always_true(res) {
-                // TODO: add a wrapper to make this clearer
-                (cond.named.upgrade().unwrap().typ.fun)(self, &cond.args)?;
-            } else {
-                return Err(ConsumeErr::MissingResource {
-                    resource: need.span,
-                    help: self.counter_example(need),
-                });
-            }
-        }
-        Ok(())
-    }
-
     /// We can first look at aggregate resources of the correct name.
     /// After that we can iterate over the remaining resources one by one.
-    fn forall(&mut self, need: Forall) -> Result<FuncTerm, ConsumeErr> {
-        match self.try_remove(need) {
-            Ok(res) => Ok(res),
+    fn forall(&mut self, need: Forall, value: Option<FuncTerm>) -> Result<FuncTerm, ConsumeErr> {
+        match self.try_remove(need.clone()) {
+            Ok(res) => {
+                if let Some(value) = value {
+                    self.masked_equal(&need, &value, &res);
+                }
+                Ok(res)
+            }
             Err(need) => Err(ConsumeErr::MissingResource {
                 resource: need.span,
                 help: self.counter_example(need),
@@ -109,8 +91,8 @@ impl Heap for HeapConsume<'_> {
 
 impl Heap for HeapProduce<'_> {
     /// Here we just put the aggregate to be used by consumption.
-    fn forall(&mut self, forall: Forall) -> Result<FuncTerm, ConsumeErr> {
-        let value = FuncTerm::free(&forall.arg_sizes());
+    fn forall(&mut self, forall: Forall, value: Option<FuncTerm>) -> Result<FuncTerm, ConsumeErr> {
+        let value = value.unwrap_or_else(|| FuncTerm::free(&forall.arg_sizes()));
         self.forall.push(CtxForall {
             have: forall,
             value: value.clone(),

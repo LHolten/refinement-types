@@ -8,7 +8,7 @@ use z3::{
 
 use crate::solver::solver;
 
-use super::{term::Term, Forall, Resource, SubContext};
+use super::{func_term::FuncTerm, term::Term, Forall, Resource, SubContext};
 
 impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
@@ -19,13 +19,13 @@ impl Forall {
     }
     pub fn id(&self) -> Option<usize> {
         match &self.named {
-            Resource::Named(name) => Some(name.upgrade().unwrap().id),
+            Resource::Named(name) => Some(name.id),
             Resource::Owned => None,
         }
     }
     pub fn arg_sizes(&self) -> Vec<(u32, String)> {
         match &self.named {
-            Resource::Named(name) => name.upgrade().unwrap().typ.tau.clone(),
+            Resource::Named(name) => name.typ.tau.clone(),
             Resource::Owned => vec![(32, "ptr".to_owned())],
         }
     }
@@ -91,6 +91,20 @@ impl SubContext {
             }
             SatResult::Unknown => todo!(),
             SatResult::Sat => Err(s.get_model().unwrap()),
+        }
+    }
+
+    pub fn masked_equal(&self, need: &Forall, l: &FuncTerm, r: &FuncTerm) {
+        let s = self.assume();
+        let idx = need.make_fresh_args();
+        s.assert(&need.mask.apply_bool(&idx));
+
+        match s.check_assumptions(&[l.apply(&idx).eq(&r.apply(&idx)).to_bool().not()]) {
+            SatResult::Unsat => {}
+            SatResult::Unknown => todo!(),
+            SatResult::Sat => {
+                panic!("value might be modified")
+            }
         }
     }
 

@@ -80,7 +80,6 @@ Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Pr
 
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
-    Switch => Constraint::Switch(<>),
     <("move" <Var> "=")?> <Bind> => Constraint::Builtin(<>),
     "assert" <Prop> => Constraint::Assert(<>),
 };

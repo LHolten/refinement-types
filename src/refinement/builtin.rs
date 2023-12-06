@@ -1,19 +1,11 @@
-use std::{
-    mem::swap,
-    rc::{Rc, Weak},
-};
+use crate::desugar;
 
-use crate::{
-    desugar,
-    refinement::{func_term::FuncTerm, heap::ConsumeErr, Forall, Resource},
-};
-
-use super::{heap::Heap, term::Term, BinOp, Free, Fun, Name, NegTyp, PosTyp, SubContext};
+use super::{term::Term, BinOp, Free, Fun, NegTyp, SubContext};
 
 pub enum Builtin {
     Read,
     Write,
-    Pack(Weak<Name>, bool),
+    Pack(Fun<NegTyp>),
     Alloc,
 }
 
@@ -113,47 +105,48 @@ impl Builtin {
             Builtin::Read => desugar::convert_neg(READ_STR),
             Builtin::Write => desugar::convert_neg(WRITE_STR),
             Builtin::Alloc => desugar::convert_neg(ALLOC_STR),
-            Builtin::Pack(named, unpack) => {
-                let unpack = *unpack;
-                let named_rc = named.upgrade().unwrap();
-                let named = named.clone();
-                Fun {
-                    tau: named_rc.typ.tau.clone(),
-                    span: named_rc.typ.span,
-                    fun: Rc::new(move |heap, args| {
-                        let args = args.to_owned();
-                        let forall = Forall {
-                            named: Resource::Named(named.clone()),
-                            mask: FuncTerm::exactly(&args),
-                            span: None,
-                        };
-                        type HeapOp = Box<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
-                        let fun = named_rc.typ.fun.clone();
-                        let mut need: HeapOp = Box::new(move |heap| {
-                            (fun)(heap, &args)?;
-                            Ok(())
-                        });
-                        let mut res: HeapOp = Box::new(move |heap| {
-                            heap.forall(forall.clone())?;
-                            Ok(())
-                        });
+            Builtin::Pack(typ) => typ.clone(),
+            // Builtin::Pack(named, unpack) => {
+            //     let unpack = *unpack;
+            //     let named_rc = named.upgrade().unwrap();
+            //     let named = named.clone();
+            //     Fun {
+            //         tau: named_rc.typ.tau.clone(),
+            //         span: named_rc.typ.span,
+            //         fun: Rc::new(move |heap, args| {
+            //             let args = args.to_owned();
+            //             let forall = Forall {
+            //                 named: Resource::Named(named.clone()),
+            //                 mask: FuncTerm::exactly(&args),
+            //                 span: None,
+            //             };
+            //             type HeapOp = Box<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
+            //             let fun = named_rc.typ.fun.clone();
+            //             let mut need: HeapOp = Box::new(move |heap| {
+            //                 (fun)(heap, &args)?;
+            //                 Ok(())
+            //             });
+            //             let mut res: HeapOp = Box::new(move |heap| {
+            //                 heap.forall(forall.clone())?;
+            //                 Ok(())
+            //             });
 
-                        if unpack {
-                            swap(&mut res, &mut need);
-                        }
-                        (need)(heap)?;
+            //             if unpack {
+            //                 swap(&mut res, &mut need);
+            //             }
+            //             (need)(heap)?;
 
-                        Ok(NegTyp::new(Fun {
-                            tau: vec![],
-                            span: named_rc.typ.span,
-                            fun: Rc::new(move |heap, _args| {
-                                (res)(heap)?;
-                                Ok(PosTyp)
-                            }),
-                        }))
-                    }),
-                }
-            }
+            //             Ok(NegTyp::new(Fun {
+            //                 tau: vec![],
+            //                 span: named_rc.typ.span,
+            //                 fun: Rc::new(move |heap, _args| {
+            //                     (res)(heap)?;
+            //                     Ok(PosTyp)
+            //                 }),
+            //             }))
+            //         }),
+            //     }
+            // }
         }
     }
 }

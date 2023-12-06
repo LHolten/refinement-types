@@ -2,7 +2,6 @@
 
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, ops::Deref};
 
 pub mod builtin;
@@ -58,7 +57,7 @@ pub enum BinOp {
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub struct Cond {
-    pub named: Weak<Name>,
+    pub named: Name,
     // only if the cond is `true`, does this named resource exist
     pub cond: Term,
     // these are the arguments to the named resource
@@ -66,10 +65,16 @@ pub struct Cond {
     pub span: SourceSpan,
 }
 
+pub struct Once {
+    pub named: Name,
+    pub args: Vec<Term>,
+    pub span: Option<SourceSpan>,
+}
+
 /// a single resource
 #[derive(Clone)]
 pub enum Resource {
-    Named(Weak<Name>),
+    Named(Name),
     Owned,
 }
 
@@ -216,16 +221,6 @@ pub enum Thunk<V: Val> {
 pub struct Name {
     pub id: usize,
     pub typ: Fun<PosTyp>,
-}
-
-impl Name {
-    pub fn new(typ: Fun<PosTyp>) -> Self {
-        static NAME_ID: AtomicUsize = AtomicUsize::new(0);
-        Self {
-            id: NAME_ID.fetch_add(1, Ordering::Relaxed),
-            typ,
-        }
-    }
 }
 
 pub trait Val: Clone + Sized + 'static {

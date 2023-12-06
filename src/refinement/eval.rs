@@ -91,7 +91,7 @@ impl Memory {
                     self.data[ptr as usize] = val as u8;
                     vec![]
                 }
-                Builtin::Pack(_, _) => vec![],
+                Builtin::Pack(_) => vec![],
                 Builtin::Alloc => {
                     let [bytes] = *arg else { panic!() };
                     let start = self.data.len();
