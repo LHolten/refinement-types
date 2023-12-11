@@ -39,7 +39,7 @@ pub struct Bind {
 }
 
 pub enum Value {
-    Var(String),
+    Var(String, Vec<String>),
     Int32(i32),
     BinOp(Box<BinOpValue>),
     Prop(Box<Prop>),

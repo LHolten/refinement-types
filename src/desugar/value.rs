@@ -1,14 +1,14 @@
 use crate::parse::expr::{BinOp, BinOpValue, Value};
 use crate::parse::types::{Prop, PropOp};
-use crate::refinement;
+use crate::{refinement, Nested};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 impl Value {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
+    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> refinement::Free<T> {
         match self {
-            Value::Var(name) => refinement::Free::Var(
-                lookup
+            Value::Var(name, rest) => refinement::Free::Var({
+                let mut curr = lookup
                     .get(name)
                     .ok_or_else(|| {
                         format!(
@@ -16,9 +16,15 @@ impl Value {
                             lookup.keys().collect::<Vec<_>>()
                         )
                     })
-                    .unwrap()
-                    .clone(),
-            ),
+                    .unwrap();
+                for r in rest {
+                    match curr {
+                        Nested::More(lookup) => curr = lookup.get(r).unwrap(),
+                        _ => panic!(),
+                    }
+                }
+                curr.clone().unwrap_just()
+            }),
             Value::Int32(val) => refinement::Free::Just(*val as i64, 32),
             Value::BinOp(binop) => binop.convert(lookup),
             Value::Prop(prop) => prop.convert(lookup),
@@ -27,7 +33,7 @@ impl Value {
 }
 
 impl BinOpValue {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
+    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> refinement::Free<T> {
         let op = match self.op {
             BinOp::Plus => refinement::BinOp::Add,
             BinOp::Minus => refinement::BinOp::Sub,
@@ -54,7 +60,7 @@ impl refinement::BinOp {
 }
 
 impl Prop {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, T>) -> refinement::Free<T> {
+    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> refinement::Free<T> {
         let l = self.l.convert(lookup);
         let r = self.r.convert(lookup);
         use refinement::BinOp as Op;

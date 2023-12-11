@@ -5,11 +5,11 @@ use std::{
 };
 
 use self::types::{NameList, Named};
-use crate::parse::code::NegTypParser;
 use crate::parse::expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value};
 use crate::parse::types::{NamedConstraint, NegTyp};
 use crate::refinement::{self, typing::zip_eq, Lambda, Val};
 use crate::uninit_rc::UninitRc;
+use crate::{parse::code::NegTypParser, Nested};
 
 mod types;
 mod value;
@@ -17,7 +17,7 @@ mod value;
 #[derive(Clone)]
 pub struct Desugar<T: Val> {
     pub types: types::DesugarTypes,
-    pub vars: HashMap<String, T>,
+    pub vars: HashMap<String, Nested<T>>,
     labels: HashMap<String, T::Func>,
 }
 
@@ -52,7 +52,7 @@ impl<T: Val> Desugar<T> {
             }
 
             for (name, arg) in zip_eq(&names, args) {
-                this.vars.insert(name.clone(), arg.clone());
+                this.vars.insert(name.clone(), Nested::Just(arg.clone()));
             }
 
             match &block.val {
@@ -73,8 +73,10 @@ impl<T: Val> Desugar<T> {
                         let func_name = bind.func.as_ref().unwrap();
                         let func = if func_name.starts_with('@') {
                             let builtin = match func_name.as_str() {
-                                "@read_u8" => refinement::builtin::Builtin::Read,
-                                "@write_u8" => refinement::builtin::Builtin::Write,
+                                "@read8" => refinement::builtin::Builtin::Read8,
+                                "@read32" => refinement::builtin::Builtin::Read32,
+                                "@write8" => refinement::builtin::Builtin::Write8,
+                                "@write32" => refinement::builtin::Builtin::Write32,
                                 "@alloc" => refinement::builtin::Builtin::Alloc,
                                 _ => panic!(),
                             };

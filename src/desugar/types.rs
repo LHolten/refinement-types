@@ -1,8 +1,8 @@
 use crate::parse::expr::{Spanned, Value};
 use crate::parse::types::{Constraint, NegTyp, PosTyp, Prop};
-use crate::refinement;
 use crate::refinement::heap::{ConsumeErr, Heap};
 use crate::refinement::{func_term::FuncTerm, term::Term, typing::zip_eq, Resource};
+use crate::{refinement, Nested};
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -30,7 +30,7 @@ pub struct NameList(pub HashMap<String, Named>);
 #[derive(Clone)]
 pub struct DesugarTypes {
     pub(super) named: NameList,
-    pub terms: HashMap<String, Term>,
+    pub terms: HashMap<String, Nested<Term>>,
     pub exactly: HashMap<String, NameExact>,
 }
 
@@ -38,29 +38,7 @@ pub struct DesugarTypes {
 pub struct NameExact {
     named: Named,
     args: Vec<Term>,
-    res: Vec<Exactly>,
-}
-
-#[derive(Clone)]
-pub enum Exactly {
-    Named(Vec<Exactly>),
-    Forall(FuncTerm),
-}
-
-impl Exactly {
-    fn unwrap_named(self) -> Vec<Self> {
-        match self {
-            Exactly::Named(res) => res,
-            _ => panic!(),
-        }
-    }
-
-    fn unwrap_forall(self) -> FuncTerm {
-        match self {
-            Exactly::Forall(res) => res,
-            _ => panic!(),
-        }
-    }
+    res: Nested<Term>,
 }
 
 impl DesugarTypes {
@@ -79,9 +57,9 @@ impl DesugarTypes {
             tau: names.iter().map(|name| (32, name.clone())).collect(),
             span: Some(pos.source_span()),
             fun: Rc::new(move |heap, terms| {
+                let terms = terms.iter().cloned().map(Nested::Just);
                 let mut this = this.clone();
-                this.terms
-                    .extend(zip_eq(pos.val.names.clone(), terms.to_owned()));
+                this.terms.extend(zip_eq(pos.val.names.clone(), terms));
 
                 this.convert_constraint(&pos.val.parts, heap, None)?;
 
@@ -99,9 +77,9 @@ impl DesugarTypes {
             tau: names.iter().map(|name| (32, name.clone())).collect(),
             span: Some(args.source_span()),
             fun: Rc::new(move |heap, terms| {
+                let terms = terms.iter().cloned().map(Nested::Just);
                 let mut this = this.clone();
-                this.terms
-                    .extend(zip_eq(args.val.names.clone(), terms.to_owned()));
+                this.terms.extend(zip_eq(args.val.names.clone(), terms));
 
                 this.convert_constraint(&args.val.parts, heap, None)?;
 
@@ -129,103 +107,121 @@ impl DesugarTypes {
         &mut self,
         parts: &[Spanned<Constraint>],
         heap: &mut dyn Heap,
-        mut exactly: Option<Vec<Exactly>>,
-    ) -> Result<Vec<Exactly>, ConsumeErr> {
-        let mut out = vec![];
+        mut exactly: Option<HashMap<String, Nested<Term>>>,
+    ) -> Result<Nested<Term>, ConsumeErr> {
+        let mut out = HashMap::new();
+
+        let mut name_idx = 0;
+        let mut make_name = || {
+            let res = format!("{name_idx}");
+            name_idx += 1;
+            res
+        };
+
+        let mut get_exact = |name: &String| exactly.as_mut().map(|x| x.remove(name).unwrap());
+
+        let mut set_exact = |name: String, v| {
+            let res = out.insert(name, v);
+            assert!(res.is_none());
+        };
 
         for part in parts {
             match &part.val {
+                Constraint::Let(new_name, val) => {
+                    let value = self.convert_val(val);
+                    self.terms.insert(new_name.clone(), Nested::Just(value));
+                }
                 Constraint::Forall(forall) => {
-                    let named = if forall.named == "@byte" {
-                        Resource::Owned
-                    } else {
-                        let named = self.named.0.get(&forall.named).unwrap();
-                        Resource::Named(self.convert_named(named))
-                    };
+                    let named = self.get_resource(&forall.named);
+
                     let cond = forall.cond.clone();
                     let names = forall.names.clone();
+
                     let this = self.clone();
                     let forall = refinement::Forall {
                         named,
                         span: Some(part.source_span()),
                         mask: FuncTerm::new_bool(move |terms| {
+                            let terms = terms.iter().cloned().map(Nested::Just);
+
                             let mut this = this.clone();
-                            this.terms.extend(zip_eq(names.clone(), terms.to_owned()));
+                            this.terms.extend(zip_eq(names.clone(), terms));
                             this.convert_prop(&cond).to_bool()
                         }),
                     };
 
-                    let equal = exactly
-                        .as_mut()
-                        .map(|x| x.pop().unwrap())
-                        .map(Exactly::unwrap_forall);
+                    let new_name = make_name();
+                    let equal = get_exact(&new_name).map(Nested::unwrap_arr);
                     let res = heap.forall(forall, equal)?;
-                    out.push(Exactly::Forall(res));
+                    set_exact(new_name, Nested::Arr(res));
                 }
                 Constraint::Assert(cond) => {
                     heap.assert(self.convert_prop(cond), Some(part.source_span()))?;
                 }
-                Constraint::Builtin(new_name, call) => {
+                Constraint::Switch(new_name, switch) => {
+                    let named = self.get_resource(&switch.named);
+                    let args = self.convert_vals(&switch.args);
+
+                    let cond = switch.cond.as_ref();
+                    let cond = cond
+                        .map(|v| self.convert_val(v))
+                        .unwrap_or(Term::bool(true));
+
+                    let forall = refinement::Forall {
+                        named,
+                        mask: FuncTerm::exactly(&args).and(&FuncTerm::new(move |_| cond.clone())),
+                        span: Some(part.source_span()),
+                    };
+
+                    let new_name2 = new_name.clone().unwrap_or_else(&mut make_name);
+                    let equal = get_exact(&new_name2).map(Nested::unwrap_arr);
+                    let res = heap.forall(forall, equal)?;
+                    set_exact(new_name2.clone(), Nested::Arr(res.clone()));
+                    if new_name.is_some() {
+                        assert!(switch.cond.is_none());
+                        self.terms
+                            .insert(new_name2, Nested::Just(res.apply(&args).extend_to(32)));
+                    }
+                }
+                Constraint::Inline(new_name, call) => {
                     let name = call.func.as_ref().unwrap();
-                    if name.starts_with('@') {
-                        assert_eq!(name, "@byte");
-                        let [ptr] = &*call.args.val else { panic!() };
-                        let args = [self.convert_val(ptr)];
+                    let named = self.named.0.get(name).unwrap();
+                    let args = self.convert_vals(&call.args.val);
 
-                        let forall = refinement::Forall {
-                            named: Resource::Owned,
-                            mask: FuncTerm::exactly(&args),
-                            span: Some(part.source_span()),
-                        };
-                        let equal = exactly
-                            .as_mut()
-                            .map(|x| x.pop().unwrap())
-                            .map(Exactly::unwrap_forall);
-                        let value = heap.forall(forall, equal)?;
-                        out.push(Exactly::Forall(value.clone()));
+                    let mut this = self.clone();
+                    let args_iter = args.clone().into_iter().map(Nested::Just);
+                    this.terms
+                        .extend(zip_eq(named.typ.val.names.clone(), args_iter));
 
-                        if let Some(new_name) = new_name.to_owned() {
-                            let heap_val = value.apply(&args);
-                            self.terms.insert(new_name, heap_val.extend_to(32));
-                        }
-                    } else {
-                        let named = self.named.0.get(name).unwrap();
-                        let args = self.convert_vals(&call.args.val);
+                    let new_name2 = new_name.clone().unwrap_or_else(&mut make_name);
+                    let equal = get_exact(&new_name2).map(Nested::unwrap_more);
+                    let res = this.convert_constraint(&named.typ.val.parts, heap, equal)?;
+                    set_exact(new_name2, res.clone());
 
-                        let mut this = self.clone();
-                        this.terms
-                            .extend(zip_eq(named.typ.val.names.clone(), args.clone()));
-
-                        let equal = exactly
-                            .as_mut()
-                            .map(|x| x.pop().unwrap())
-                            .map(Exactly::unwrap_named);
-                        let res = this.convert_constraint(&named.typ.val.parts, heap, equal)?;
-                        out.push(Exactly::Named(res.clone()));
-
-                        if let Some(new_name) = new_name.to_owned() {
-                            let name_exact = NameExact {
+                    if let Some(new_name) = new_name.clone() {
+                        self.exactly.insert(
+                            new_name.clone(),
+                            NameExact {
                                 named: named.clone(),
                                 args,
-                                res,
-                            };
-                            self.exactly.insert(new_name, name_exact);
-                        }
+                                res: res.clone(),
+                            },
+                        );
+                        self.terms.insert(new_name, Nested::More(this.terms));
                     }
                 }
                 Constraint::Exactly(name) => {
                     let name_exact = self.exactly.get(name).unwrap();
 
                     let mut this = self.clone();
-                    this.terms.extend(zip_eq(
-                        name_exact.named.typ.val.names.clone(),
-                        name_exact.args.clone(),
-                    ));
+                    let args = name_exact.args.iter().cloned().map(Nested::Just);
+                    this.terms
+                        .extend(zip_eq(name_exact.named.typ.val.names.clone(), args));
 
                     this.convert_constraint(
                         &name_exact.named.typ.val.parts,
                         heap,
-                        Some(name_exact.res.clone()),
+                        Some(name_exact.res.clone().unwrap_more()),
                     )?;
                 }
             }
@@ -234,14 +230,23 @@ impl DesugarTypes {
             assert!(eq.is_empty())
         }
 
-        out.reverse();
-        Ok(out)
+        Ok(Nested::More(out))
     }
 
     pub fn convert_named(&self, named: &Named) -> refinement::Name {
         refinement::Name {
             id: named.id,
             typ: self.convert_pos(named.typ.clone()),
+        }
+    }
+
+    fn get_resource(&mut self, name: &str) -> Resource {
+        match name {
+            "@byte" => Resource::Owned,
+            _ => {
+                let named = self.named.0.get(name).unwrap();
+                Resource::Named(self.convert_named(named))
+            }
         }
     }
 }

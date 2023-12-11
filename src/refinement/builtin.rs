@@ -3,8 +3,10 @@ use crate::desugar;
 use super::{term::Term, BinOp, Free, Fun, NegTyp, SubContext};
 
 pub enum Builtin {
-    Read,
-    Write,
+    Read8,
+    Read32,
+    Write8,
+    Write32,
     Pack(Fun<NegTyp>),
     Alloc,
 }
@@ -73,80 +75,55 @@ impl Free<Term> {
     }
 }
 
-static ALLOC_STR: &str = r"
+static ALLOC: &str = r"
 (pages) -> (start) where {
     @byte for (ptr) if (ptr - start) < pages;
     assert start <= (start + pages);
-}
-";
+}";
 
-static READ_STR: &str = r"
+static READ8: &str = r"
 (ptr) where {
     val = move @byte(ptr);
 } -> (ret) where {
     assert ret == val;
     new = move @byte(ptr);
     assert new == val;
-}
-";
+}";
 
-static WRITE_STR: &str = r"
+static READ32: &str = r"
+(ptr) where {
+    val = move @quad(ptr);
+} -> (ret) where {
+    assert ret == val;
+    new = move @byte(ptr);
+    assert new == val;
+}";
+
+static WRITE8: &str = r"
 (ptr, val) where {
     move @byte(ptr);
 } -> () where {
     new = move @byte(ptr);
     assert new == val;
-}
-";
+}";
+
+static WRITE32: &str = r"
+(ptr, val) where {
+    move @quad(ptr);
+} -> () where {
+    new = move @quad(ptr);
+    assert new == val;
+}";
 
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
         match self {
-            Builtin::Read => desugar::convert_neg(READ_STR),
-            Builtin::Write => desugar::convert_neg(WRITE_STR),
-            Builtin::Alloc => desugar::convert_neg(ALLOC_STR),
+            Builtin::Read8 => desugar::convert_neg(READ8),
+            Builtin::Read32 => desugar::convert_neg(READ32),
+            Builtin::Write8 => desugar::convert_neg(WRITE8),
+            Builtin::Write32 => desugar::convert_neg(WRITE32),
+            Builtin::Alloc => desugar::convert_neg(ALLOC),
             Builtin::Pack(typ) => typ.clone(),
-            // Builtin::Pack(named, unpack) => {
-            //     let unpack = *unpack;
-            //     let named_rc = named.upgrade().unwrap();
-            //     let named = named.clone();
-            //     Fun {
-            //         tau: named_rc.typ.tau.clone(),
-            //         span: named_rc.typ.span,
-            //         fun: Rc::new(move |heap, args| {
-            //             let args = args.to_owned();
-            //             let forall = Forall {
-            //                 named: Resource::Named(named.clone()),
-            //                 mask: FuncTerm::exactly(&args),
-            //                 span: None,
-            //             };
-            //             type HeapOp = Box<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
-            //             let fun = named_rc.typ.fun.clone();
-            //             let mut need: HeapOp = Box::new(move |heap| {
-            //                 (fun)(heap, &args)?;
-            //                 Ok(())
-            //             });
-            //             let mut res: HeapOp = Box::new(move |heap| {
-            //                 heap.forall(forall.clone())?;
-            //                 Ok(())
-            //             });
-
-            //             if unpack {
-            //                 swap(&mut res, &mut need);
-            //             }
-            //             (need)(heap)?;
-
-            //             Ok(NegTyp::new(Fun {
-            //                 tau: vec![],
-            //                 span: named_rc.typ.span,
-            //                 fun: Rc::new(move |heap, _args| {
-            //                     (res)(heap)?;
-            //                     Ok(PosTyp)
-            //                 }),
-            //             }))
-            //         }),
-            //     }
-            // }
         }
     }
 }

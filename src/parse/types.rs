@@ -23,9 +23,11 @@ pub struct NegTyp {
 
 pub enum Constraint {
     Forall(Forall),
+    Switch(Option<String>, Switch),
     Assert(Prop),
+    Let(String, Value),
     // Func(Term, NegTyp),
-    Builtin(Option<String>, Bind),
+    Inline(Option<String>, Bind),
     Exactly(String),
 }
 
@@ -36,7 +38,7 @@ pub struct Forall {
 }
 
 pub struct Switch {
-    pub cond: Prop,
+    pub cond: Option<Value>,
     pub named: String,
     pub args: Vec<Value>,
 }

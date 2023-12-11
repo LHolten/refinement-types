@@ -1,0 +1,19 @@
+type quad(ptr) where {
+    p0 = move @byte(ptr + 0);
+    p1 = move @byte(ptr + 1);
+    let total = p0 + p1;
+}
+
+type linked(ptr) where {
+    val = quad(ptr);
+    next = quad(ptr + 4);
+    move linked(next.total) if next.total != 0;
+}
+
+fn main(ptr) where { 
+    list = linked(ptr); 
+} -> () where {
+    list;
+} = {
+    return ()
+}

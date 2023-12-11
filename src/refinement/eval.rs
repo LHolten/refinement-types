@@ -3,7 +3,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::{desugar::Desugar, parse};
+use crate::{desugar::Desugar, parse, refinement::typing::zip_eq};
 
 use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Thunk, Val, Value};
 
@@ -82,13 +82,25 @@ impl Memory {
                 self.eval(expr)
             }
             Thunk::Builtin(builtin) => match builtin {
-                Builtin::Read => {
+                Builtin::Read8 => {
                     let [ptr] = *arg else { panic!() };
                     vec![self.data[ptr as usize] as i32]
                 }
-                Builtin::Write => {
+                Builtin::Read32 => {
+                    let [ptr] = *arg else { panic!() };
+                    let data = &self.data[ptr as usize..][..4];
+                    let val = i32::from_le_bytes(data.try_into().unwrap());
+                    vec![val]
+                }
+                Builtin::Write8 => {
                     let [ptr, val] = *arg else { panic!() };
                     self.data[ptr as usize] = val as u8;
+                    vec![]
+                }
+                Builtin::Write32 => {
+                    let [ptr, val] = *arg else { panic!() };
+                    zip_eq(&mut self.data[ptr as usize..], val.to_le_bytes())
+                        .for_each(|(d, s)| *d = s);
                     vec![]
                 }
                 Builtin::Pack(_) => vec![],

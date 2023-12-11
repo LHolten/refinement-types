@@ -26,7 +26,7 @@ impl Forall {
     pub fn arg_sizes(&self) -> Vec<(u32, String)> {
         match &self.named {
             Resource::Named(name) => name.typ.tau.clone(),
-            Resource::Owned => vec![(32, "ptr".to_owned())],
+            Resource::Owned => vec![(32, "@ptr".to_owned())],
         }
     }
 }

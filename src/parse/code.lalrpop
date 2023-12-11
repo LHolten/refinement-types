@@ -15,7 +15,7 @@ Var: String = r"[@]?[_a-zA-Z][_a-zA-z0-9]*" => <>.to_owned();
 
 Value: Value = {
     "(" <UnboxedValue> ")" => <>,
-    Var => Value::Var(<>),
+    <Var> <("." <Var>)*> => Value::Var(<>),
     Num => Value::Int32(<>),
 }
 
@@ -75,12 +75,14 @@ PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spann
 };
 PosTyp: Rc<Spanned<PosTyp>> = Spanned<PosTypInner> => Rc::new(<>);
 
-Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
-Switch: Switch = <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" "if" <cond:Prop> => Switch{<>};
+Forall: Forall = "move" <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
+Switch: Switch = "move" <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" <cond:("if" <UnboxedValue>)?> => Switch{<>};
 
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
-    <(<Var> "=")?> "move" <Bind> => Constraint::Builtin(<>),
+    <(<Var> "=")?> <Switch> => Constraint::Switch(<>),
+    <(<Var> "=")?> <Bind> => Constraint::Inline(<>),
+    "let" <Var> "=" <UnboxedValue> => Constraint::Let(<>),
     <Var> => Constraint::Exactly(<>),
     "assert" <Prop> => Constraint::Assert(<>),
 };
