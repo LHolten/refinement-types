@@ -101,7 +101,7 @@ static READ32: &str = r"
     p1 = move @byte(ptr + 1);
     p2 = move @byte(ptr + 2);
     p3 = move @byte(ptr + 3);
-    let val = ((p3 << 8) + (p2 << 16)) + ((p1 << 8) + p0);
+    let val = ((p3 << 24) + (p2 << 16)) + ((p1 << 8) + p0);
 } -> (ret) where {
     assert ret == val;
     p0; p1; p2; p3;
@@ -126,7 +126,7 @@ static WRITE32: &str = r"
     p1 = move @byte(ptr + 1);
     p2 = move @byte(ptr + 2);
     p3 = move @byte(ptr + 3);
-    let new = ((p3 << 8) + (p2 << 16)) + ((p1 << 8) + p0);
+    let new = ((p3 << 24) + (p2 << 16)) + ((p1 << 8) + p0);
     assert new == val;
 }";
 

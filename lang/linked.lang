@@ -1,19 +1,20 @@
-type quad(ptr) where {
+type byte4(ptr) where {
     p0 = move @byte(ptr + 0);
     p1 = move @byte(ptr + 1);
     p2 = move @byte(ptr + 2);
     p3 = move @byte(ptr + 3);
-    let le = ((p3 << 8) + (p2 << 16)) + ((p1 << 8) + p0);
+    let le = ((p3 << 24) + (p2 << 16)) + ((p1 << 8) + p0);
+    let be = ((p0 << 24) + (p1 << 16)) + ((p2 << 8) + p3);
 }
 
 type linked(ptr) where {
-    val = quad(ptr);
-    next = quad(ptr + 4);
+    val = byte4(ptr);
+    next = byte4(ptr + 4);
     move linked(next.le) if next.le != 0;
 }
 
 fn main() -> (ptr, num) where {
-    quad(ptr);
+    byte4(ptr);
 } = {
     let (ptr) = @alloc(4);
     let () = @write32(ptr, 42);
