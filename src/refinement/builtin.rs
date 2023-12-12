@@ -121,14 +121,19 @@ static WRITE32: &str = r"
     assert new == val;
 }";
 
+pub fn builtins() -> Vec<&'static str> {
+    vec![READ8, ALLOC, READ32, WRITE8, WRITE32]
+}
+
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
+        let files = builtins();
         match self {
-            Builtin::Read8 => desugar::convert_neg(READ8),
-            Builtin::Read32 => desugar::convert_neg(READ32),
-            Builtin::Write8 => desugar::convert_neg(WRITE8),
-            Builtin::Write32 => desugar::convert_neg(WRITE32),
-            Builtin::Alloc => desugar::convert_neg(ALLOC),
+            Builtin::Read8 => desugar::convert_neg(&files, 0),
+            Builtin::Alloc => desugar::convert_neg(&files, 1),
+            Builtin::Read32 => desugar::convert_neg(&files, 2),
+            Builtin::Write8 => desugar::convert_neg(&files, 3),
+            Builtin::Write32 => desugar::convert_neg(&files, 4),
             Builtin::Pack(typ) => typ.clone(),
         }
     }

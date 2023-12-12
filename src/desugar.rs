@@ -5,11 +5,14 @@ use std::{
 };
 
 use self::types::{NameList, Named};
-use crate::parse::expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value};
 use crate::parse::types::{NamedConstraint, NegTyp};
 use crate::refinement::{self, typing::zip_eq, Lambda, Val};
 use crate::uninit_rc::UninitRc;
 use crate::{parse::code::NegTypParser, Nested};
+use crate::{
+    parse::expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value},
+    refinement::builtin::builtins,
+};
 
 mod types;
 mod value;
@@ -31,7 +34,7 @@ impl<T: Val> Desugar<T> {
     pub fn convert_value(&self, value: &Spanned<Vec<Value>>) -> refinement::Value<T> {
         let value_iter = value.val.iter();
         refinement::Value {
-            span: Some(value.source_span()),
+            span: Some(value.source_span(self.types.offset)),
             inj: value_iter.map(|val| val.convert(&self.vars)).collect(),
         }
     }
@@ -42,7 +45,7 @@ impl<T: Val> Desugar<T> {
         labels: HashMap<String, WeakFuncDef<T>>,
         block: Rc<Spanned<Block>>,
     ) -> refinement::Lambda<T, impl Fn(&[T]) -> refinement::Expr<T>> {
-        let span = block.source_span();
+        let span = block.source_span(self.types.offset);
 
         let func = move |args: &[T]| -> refinement::Expr<T> {
             let mut this = self.clone();
@@ -236,7 +239,8 @@ struct Desugared<T: Val> {
 
 impl<T: Val> Desugared<T> {
     fn new(list: NameList, m: &Module) -> Self {
-        let types = types::DesugarTypes::new(list);
+        let offset = builtins().iter().map(|x| x.len()).sum();
+        let types = types::DesugarTypes::new(list, offset);
 
         let mut labels = HashMap::new();
         let mut funcs_uninit = HashMap::new();
@@ -321,16 +325,16 @@ pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
     memory.eval(expr.val)
 }
 
-pub fn convert_neg_builtin(neg: NegTyp) -> refinement::Fun<refinement::NegTyp> {
+pub fn convert_neg(files: &[&str], idx: usize) -> refinement::Fun<refinement::NegTyp> {
+    let code = files[idx];
+    let offset = files.iter().take(idx).map(|x| x.len()).sum();
+    let parsed = NegTypParser::new().parse(code).unwrap();
+
     let desugar = types::DesugarTypes {
         named: NameList(Default::default()),
         terms: Default::default(),
         exactly: Default::default(),
+        offset,
     };
-    desugar.convert_neg(neg)
-}
-
-pub fn convert_neg(code: &str) -> refinement::Fun<refinement::NegTyp> {
-    let parsed = NegTypParser::new().parse(code).unwrap();
-    convert_neg_builtin(parsed)
+    desugar.convert_neg(parsed)
 }

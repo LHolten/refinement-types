@@ -15,8 +15,8 @@ pub struct Spanned<T> {
 }
 
 impl<T> Spanned<T> {
-    pub fn source_span(&self) -> SourceSpan {
-        (self.span.0, self.span.1 - self.span.0).into()
+    pub fn source_span(&self, offset: usize) -> SourceSpan {
+        (offset + self.span.0, self.span.1 - self.span.0).into()
     }
 }
 

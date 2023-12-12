@@ -32,6 +32,7 @@ pub struct DesugarTypes {
     pub(super) named: NameList,
     pub terms: HashMap<String, Nested<Term>>,
     pub exactly: HashMap<String, NameExact>,
+    pub offset: usize,
 }
 
 #[derive(Clone)]
@@ -42,11 +43,12 @@ pub struct NameExact {
 }
 
 impl DesugarTypes {
-    pub(super) fn new(list: NameList) -> Self {
+    pub(super) fn new(list: NameList, offset: usize) -> Self {
         Self {
             named: list,
             terms: HashMap::new(),
             exactly: HashMap::new(),
+            offset,
         }
     }
 
@@ -55,7 +57,7 @@ impl DesugarTypes {
         let names = &pos.val.names;
         refinement::Fun {
             tau: names.iter().map(|name| (32, name.clone())).collect(),
-            span: Some(pos.source_span()),
+            span: Some(pos.source_span(self.offset)),
             fun: Rc::new(move |heap, terms| {
                 let terms = terms.iter().cloned().map(Nested::Just);
                 let mut this = this.clone();
@@ -75,7 +77,7 @@ impl DesugarTypes {
         let names = &args.val.names;
         refinement::Fun {
             tau: names.iter().map(|name| (32, name.clone())).collect(),
-            span: Some(args.source_span()),
+            span: Some(args.source_span(self.offset)),
             fun: Rc::new(move |heap, terms| {
                 let terms = terms.iter().cloned().map(Nested::Just);
                 let mut this = this.clone();
@@ -140,7 +142,7 @@ impl DesugarTypes {
                     let this = self.clone();
                     let forall = refinement::Forall {
                         named,
-                        span: Some(part.source_span()),
+                        span: Some(part.source_span(self.offset)),
                         mask: FuncTerm::new_bool(move |terms| {
                             let terms = terms.iter().cloned().map(Nested::Just);
 
@@ -156,7 +158,7 @@ impl DesugarTypes {
                     set_exact(new_name, Nested::Arr(res));
                 }
                 Constraint::Assert(cond) => {
-                    heap.assert(self.convert_prop(cond), Some(part.source_span()))?;
+                    heap.assert(self.convert_prop(cond), Some(part.source_span(self.offset)))?;
                 }
                 Constraint::Switch(new_name, switch) => {
                     let named = self.get_resource(&switch.named);
@@ -170,7 +172,7 @@ impl DesugarTypes {
                     let forall = refinement::Forall {
                         named,
                         mask: FuncTerm::exactly(&args).and(&FuncTerm::new(move |_| cond.clone())),
-                        span: Some(part.source_span()),
+                        span: Some(part.source_span(self.offset)),
                     };
 
                     let new_name2 = new_name.clone().unwrap_or_else(&mut make_name);

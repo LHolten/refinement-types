@@ -6,6 +6,7 @@ use std::{
     io::Read,
     time::Instant,
 };
+use structural_types::error::MultiFile;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -25,7 +26,8 @@ fn main() -> miette::Result<()> {
 
     let m = structural_types::parse::get_module(&code);
     if let Err(err) = structural_types::desugar::check(&m) {
-        return Err(err.with_source_code(code));
+        let source = MultiFile::new(code);
+        return Err(err.with_source_code(source));
     };
 
     println!("typechecking succeeded!");

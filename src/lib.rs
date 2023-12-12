@@ -11,6 +11,7 @@ use refinement::func_term::FuncTerm;
 // mod untyped;
 // mod gadt;
 pub mod desugar;
+pub mod error;
 pub mod parse;
 mod refinement;
 mod solver;
