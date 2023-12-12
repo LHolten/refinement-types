@@ -12,10 +12,11 @@ type linked(ptr) where {
     move linked(next.le) if next.le != 0;
 }
 
-fn main(ptr) where { 
-    list = linked(ptr); 
-} -> () where {
-    list;
+fn main() -> (ptr, num) where {
+    quad(ptr);
 } = {
-    return ()
+    let (ptr) = @alloc(4);
+    let () = @write32(ptr, 42);
+    let (res) = @read32(ptr);
+    return (ptr, res)
 }

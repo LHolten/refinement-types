@@ -83,7 +83,7 @@ impl Free<Term> {
 
 static ALLOC: &str = r"
 (pages) -> (start) where {
-    @byte for (ptr) if (ptr - start) < pages;
+    move @byte for (ptr) if (ptr - start) < pages;
     assert start <= (start + pages);
 }";
 
@@ -92,17 +92,19 @@ static READ8: &str = r"
     val = move @byte(ptr);
 } -> (ret) where {
     assert ret == val;
-    new = move @byte(ptr);
-    assert new == val;
+    val;
 }";
 
 static READ32: &str = r"
 (ptr) where {
-    val = move @quad(ptr);
+    p0 = move @byte(ptr + 0);
+    p1 = move @byte(ptr + 1);
+    p2 = move @byte(ptr + 2);
+    p3 = move @byte(ptr + 3);
+    let val = ((p3 << 8) + (p2 << 16)) + ((p1 << 8) + p0);
 } -> (ret) where {
     assert ret == val;
-    new = move @byte(ptr);
-    assert new == val;
+    p0; p1; p2; p3;
 }";
 
 static WRITE8: &str = r"
@@ -115,22 +117,29 @@ static WRITE8: &str = r"
 
 static WRITE32: &str = r"
 (ptr, val) where {
-    move @quad(ptr);
+    move @byte(ptr + 0);
+    move @byte(ptr + 1);
+    move @byte(ptr + 2);
+    move @byte(ptr + 3);
 } -> () where {
-    new = move @quad(ptr);
+    p0 = move @byte(ptr + 0);
+    p1 = move @byte(ptr + 1);
+    p2 = move @byte(ptr + 2);
+    p3 = move @byte(ptr + 3);
+    let new = ((p3 << 8) + (p2 << 16)) + ((p1 << 8) + p0);
     assert new == val;
 }";
 
 pub fn builtins() -> Vec<&'static str> {
-    vec![READ8, ALLOC, READ32, WRITE8, WRITE32]
+    vec![ALLOC, READ8, READ32, WRITE8, WRITE32]
 }
 
 impl Builtin {
     pub(super) fn infer(&self) -> Fun<NegTyp> {
         let files = builtins();
         match self {
-            Builtin::Read8 => desugar::convert_neg(&files, 0),
-            Builtin::Alloc => desugar::convert_neg(&files, 1),
+            Builtin::Alloc => desugar::convert_neg(&files, 0),
+            Builtin::Read8 => desugar::convert_neg(&files, 1),
             Builtin::Read32 => desugar::convert_neg(&files, 2),
             Builtin::Write8 => desugar::convert_neg(&files, 3),
             Builtin::Write32 => desugar::convert_neg(&files, 4),

@@ -5,6 +5,7 @@ use crate::refinement::{func_term::FuncTerm, term::Term, typing::zip_eq, Resourc
 use crate::{refinement, Nested};
 
 use std::collections::HashMap;
+use std::mem::replace;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -31,16 +32,18 @@ pub struct NameList(pub HashMap<String, Named>);
 pub struct DesugarTypes {
     pub(super) named: NameList,
     pub terms: HashMap<String, Nested<Term>>,
-    pub exactly: HashMap<String, NameExact>,
+    pub exactly: HashMap<String, Exactly>,
     pub offset: usize,
 }
 
-#[derive(Clone)]
-pub struct NameExact {
-    named: Named,
-    args: Vec<Term>,
-    res: Nested<Term>,
-}
+type Exactly = Rc<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
+
+// #[derive(Clone)]
+// pub struct NameExact {
+//     typ: Rc<Spanned<PosTyp>>,
+//     args: Vec<Term>,
+//     res: Nested<Term>,
+// }
 
 impl DesugarTypes {
     pub(super) fn new(list: NameList, offset: usize) -> Self {
@@ -63,7 +66,7 @@ impl DesugarTypes {
                 let mut this = this.clone();
                 this.terms.extend(zip_eq(pos.val.names.clone(), terms));
 
-                this.convert_constraint(&pos.val.parts, heap, None)?;
+                this.convert_constraint(&pos.val.parts, heap)?;
 
                 Ok(refinement::PosTyp)
             }),
@@ -83,7 +86,7 @@ impl DesugarTypes {
                 let mut this = this.clone();
                 this.terms.extend(zip_eq(args.val.names.clone(), terms));
 
-                this.convert_constraint(&args.val.parts, heap, None)?;
+                this.convert_constraint(&args.val.parts, heap)?;
 
                 Ok(refinement::NegTyp {
                     arg: refinement::PosTyp,
@@ -109,22 +112,18 @@ impl DesugarTypes {
         &mut self,
         parts: &[Spanned<Constraint>],
         heap: &mut dyn Heap,
-        mut exactly: Option<HashMap<String, Nested<Term>>>,
-    ) -> Result<Nested<Term>, ConsumeErr> {
-        let mut out = HashMap::new();
+    ) -> Result<Exactly, ConsumeErr> {
+        fn accept() -> Exactly {
+            Rc::new(|_: &mut dyn Heap| Ok(()))
+        }
 
-        let mut name_idx = 0;
-        let mut make_name = || {
-            let res = format!("{name_idx}");
-            name_idx += 1;
-            res
-        };
-
-        let mut get_exact = |name: &String| exactly.as_mut().map(|x| x.remove(name).unwrap());
-
-        let mut set_exact = |name: String, v| {
-            let res = out.insert(name, v);
-            assert!(res.is_none());
+        let mut out = accept();
+        let mut append = |func: Exactly| {
+            let prev = replace(&mut out, accept());
+            out = Rc::new(move |h: &mut dyn Heap| {
+                prev(h)?;
+                func(h)
+            });
         };
 
         for part in parts {
@@ -152,13 +151,16 @@ impl DesugarTypes {
                         }),
                     };
 
-                    let new_name = make_name();
-                    let equal = get_exact(&new_name).map(Nested::unwrap_arr);
-                    let res = heap.forall(forall, equal)?;
-                    set_exact(new_name, Nested::Arr(res));
+                    let res = heap.forall(forall.clone(), None)?;
+                    let equal = Rc::new(move |h: &mut dyn Heap| {
+                        h.forall(forall.clone(), Some(res.clone()))?;
+                        Ok(())
+                    });
+                    append(equal);
                 }
                 Constraint::Assert(cond) => {
                     heap.assert(self.convert_prop(cond), Some(part.source_span(self.offset)))?;
+                    // TODO: does this need to be appended?
                 }
                 Constraint::Switch(new_name, switch) => {
                     let named = self.get_resource(&switch.named);
@@ -175,14 +177,18 @@ impl DesugarTypes {
                         span: Some(part.source_span(self.offset)),
                     };
 
-                    let new_name2 = new_name.clone().unwrap_or_else(&mut make_name);
-                    let equal = get_exact(&new_name2).map(Nested::unwrap_arr);
-                    let res = heap.forall(forall, equal)?;
-                    set_exact(new_name2.clone(), Nested::Arr(res.clone()));
-                    if new_name.is_some() {
+                    let res = heap.forall(forall.clone(), None)?;
+                    let res_val = res.apply(&args).extend_to(32);
+                    let equal = Rc::new(move |h: &mut dyn Heap| {
+                        h.forall(forall.clone(), Some(res.clone()))?;
+                        Ok(())
+                    });
+                    append(equal.clone());
+
+                    if let Some(new_name) = new_name.to_owned() {
                         assert!(switch.cond.is_none());
-                        self.terms
-                            .insert(new_name2, Nested::Just(res.apply(&args).extend_to(32)));
+                        self.exactly.insert(new_name.clone(), equal);
+                        self.terms.insert(new_name, Nested::Just(res_val));
                     }
                 }
                 Constraint::Inline(new_name, call) => {
@@ -195,44 +201,23 @@ impl DesugarTypes {
                     this.terms
                         .extend(zip_eq(named.typ.val.names.clone(), args_iter));
 
-                    let new_name2 = new_name.clone().unwrap_or_else(&mut make_name);
-                    let equal = get_exact(&new_name2).map(Nested::unwrap_more);
-                    let res = this.convert_constraint(&named.typ.val.parts, heap, equal)?;
-                    set_exact(new_name2, res.clone());
+                    let equal = this.convert_constraint(&named.typ.val.parts, heap)?;
+                    append(equal.clone());
 
                     if let Some(new_name) = new_name.clone() {
-                        self.exactly.insert(
-                            new_name.clone(),
-                            NameExact {
-                                named: named.clone(),
-                                args,
-                                res: res.clone(),
-                            },
-                        );
+                        self.exactly.insert(new_name.clone(), equal);
                         self.terms.insert(new_name, Nested::More(this.terms));
                     }
                 }
                 Constraint::Exactly(name) => {
-                    let name_exact = self.exactly.get(name).unwrap();
-
-                    let mut this = self.clone();
-                    let args = name_exact.args.iter().cloned().map(Nested::Just);
-                    this.terms
-                        .extend(zip_eq(name_exact.named.typ.val.names.clone(), args));
-
-                    this.convert_constraint(
-                        &name_exact.named.typ.val.parts,
-                        heap,
-                        Some(name_exact.res.clone().unwrap_more()),
-                    )?;
+                    let equal = self.exactly.get(name).unwrap();
+                    equal(heap)?;
+                    append(equal.clone());
                 }
             }
         }
-        if let Some(eq) = exactly {
-            assert!(eq.is_empty())
-        }
 
-        Ok(Nested::More(out))
+        Ok(out)
     }
 
     pub fn convert_named(&self, named: &Named) -> refinement::Name {
