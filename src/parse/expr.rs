@@ -57,6 +57,7 @@ pub enum BinOp {
     Times,
     Modulo,
     Divide,
+    Shl,
 }
 
 pub enum Stmt {

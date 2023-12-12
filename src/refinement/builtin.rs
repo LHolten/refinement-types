@@ -1,3 +1,5 @@
+use std::ops::{Not, Shl};
+
 use crate::desugar;
 
 use super::{term::Term, BinOp, Free, Fun, NegTyp, SubContext};
@@ -26,6 +28,7 @@ impl SubContext {
             BinOp::LessEq => {}
             BinOp::NotEq => {}
             BinOp::MulSafe => {}
+            BinOp::Shl => {}
         }
     }
 }
@@ -44,24 +47,27 @@ impl BinOp {
             BinOp::LessEq => l.ule(r),
             BinOp::NotEq => l.eq(r).is_zero(),
             BinOp::MulSafe => l.umul_no_overlow(r),
+            BinOp::Shl => l.shl(r),
         }
     }
 
     pub fn eval(&self, l: i32, r: i32) -> i32 {
-        // TODO: make sure that values wrap arround correct
-        match self {
+        let (l, r) = (l as u32, r as u32);
+        let res = match self {
             BinOp::Add => l + r,
             BinOp::Sub => l - r,
             BinOp::Div => l / r,
             BinOp::Mul => l * r,
             BinOp::Rem => l % r,
-            BinOp::Eq => (l == r) as i32,
-            BinOp::Less => (l < r) as i32,
+            BinOp::Eq => (l == r) as u32,
+            BinOp::Less => (l < r) as u32,
             BinOp::And => l & r,
-            BinOp::LessEq => (l <= r) as i32,
-            BinOp::NotEq => (l != r) as i32,
-            BinOp::MulSafe => todo!(),
-        }
+            BinOp::LessEq => (l <= r) as u32,
+            BinOp::NotEq => (l != r) as u32,
+            BinOp::MulSafe => l.overflowing_mul(r).1.not() as u32,
+            BinOp::Shl => l.shl(r),
+        };
+        res as i32
     }
 }
 

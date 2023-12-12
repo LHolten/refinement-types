@@ -40,6 +40,7 @@ impl BinOpValue {
             BinOp::Times => refinement::BinOp::Mul,
             BinOp::Modulo => refinement::BinOp::Rem,
             BinOp::Divide => refinement::BinOp::Div,
+            BinOp::Shl => refinement::BinOp::Shl,
         };
         refinement::Free::BinOp {
             l: Rc::new(self.l.convert(lookup)),

@@ -32,6 +32,7 @@ BinOp: BinOp = {
     "*" => BinOp::Times,
     "%" => BinOp::Modulo,
     "/" => BinOp::Divide,
+    "<<" => BinOp::Shl,
 };
 
 Tuple: Vec<Value> = "(" <(<UnboxedValue> ","?)*> ")" => <>;

@@ -50,6 +50,7 @@ pub enum BinOp {
     NotEq,
     And,
     MulSafe,
+    Shl,
 }
 
 #[allow(clippy::type_complexity)]
