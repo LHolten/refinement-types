@@ -1,16 +1,16 @@
 
 fn factorial(n) -> (out) = {
-    fn loop(res, i) -> (out) = {    
-        if_zero i {
+    fn inner(res, i) -> (out) = {    
+        if i == 0 {
             return (res)
         };
-        return loop(res * i, i - 1)
+        return inner(res * i, i - 1)
     };
-    return loop(1, n)
+    return inner(1, n)
 }
 
 fn fib(n) -> (out) = {
-    if_zero (2 <= n) {
+    if (n < 2) {
         return (1)
     };
     let (a) = fib(n - 2);
