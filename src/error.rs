@@ -23,9 +23,11 @@ impl miette::SourceCode for MultiFile {
     ) -> Result<Box<dyn miette::SpanContents<'a> + 'a>, miette::MietteError> {
         let mut start = 0;
         let mut code = &*self.code;
+        let mut header = "source";
         for b in &self.builtin {
             if span.offset() < start + b.len() {
                 code = b;
+                header = "builtin";
                 break;
             }
             start += b.len();
@@ -37,7 +39,8 @@ impl miette::SourceCode for MultiFile {
         let local_span = local.span();
         let span = (local_span.offset() + start, local_span.len()).into();
 
-        Ok(Box::new(miette::MietteSpanContents::new(
+        Ok(Box::new(miette::MietteSpanContents::new_named(
+            header.to_owned(),
             local.data(),
             span,
             local.line(),
