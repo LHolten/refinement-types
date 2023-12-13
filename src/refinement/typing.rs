@@ -4,14 +4,14 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use miette::{Diagnostic, SourceSpan};
+use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use thiserror::Error;
 
-use crate::{desugar::Desugar, parse, refinement::Free};
+use crate::{desugar::Desugar, error::AppendLabels, parse, refinement::Free};
 
 use super::{
-    term::Term, BoundExpr, Expr, Fun, InnerDiagnostic, Lambda, NegTyp, PosTyp, Spanned, SubContext,
-    Thunk, Val, Value,
+    term::Term, BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, Spanned, SubContext, Thunk, Val,
+    Value,
 };
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
@@ -179,18 +179,24 @@ where
     E: Diagnostic + Send + Sync + 'static,
 {
     fn using(self, expr: &Spanned<Expr<Term>>, typ: &Fun<PosTyp>) -> Result<T, ValueErr> {
-        self.map_err(|err| ValueErr {
-            e: Some(expr.span),
-            p: typ.span,
-            err: InnerDiagnostic::new(err),
+        self.map_err(|err| AppendLabels {
+            prefix: "While checking the expression against the type, ",
+            inner: Box::new(err),
+            extra: vec![
+                LabeledSpan::at(expr.span, "The expression"),
+                LabeledSpan::at(typ.span.unwrap(), "The type"),
+            ],
         })
     }
 
-    fn using_val<X>(self, expr: &Value<Term>, typ: &Fun<X>) -> Result<T, ValueErr> {
-        self.map_err(|err| ValueErr {
-            e: expr.span,
-            p: typ.span,
-            err: InnerDiagnostic::new(err),
+    fn using_val<X>(self, val: &Value<Term>, typ: &Fun<X>) -> Result<T, ValueErr> {
+        self.map_err(|err| AppendLabels {
+            prefix: "While checking the value against the type, ",
+            inner: Box::new(err),
+            extra: vec![
+                LabeledSpan::at(val.span.unwrap(), "The value"),
+                LabeledSpan::at(typ.span.unwrap(), "The type"),
+            ],
         })
     }
 }
@@ -202,13 +208,4 @@ pub struct EmptyErr {
     span: Option<SourceSpan>,
 }
 
-#[derive(Diagnostic, Error, Debug)]
-#[error("While checking that a value has this type..")]
-pub struct ValueErr {
-    #[label = "The value"]
-    e: Option<SourceSpan>,
-    #[label = "The type"]
-    p: Option<SourceSpan>,
-    #[related]
-    err: InnerDiagnostic,
-}
+type ValueErr = AppendLabels;

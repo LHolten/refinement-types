@@ -1,3 +1,7 @@
+use std::{error::Error, fmt::Display};
+
+use miette::{Diagnostic, LabeledSpan};
+
 use crate::refinement::builtin::builtins;
 
 pub struct MultiFile {
@@ -47,5 +51,65 @@ impl miette::SourceCode for MultiFile {
             local.column(),
             local.line_count(),
         )))
+    }
+}
+
+#[derive(Debug)]
+pub struct AppendLabels {
+    pub prefix: &'static str,
+    pub inner: Box<dyn Diagnostic + Send + Sync>,
+    pub extra: Vec<LabeledSpan>,
+}
+
+impl Display for AppendLabels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.prefix)?;
+        self.inner.fmt(f)
+    }
+}
+
+impl Error for AppendLabels {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.inner.source()
+    }
+}
+
+impl Diagnostic for AppendLabels {
+    fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        self.inner.code()
+    }
+
+    fn severity(&self) -> Option<miette::Severity> {
+        self.inner.severity()
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        self.inner.help()
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        self.inner.url()
+    }
+
+    fn source_code(&self) -> Option<&dyn miette::SourceCode> {
+        self.inner.source_code()
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        Some(Box::new(
+            self.inner
+                .labels()
+                .into_iter()
+                .flatten()
+                .chain(self.extra.clone()),
+        ))
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
+        self.inner.related()
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        self.inner.diagnostic_source()
     }
 }
