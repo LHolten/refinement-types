@@ -10,8 +10,7 @@ use thiserror::Error;
 use crate::{desugar::Desugar, error::AppendLabels, parse, refinement::Free};
 
 use super::{
-    term::Term, BoundExpr, Expr, Fun, Lambda, NegTyp, PosTyp, Spanned, SubContext, Thunk, Val,
-    Value,
+    term::Term, Expr, Fun, Lambda, NegTyp, PosTyp, Spanned, SubContext, Thunk, Val, Value,
 };
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
@@ -99,53 +98,48 @@ impl SubContext {
     pub fn check_expr(mut self, l: &Lambda<Term>, n: &Fun<NegTyp>) -> Result<(), ValueErr> {
         let neg = self.extract(n);
         let e = l.inst(&neg.terms);
-        self.check_expr_pos(e, &neg.inner.ret)
+        self.check_expr_pos(&e, &neg.inner.ret)
     }
 
     pub fn check_expr_pos(
         mut self,
-        e: Spanned<Expr<Term>>,
+        expr: &Spanned<Expr<Term>>,
         p: &Fun<PosTyp>,
     ) -> Result<(), ValueErr> {
-        match e.as_ref() {
+        match &expr.val {
             Expr::Return(v) => {
                 self.check_value(v, p)?;
-                self.check_empty().using(&e, p)?;
+                self.check_empty().using(expr, p)?;
             }
-            Expr::Let(g, l) => {
-                match g {
-                    BoundExpr::App(func, s) => {
-                        let n = self.infer_func(func);
-                        let bound_p = self.spine(&n, s)?;
-                        self.check_expr(l, &bound_p.arrow(p.clone()))?;
-                    }
-                    BoundExpr::Cont(c, n) => {
-                        self.without_alloc().check_expr(c, n)?;
-                        let e = l.inst(&[]);
-                        self.check_expr_pos(e, p)?;
-                    }
-                };
+            Expr::App(func, s, l) => {
+                let n = self.infer_func(func);
+                let bound_p = self.spine(&n, s)?;
+                self.check_expr(l, &bound_p.arrow(p.clone()))?;
+            }
+            Expr::Cont(c, n, e) => {
+                self.without_alloc().check_expr(c, n)?;
+                self.check_expr_pos(e, p)?;
             }
             Expr::Match(free, pats) => {
                 let term = self.check_free(free);
                 let size = term.get_size();
-                let (last, pats) = pats.split_last().unwrap();
+                let (last_e, pats) = pats.split_last().unwrap();
 
-                for (i, l) in pats.iter().enumerate() {
+                for (i, e) in pats.iter().enumerate() {
                     // we want to preserve resources between branches
-                    let this = self.clone();
+                    let mut this = self.clone();
                     let phi = term.eq(&Term::nat(i as i64, size));
-                    let match_p = this.unroll_prod_univ(phi);
-                    this.check_expr(l, &match_p.arrow(p.clone()))?;
+                    this.assume.push(phi);
+                    this.check_expr_pos(e, p)?;
                 }
 
                 let phi = Term::nat(pats.len() as i64, size).ule(&term);
-                let match_p = self.unroll_prod_univ(phi);
-                self.check_expr(last, &match_p.arrow(p.clone()))?;
+                self.assume.push(phi);
+                self.check_expr_pos(last_e, p)?;
             }
             Expr::Loop(n, s) => {
                 let res = self.spine(n, s)?;
-                self.sub_pos_typ(&res, p).using(&e, p)?;
+                self.sub_pos_typ(&res, p).using(expr, p)?;
             }
         }
         Ok(())

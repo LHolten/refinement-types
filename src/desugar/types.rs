@@ -38,13 +38,6 @@ pub struct DesugarTypes {
 
 type Exactly = Rc<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
 
-// #[derive(Clone)]
-// pub struct NameExact {
-//     typ: Rc<Spanned<PosTyp>>,
-//     args: Vec<Term>,
-//     res: Nested<Term>,
-// }
-
 impl DesugarTypes {
     pub(super) fn new(list: NameList, offset: usize) -> Self {
         Self {

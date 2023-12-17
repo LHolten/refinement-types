@@ -5,7 +5,7 @@ use std::{
 
 use crate::{desugar::Desugar, parse, refinement::typing::zip_eq};
 
-use super::{builtin::Builtin, BoundExpr, Expr, Free, Lambda, Thunk, Val, Value};
+use super::{builtin::Builtin, Expr, Free, Lambda, Thunk, Val, Value};
 
 #[derive(Default)]
 pub struct Memory {
@@ -46,29 +46,29 @@ impl Val for i32 {
 }
 
 impl Memory {
-    pub fn eval(&mut self, mut expr: Expr<i32>) -> Vec<i32> {
+    pub fn eval(&mut self, expr: Expr<i32>) -> Vec<i32> {
+        let mut owned = expr;
+        let mut borrow = &owned;
         loop {
-            match &expr {
+            match borrow {
                 Expr::Return(val) => return val.to_vec(),
-                Expr::Let(bind, e) => {
-                    match bind {
-                        BoundExpr::App(func, arg) => {
-                            let arg = self.call_func(arg, func);
-                            expr = e.inst(&arg).val;
-                        }
-                        BoundExpr::Cont(_cont, _lamb) => {
-                            expr = e.inst(&[]).val;
-                        }
-                    };
+                Expr::App(func, arg, e) => {
+                    let arg = self.call_func(arg, func);
+                    owned = e.inst(&arg).val;
+                    borrow = &owned;
+                }
+                Expr::Cont(_cont, _lamb, e) => {
+                    borrow = &e.val;
                 }
                 Expr::Match(local, e) => {
                     // clip index because last branch is the default
                     let idx = cmp::min(local.eval() as usize, e.len() - 1);
-                    expr = e[idx].inst(&[]).val;
+                    borrow = &e[idx].val;
                 }
                 Expr::Loop(func, arg) => {
                     let arg = arg.to_vec();
-                    expr = func.inst(&arg).val;
+                    owned = func.inst(&arg).val;
+                    borrow = &owned;
                 }
             }
         }

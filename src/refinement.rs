@@ -11,7 +11,6 @@ pub mod heap;
 mod subtyp;
 pub mod term;
 pub mod typing;
-mod unroll;
 mod verify;
 
 use miette::{Diagnostic, SourceSpan};
@@ -99,10 +98,8 @@ pub struct SubContext {
     // funcs: Vec<FuncName>,
 }
 
-#[derive(PartialEq, Eq, Debug, Default, Clone)]
 pub struct PosTyp;
 
-#[derive(PartialEq, Eq, Debug)]
 pub struct NegTyp {
     pub arg: PosTyp,
     pub ret: Fun<PosTyp>,
@@ -173,20 +170,16 @@ impl<T: ?Sized> Spanned<T> {
 
 impl<V: Val> Lambda<V> {
     pub fn inst(&self, var: &[V]) -> Spanned<Expr<V>> {
-        Spanned {
-            span: self.span,
-            val: (self.func)(var),
-        }
+        (self.func)(var)
     }
 }
 
 #[allow(clippy::type_complexity)]
-pub struct Lambda<V: Val, F = dyn Fn(&[V]) -> Expr<V>>
+pub struct Lambda<V: Val, F = dyn Fn(&[V]) -> Spanned<Expr<V>>>
 where
-    F: ?Sized + Fn(&[V]) -> Expr<V>,
+    F: ?Sized + Fn(&[V]) -> Spanned<Expr<V>>,
 {
     pub _val: PhantomData<V>,
-    pub span: SourceSpan,
     pub func: F,
 }
 
@@ -237,12 +230,6 @@ impl<T> From<&Spanned<T>> for SourceSpan {
     }
 }
 
-impl<V: Val> From<&Lambda<V>> for SourceSpan {
-    fn from(value: &Lambda<V>) -> Self {
-        value.span
-    }
-}
-
 impl<T> From<Fun<T>> for Option<SourceSpan> {
     fn from(value: Fun<T>) -> Self {
         value.span
@@ -267,23 +254,18 @@ pub enum Expr<V: Val> {
     /// construct a value and return it
     Return(Value<V>),
 
-    /// execute an expression and bind the result in the continuation
-    Let(BoundExpr<V>, Rc<Lambda<V>>),
+    /// apply a function to some arguments and bind the result in the continuation
+    App(Thunk<V>, Value<V>, Rc<Lambda<V>>),
+
+    /// define a different continuation,
+    Cont(Rc<Lambda<V>>, V::Func, Box<Spanned<Expr<V>>>),
 
     /// match on some inductive type and choose a branch
     /// last branch will be the catch all
-    Match(Free<V>, Vec<Rc<Lambda<V>>>),
+    Match(Free<V>, Vec<Spanned<Expr<V>>>),
 
     /// loop back to an assigment
     Loop(V::Func, Value<V>),
-}
-
-pub enum BoundExpr<V: Val> {
-    /// apply a function to some arguments
-    App(Thunk<V>, Value<V>),
-
-    /// define a different continuation,
-    Cont(Rc<Lambda<V>>, V::Func),
 }
 
 // - Make Prod type any length and povide projections
