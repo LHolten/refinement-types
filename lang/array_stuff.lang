@@ -1,11 +1,11 @@
 type array(from, len) where {
-    @byte for (ptr) if (ptr - from) < len;
+    move @byte for (ptr) if (ptr - from) < len;
 }
 
 fn fib(n) where {
     assert n < (n + 1);
 } -> (out, ptr) where {
-    move _ = array(ptr, n + 1);
+    array(ptr, n + 1);
 } = {
     let (start) = new_array(n + 1, 1);
 
@@ -14,7 +14,7 @@ fn fib(n) where {
     } -> (out, ptr) where {
         array(ptr, n + 1);
     } = {
-        let (val) = @read_u8(start + n);
+        let (val) = @read8(start + n);
         return (val, start)
     };
 
@@ -30,9 +30,9 @@ fn fib(n) where {
         if (ptr - start) == (n + 1) {
             return (ptr)
         };
-        let (a) = @read_u8(ptr - 2);
-        let (b) = @read_u8(ptr - 1);
-        let () = @write_u8(ptr, a + b);
+        let (a) = @read8(ptr - 2);
+        let (b) = @read8(ptr - 1);
+        let () = @write8(ptr, a + b);
         return inner(ptr + 1)
     };
 
@@ -41,7 +41,7 @@ fn fib(n) where {
 }
 
 fn new_array(size, val) -> (out) where {
-    move _ = array(out, size);
+    array(out, size);
 } = {
     let (start) = @alloc(size);
     
@@ -52,10 +52,18 @@ fn new_array(size, val) -> (out) where {
         if (ptr - start) == size {
             return (ptr)
         };
-        let () = @write_u8(ptr, val);
+        let () = @write8(ptr, val);
         return fill(ptr + 1)
     };
 
     let (_) = fill(start);
     return (start)
+}
+
+
+fn get_len(xs: array) -> (len) where {
+    assert xs.len == len;
+    xs;
+} = {
+    return (xs.len)
 }

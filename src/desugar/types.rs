@@ -78,6 +78,38 @@ impl DesugarTypes {
         out
     }
 
+    pub fn consume_terms(
+        &mut self,
+        terms: &[Term],
+        params: &[Param],
+        heap: &mut dyn Heap,
+    ) -> Result<(), ConsumeErr> {
+        let mut arg_iter = terms.iter().cloned();
+        for param in params {
+            let typ = self.val_typ(param);
+            let args = typ.consume(&mut arg_iter);
+
+            match &param.typ {
+                ParamTyp::I32 => {
+                    self.terms.insert(param.name.clone(), args);
+                }
+                ParamTyp::Custom { name } => {
+                    let named = self.named.0.get(name).unwrap();
+
+                    let mut this = self.clone();
+                    this.terms.extend(args.unwrap_more());
+
+                    let equal = this.convert_constraint(&named.typ.val.parts, heap)?;
+
+                    self.exactly.insert(param.name.clone(), equal);
+                    self.terms
+                        .insert(param.name.clone(), Nested::More(Some(named.id), this.terms));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn convert_pos(&self, pos: Rc<Spanned<PosTyp>>) -> refinement::Fun<refinement::PosTyp> {
         let this = self.clone();
         refinement::Fun {
@@ -85,8 +117,8 @@ impl DesugarTypes {
             span: Some(pos.source_span(self.offset)),
             fun: Rc::new(move |heap, terms| {
                 let mut this = this.clone();
-                this.terms.extend(this.consume_args(terms, &pos.val.names));
 
+                this.consume_terms(terms, &pos.val.names, heap)?;
                 this.convert_constraint(&pos.val.parts, heap)?;
 
                 Ok(refinement::PosTyp)
@@ -103,8 +135,8 @@ impl DesugarTypes {
             span: Some(args.source_span(self.offset)),
             fun: Rc::new(move |heap, terms| {
                 let mut this = this.clone();
-                this.terms.extend(this.consume_args(terms, &args.val.names));
 
+                this.consume_terms(terms, &args.val.names, heap)?;
                 this.convert_constraint(&args.val.parts, heap)?;
 
                 Ok(refinement::NegTyp {
