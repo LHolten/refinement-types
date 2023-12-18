@@ -10,8 +10,28 @@ pub struct NamedConstraint {
     pub typ: Rc<Spanned<PosTyp>>,
 }
 
+#[derive(Clone)]
+pub struct Param {
+    pub name: String,
+    pub typ: ParamTyp,
+}
+
+#[derive(Clone)]
+pub enum ParamTyp {
+    I32,
+    Custom {
+        name: String,
+        // args: Vec<ParamTypArg>,
+    },
+}
+
+// pub enum ParamTypArg {
+//     Bind(Option<String>),
+//     Exactly(Value),
+// }
+
 pub struct PosTyp {
-    pub names: Vec<String>,
+    pub names: Vec<Param>,
     pub parts: Vec<Spanned<Constraint>>,
 }
 

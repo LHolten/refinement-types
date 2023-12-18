@@ -12,21 +12,26 @@ use super::{func_term::FuncTerm, term::Term, Forall, Resource, SubContext};
 
 impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
-        self.arg_sizes()
+        self.named
+            .arg_sizes()
             .iter()
             .map(|(size, prefix)| Term::fresh(prefix, *size))
             .collect()
     }
-    pub fn id(&self) -> Option<usize> {
-        match &self.named {
-            Resource::Named(name) => Some(name.id),
-            Resource::Owned => None,
-        }
-    }
+}
+
+impl Resource {
     pub fn arg_sizes(&self) -> Vec<(u32, String)> {
-        match &self.named {
+        match self {
             Resource::Named(name) => name.typ.tau.clone(),
             Resource::Owned => vec![(32, "@ptr".to_owned())],
+        }
+    }
+
+    pub fn val_typ(&self) -> Option<usize> {
+        match self {
+            Resource::Named(name) => Some(name.id),
+            Resource::Owned => None,
         }
     }
 }
@@ -61,7 +66,7 @@ impl SubContext {
     pub fn never_overlap() {}
 
     pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
-        if large.id() != small.id() {
+        if large.named.val_typ() != small.named.val_typ() {
             return false;
         }
 

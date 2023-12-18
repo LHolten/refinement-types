@@ -4,10 +4,51 @@ use crate::{refinement, Nested};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-impl Value {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> refinement::Free<T> {
+pub enum ValTyp {
+    I32,
+    Named {
+        id: Option<usize>,
+        args: Vec<(String, ValTyp)>,
+    },
+}
+
+impl<T: Clone> Nested<T> {
+    pub fn collect(&self, typ: &ValTyp) -> Vec<refinement::Free<T>> {
+        match typ {
+            ValTyp::I32 => vec![refinement::Free::Var(self.clone().unwrap_just())],
+            ValTyp::Named { id, args } => {
+                let Self::More(id2, map) = self else { panic!() };
+                assert_eq!(id, id2);
+                args.iter()
+                    .flat_map(|(name, typ)| map[name].collect(typ))
+                    .collect()
+            }
+        }
+    }
+}
+
+impl ValTyp {
+    pub fn consume<T: Clone>(self, arg_iter: &mut impl Iterator<Item = T>) -> Nested<T> {
         match self {
-            Value::Var(name, rest) => refinement::Free::Var({
+            ValTyp::I32 => Nested::Just(arg_iter.next().unwrap()),
+            ValTyp::Named { id, args } => Nested::More(
+                id,
+                args.into_iter()
+                    .map(|(name, typ)| (name, typ.consume(arg_iter)))
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl Value {
+    pub fn convert<T: Clone>(
+        &self,
+        lookup: &HashMap<String, Nested<T>>,
+        typ: ValTyp,
+    ) -> Vec<refinement::Free<T>> {
+        match self {
+            Value::Var(name, rest) => {
                 let mut curr = lookup
                     .get(name)
                     .ok_or_else(|| {
@@ -19,21 +60,29 @@ impl Value {
                     .unwrap();
                 for r in rest {
                     match curr {
-                        Nested::More(lookup) => curr = lookup.get(r).unwrap(),
+                        Nested::More(_, lookup) => curr = lookup.get(r).unwrap(),
                         _ => panic!(),
                     }
                 }
-                curr.clone().unwrap_just()
-            }),
-            Value::Int32(val) => refinement::Free::Just(*val as i64, 32),
-            Value::BinOp(binop) => binop.convert(lookup),
-            Value::Prop(prop) => prop.convert(lookup),
+                curr.collect(&typ)
+            }
+            Value::Int32(val) => {
+                let ValTyp::I32 = typ else { panic!() };
+                vec![refinement::Free::Just(*val as i64, 32)]
+            }
+            Value::BinOp(binop) => vec![binop.convert(lookup, typ)],
+            Value::Prop(prop) => vec![prop.convert(lookup, typ)],
         }
     }
 }
 
 impl BinOpValue {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> refinement::Free<T> {
+    pub fn convert<T: Clone>(
+        &self,
+        lookup: &HashMap<String, Nested<T>>,
+        typ: ValTyp,
+    ) -> refinement::Free<T> {
+        let ValTyp::I32 = typ else { panic!() };
         let op = match self.op {
             BinOp::Plus => refinement::BinOp::Add,
             BinOp::Minus => refinement::BinOp::Sub,
@@ -43,8 +92,8 @@ impl BinOpValue {
             BinOp::Shl => refinement::BinOp::Shl,
         };
         refinement::Free::BinOp {
-            l: Rc::new(self.l.convert(lookup)),
-            r: Rc::new(self.r.convert(lookup)),
+            l: Rc::new(first(self.l.convert(lookup, ValTyp::I32))),
+            r: Rc::new(first(self.r.convert(lookup, ValTyp::I32))),
             op,
         }
     }
@@ -61,9 +110,14 @@ impl refinement::BinOp {
 }
 
 impl Prop {
-    pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> refinement::Free<T> {
-        let l = self.l.convert(lookup);
-        let r = self.r.convert(lookup);
+    pub fn convert<T: Clone>(
+        &self,
+        lookup: &HashMap<String, Nested<T>>,
+        typ: ValTyp,
+    ) -> refinement::Free<T> {
+        let ValTyp::I32 = typ else { panic!() };
+        let l = first(self.l.convert(lookup, ValTyp::I32));
+        let r = first(self.r.convert(lookup, ValTyp::I32));
         use refinement::BinOp as Op;
         match self.op {
             PropOp::Less => Op::Less.free(l, r),
@@ -74,4 +128,11 @@ impl Prop {
             PropOp::MulSafe => Op::MulSafe.free(l, r),
         }
     }
+}
+
+pub fn first<T>(iter: impl IntoIterator<Item = T>) -> T {
+    let mut iter = iter.into_iter();
+    let first = iter.next().unwrap();
+    assert!(iter.next().is_none());
+    first
 }

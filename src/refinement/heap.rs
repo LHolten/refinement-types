@@ -92,7 +92,7 @@ impl Heap for HeapConsume<'_> {
 impl Heap for HeapProduce<'_> {
     /// Here we just put the aggregate to be used by consumption.
     fn forall(&mut self, forall: Forall, value: Option<FuncTerm>) -> Result<FuncTerm, ConsumeErr> {
-        let value = value.unwrap_or_else(|| FuncTerm::free(&forall.arg_sizes()));
+        let value = value.unwrap_or_else(|| FuncTerm::free(&forall.named.arg_sizes()));
         self.forall.push(CtxForall {
             have: forall,
             value: value.clone(),
@@ -127,7 +127,7 @@ impl SubContext {
 
         // first we consume small allocations
         for alloc in forall_list.iter_mut() {
-            if alloc.have.id() != need.id() {
+            if alloc.have.named.val_typ() != need.named.val_typ() {
                 continue;
             }
             let overlap = Forall {

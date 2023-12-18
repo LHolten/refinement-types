@@ -70,11 +70,22 @@ FuncDef: FuncDef = {
 
 pub NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
-PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spanned<Constraint>> ";")*> "}")?> => {
+PosTypInner: PosTyp = "(" <names:(<Param> ","?)*> ")" <parts:("where" "{" <(<Spanned<Constraint>> ";")*> "}")?> => {
     let parts = parts.into_iter().flatten().collect();    
     PosTyp{names, parts}
 };
 PosTyp: Rc<Spanned<PosTyp>> = Spanned<PosTypInner> => Rc::new(<>);
+
+Param: Param = {
+    Var => Param{name: <>, typ: ParamTyp::I32},
+    <name:Var> ":" <typ:ParamTyp> => Param{<>},
+};
+ParamTyp: ParamTyp = <name:Var> => ParamTyp::Custom{<>};
+// ParamTyp: ParamTyp = <name:Var> "(" <args:( <ParamTypArg> "," )*> ")" => ParamTyp::Custom{<>};
+// ParamTypArg: ParamTypArg = {
+//     "_" <("as" <Var>)?> => ParamTypArg::Bind(<>),
+//     UnboxedValue => ParamTypArg::Exactly(<>),
+// };
 
 Forall: Forall = "move" <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
 Switch: Switch = "move" <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" <cond:("if" <UnboxedValue>)?> => Switch{<>};

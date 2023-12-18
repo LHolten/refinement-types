@@ -19,7 +19,7 @@ pub mod uninit_rc;
 
 #[derive(Clone)]
 pub enum Nested<T> {
-    More(HashMap<String, Nested<T>>),
+    More(Option<usize>, HashMap<String, Nested<T>>),
     Just(T),
 }
 
@@ -33,7 +33,7 @@ impl<T> Nested<T> {
 
     pub fn unwrap_more(self) -> HashMap<String, Nested<T>> {
         match self {
-            Nested::More(more) => more,
+            Nested::More(_, more) => more,
             _ => panic!(),
         }
     }
