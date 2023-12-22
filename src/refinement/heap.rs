@@ -5,8 +5,7 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 use super::{
-    func_term::FuncTerm, term::Term, verify::format_model, CtxForall, Forall, Once, Resource,
-    SubContext,
+    func_term::FuncTerm, term::Term, verify::format_model, CtxForall, Forall, Once, SubContext,
 };
 
 pub(super) struct HeapConsume<'a>(pub &'a mut SubContext);
@@ -46,7 +45,7 @@ pub trait Heap {
     fn forall(&mut self, forall: Forall, value: Option<FuncTerm>) -> Result<FuncTerm, ConsumeErr>;
     fn once(&mut self, once: Once, value: Option<Term>) -> Result<Term, ConsumeErr> {
         let forall = Forall {
-            named: Resource::Named(once.named),
+            named: once.named,
             mask: FuncTerm::exactly(&once.args),
             span: once.span,
         };

@@ -67,12 +67,12 @@ impl DesugarTypes {
         out
     }
 
-    pub fn consume_args<T: Clone>(&self, args: &[T], pos: &[Param]) -> HashMap<String, Nested<T>> {
+    pub fn consume_args<T: Clone>(&self, args: &[T], params: &[Param]) -> Vec<(String, Nested<T>)> {
         let mut args = args.iter().cloned();
-        let mut out = HashMap::new();
-        for param in pos {
+        let mut out = Vec::new();
+        for param in params {
             let typ = self.val_typ(param);
-            out.insert(param.name.clone(), typ.consume(&mut args));
+            out.push((param.name.clone(), typ.consume(&mut args)));
         }
         assert!(args.next().is_none());
         out
@@ -84,29 +84,36 @@ impl DesugarTypes {
         params: &[Param],
         heap: &mut dyn Heap,
     ) -> Result<(), ConsumeErr> {
-        let mut arg_iter = terms.iter().cloned();
-        for param in params {
+        let args = self.consume_args(terms, params);
+
+        for ((name, arg), param) in zip_eq(&args, params) {
             let typ = self.val_typ(param);
-            let args = typ.consume(&mut arg_iter);
-
             match &param.typ {
-                ParamTyp::I32 => {
-                    self.terms.insert(param.name.clone(), args);
-                }
+                ParamTyp::I32 => {}
                 ParamTyp::Custom { name } => {
-                    let named = self.named.0.get(name).unwrap();
+                    let once = refinement::Once {
+                        args: arg
+                            .collect(&typ)
+                            .into_iter()
+                            .map(|x| x.make_term())
+                            .collect(),
+                        named: self.get_resource(name),
+                        span: None,
+                    };
+                    let res = heap.once(once.clone(), None)?;
 
-                    let mut this = self.clone();
-                    this.terms.extend(args.unwrap_more());
-
-                    let equal = this.convert_constraint(&named.typ.val.parts, heap)?;
+                    let equal = Rc::new(move |h: &mut dyn Heap| {
+                        h.once(once.clone(), Some(res.clone()))?;
+                        Ok(())
+                    });
 
                     self.exactly.insert(param.name.clone(), equal);
-                    self.terms
-                        .insert(param.name.clone(), Nested::More(Some(named.id), this.terms));
                 }
             }
         }
+
+        self.terms.extend(args);
+
         Ok(())
     }
 

@@ -63,8 +63,9 @@ pub struct Cond {
     pub span: SourceSpan,
 }
 
+#[derive(Clone)]
 pub struct Once {
-    pub named: Name,
+    pub named: Resource,
     pub args: Vec<Term>,
     pub span: Option<SourceSpan>,
 }

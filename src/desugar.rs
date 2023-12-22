@@ -147,18 +147,28 @@ impl<T: Val> Desugar<T> {
                     let cont = self.convert_expr(def);
                     refinement::Expr::Match(local, vec![rest, cont])
                 }
-                Stmt::Unpack(bind) => {
-                    let rest = self.convert_lambda(next, None, &[]);
+                // unpack is (from, len) -> array
+                Stmt::Unpack(new_name, bind) => {
+                    let param = Param {
+                        name: new_name.clone(),
+                        typ: ParamTyp::Custom {
+                            name: bind.func.clone().unwrap(),
+                        },
+                    };
+                    let rest = self.convert_lambda(next, None, &[param]);
+
                     let named = self.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
                     let arg = self.convert_value(&bind.args, &named.typ.val.names);
+                    let tau = self.types.tau(&named.typ.val.names);
+
                     let named = self.types.convert_named(named);
 
                     let typ = refinement::Fun {
-                        tau: vec![],
+                        tau: tau.clone(),
                         span: named.typ.span,
                         fun: Rc::new(move |heap, terms| {
                             let once = refinement::Once {
-                                named: named.clone(),
+                                named: refinement::Resource::Named(named.clone()),
                                 args: terms.to_owned(),
                                 span: None,
                             };
@@ -167,9 +177,9 @@ impl<T: Val> Desugar<T> {
                             let terms = terms.to_owned();
                             let named = named.clone();
                             let ret = refinement::Fun {
-                                tau: vec![],
+                                tau: tau.clone(),
                                 span: named.typ.span,
-                                fun: Rc::new(move |heap, _| {
+                                fun: Rc::new(move |heap, terms| {
                                     (named.typ.fun)(heap, &terms)?;
 
                                     Ok(refinement::PosTyp)
@@ -187,14 +197,17 @@ impl<T: Val> Desugar<T> {
                     let func = refinement::Thunk::Builtin(builtin);
                     refinement::Expr::App(func, arg, rest)
                 }
+                // unpack is array -> (from, len)
                 Stmt::Pack(bind) => {
                     let rest = self.convert_lambda(next, None, &[]);
                     let named = self.types.named.0.get(bind.func.as_ref().unwrap()).unwrap();
                     let arg = self.convert_value(&bind.args, &named.typ.val.names);
+                    let tau = self.types.tau(&named.typ.val.names);
+
                     let named = self.types.convert_named(named);
 
                     let typ = refinement::Fun {
-                        tau: vec![],
+                        tau,
                         span: named.typ.span,
                         fun: Rc::new(move |heap, terms| {
                             (named.typ.fun)(heap, terms)?;
@@ -206,7 +219,7 @@ impl<T: Val> Desugar<T> {
                                 span: named.typ.span,
                                 fun: Rc::new(move |heap, _| {
                                     let once = refinement::Once {
-                                        named: named.clone(),
+                                        named: refinement::Resource::Named(named.clone()),
                                         args: terms.clone(),
                                         span: None,
                                     };
