@@ -16,14 +16,16 @@ impl SubContext {
             terms.push(term);
         }
 
-        let mut heap = HeapProduce(self);
+        let mut heap = HeapProduce(self, vec![]);
         let typ = (n.fun)(&mut heap, &terms).unwrap();
+        let new_forall = heap.1;
+        self.forall.extend(new_forall);
 
         Solved { inner: typ, terms }
     }
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
-        let mut heap = HeapConsume(self);
+        let mut heap = HeapConsume(self, vec![], Term::bool(true));
 
         if typ.tau.len() != terms.len() {
             return Err(ConsumeErr::NumArgs);

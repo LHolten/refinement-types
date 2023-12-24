@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use super::expr::{Bind, Spanned, Value};
+use super::expr::{Spanned, Value};
 
 #[derive(Clone)]
 pub struct NamedConstraint {
@@ -47,7 +47,6 @@ pub enum Constraint {
     Assert(Prop),
     Let(String, Value),
     // Func(Term, NegTyp),
-    Inline(Option<String>, Bind),
     Exactly(String),
 }
 

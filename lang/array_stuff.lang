@@ -1,5 +1,5 @@
 type array(from, len) where {
-    move @byte for (ptr) if (ptr - from) < len;
+    @byte for (ptr) if (ptr - from) < len;
 }
 
 fn fib(n) where {
@@ -66,4 +66,13 @@ fn get_len(xs: array) -> (len) where {
     xs;
 } = {
     return (xs.len)
+}
+
+
+fn get_rem(xs: array) where {
+    assert 0 < xs.len;
+} -> (ys: array) where {
+    @byte (xs.from);
+} = {
+    return (array(xs.from + 1, xs.len - 1))
 }

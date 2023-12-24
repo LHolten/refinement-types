@@ -106,6 +106,10 @@ impl Term {
         assert_eq!(self.get_size(), r.get_size());
         Self::Bool(self.to_bool() & r.to_bool())
     }
+    pub fn implies(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::Bool(self.to_bool().implies(&r.to_bool()))
+    }
     pub fn concat(&self, r: &Self) -> Self {
         Self::BV(self.to_bv().concat(&r.to_bv()))
     }

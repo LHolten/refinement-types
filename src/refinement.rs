@@ -23,6 +23,7 @@ use self::heap::{ConsumeErr, Heap};
 
 use self::builtin::Builtin;
 use self::term::Term;
+use self::verify::Assume;
 
 // Side effect free expression
 #[derive(Clone)]
@@ -64,9 +65,10 @@ pub struct Cond {
 }
 
 #[derive(Clone)]
-pub struct Once {
-    pub named: Resource,
+pub struct Switch {
+    pub resource: Resource,
     pub args: Vec<Term>,
+    pub cond: Term,
     pub span: Option<SourceSpan>,
 }
 
@@ -79,7 +81,7 @@ pub enum Resource {
 
 #[derive(Clone)]
 pub struct Forall {
-    pub named: Resource,
+    pub resource: Resource,
     // mask specifies where is valid
     pub mask: FuncTerm,
     pub span: Option<SourceSpan>,
@@ -94,9 +96,16 @@ pub struct CtxForall {
 #[derive(Clone, Default)]
 #[must_use]
 pub struct SubContext {
-    assume: Vec<Term>,
+    assume: Assume,
     forall: Vec<CtxForall>,
-    // funcs: Vec<FuncName>,
+    // these do not have to exist, but might
+    hints: Vec<Hint>,
+}
+
+#[derive(Clone)]
+pub struct Hint {
+    id: usize,
+    args: Vec<Term>,
 }
 
 pub struct PosTyp;

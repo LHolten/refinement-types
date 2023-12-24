@@ -8,11 +8,11 @@ use z3::{
 
 use crate::solver::solver;
 
-use super::{func_term::FuncTerm, term::Term, Forall, Resource, SubContext};
+use super::{func_term::FuncTerm, term::Term, Forall, Resource};
 
 impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
-        self.named
+        self.resource
             .arg_sizes()
             .iter()
             .map(|(size, prefix)| Term::fresh(prefix, *size))
@@ -36,7 +36,12 @@ impl Resource {
     }
 }
 
-impl SubContext {
+#[derive(Clone, Default)]
+pub struct Assume {
+    pub assumptions: Vec<Term>,
+}
+
+impl Assume {
     pub fn is_always_true(&self, cond: Bool<'static>) -> bool {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
@@ -66,7 +71,7 @@ impl SubContext {
     pub fn never_overlap() {}
 
     pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
-        if large.named.val_typ() != small.named.val_typ() {
+        if large.resource.val_typ() != small.resource.val_typ() {
             return false;
         }
 
@@ -144,10 +149,17 @@ impl SubContext {
         let SatResult::Sat = s.check() else { panic!() };
         let model = s.get_model().unwrap();
         let mut out = String::new();
+        let args: Vec<_> = idx
+            .iter()
+            .map(|idx| model.eval(&idx.to_bv(), true).unwrap().to_string())
+            .collect();
+        let args = args.join(", ");
         format_model(indented(&mut out), model);
         format!(
             "Here is a valid example for which \n\
-            the resource does not exist: \n{out}"
+            the resource does not exist: \n
+            ({args})
+            \n{out}"
         )
     }
 }
@@ -163,11 +175,11 @@ pub fn format_model<F: Write>(mut f: F, model: Model<'_>) {
     // }
 }
 
-impl SubContext {
+impl Assume {
     pub fn assume(&self) -> &'static Solver<'static> {
         let s = solver();
         s.reset();
-        for phi in &self.assume {
+        for phi in &self.assumptions {
             s.assert(&phi.to_bool());
         }
         s

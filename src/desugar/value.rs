@@ -1,5 +1,6 @@
 use crate::parse::expr::{BinOp, BinOpValue, Value};
 use crate::parse::types::{Prop, PropOp};
+use crate::refinement::typing::zip_eq;
 use crate::{refinement, Nested};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -36,12 +37,14 @@ impl ValTyp {
                 args.into_iter()
                     .map(|(name, typ)| (name, typ.consume(arg_iter)))
                     .collect(),
+                // TODO: add inner variables
             ),
         }
     }
 }
 
 impl Value {
+    // convert a value to individual fields
     pub fn convert<T: Clone>(
         &self,
         lookup: &HashMap<String, Nested<T>>,
@@ -72,6 +75,15 @@ impl Value {
             }
             Value::BinOp(binop) => vec![binop.convert(lookup, typ)],
             Value::Prop(prop) => vec![prop.convert(lookup, typ)],
+            Value::Struct(_name, vals) => {
+                // TODO: check that name == id?
+                let ValTyp::Named { id: _, args } = typ else {
+                    panic!()
+                };
+                zip_eq(args, vals)
+                    .flat_map(|((_name, typ), val)| val.convert(lookup, typ))
+                    .collect()
+            }
         }
     }
 }

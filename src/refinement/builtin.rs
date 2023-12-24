@@ -19,9 +19,9 @@ impl SubContext {
         match op {
             BinOp::Add => {}
             BinOp::Sub => {}
-            BinOp::Div => self.verify_prop(&r.not_zero()).unwrap(),
+            BinOp::Div => self.assume.verify_prop(&r.not_zero()).unwrap(),
             BinOp::Mul => {}
-            BinOp::Rem => self.verify_prop(&r.not_zero()).unwrap(),
+            BinOp::Rem => self.assume.verify_prop(&r.not_zero()).unwrap(),
             BinOp::Eq => {}
             BinOp::Less => {}
             BinOp::And => {}
@@ -83,13 +83,13 @@ impl Free<Term> {
 
 static ALLOC: &str = r"
 (pages) -> (start) where {
-    move @byte for (ptr) if (ptr - start) < pages;
+    @byte for (ptr) if (ptr - start) < pages;
     assert start <= (start + pages);
 }";
 
 static READ8: &str = r"
 (ptr) where {
-    val = move @byte(ptr);
+    val = @byte(ptr);
 } -> (ret) where {
     assert ret == val;
     val;
@@ -97,10 +97,10 @@ static READ8: &str = r"
 
 static READ32: &str = r"
 (ptr) where {
-    p0 = move @byte(ptr + 0);
-    p1 = move @byte(ptr + 1);
-    p2 = move @byte(ptr + 2);
-    p3 = move @byte(ptr + 3);
+    p0 = @byte(ptr + 0);
+    p1 = @byte(ptr + 1);
+    p2 = @byte(ptr + 2);
+    p3 = @byte(ptr + 3);
     let val = ((p3 << 24) + (p2 << 16)) + ((p1 << 8) + p0);
 } -> (ret) where {
     assert ret == val;
@@ -109,23 +109,23 @@ static READ32: &str = r"
 
 static WRITE8: &str = r"
 (ptr, val) where {
-    move @byte(ptr);
+    @byte(ptr);
 } -> () where {
-    new = move @byte(ptr);
+    new = @byte(ptr);
     assert new == val;
 }";
 
 static WRITE32: &str = r"
 (ptr, val) where {
-    move @byte(ptr + 0);
-    move @byte(ptr + 1);
-    move @byte(ptr + 2);
-    move @byte(ptr + 3);
+    @byte(ptr + 0);
+    @byte(ptr + 1);
+    @byte(ptr + 2);
+    @byte(ptr + 3);
 } -> () where {
-    p0 = move @byte(ptr + 0);
-    p1 = move @byte(ptr + 1);
-    p2 = move @byte(ptr + 2);
-    p3 = move @byte(ptr + 3);
+    p0 = @byte(ptr + 0);
+    p1 = @byte(ptr + 1);
+    p2 = @byte(ptr + 2);
+    p3 = @byte(ptr + 3);
     let new = ((p3 << 24) + (p2 << 16)) + ((p1 << 8) + p0);
     assert new == val;
 }";

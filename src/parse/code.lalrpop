@@ -16,6 +16,7 @@ Var: String = r"[@]?[_a-zA-Z][_a-zA-z0-9]*" => <>.to_owned();
 Value: Value = {
     "(" <UnboxedValue> ")" => <>,
     <Var> <("." <Var>)*> => Value::Var(<>),
+    Var Tuple => Value::Struct(<>),
     Num => Value::Int32(<>),
 }
 
@@ -35,7 +36,11 @@ BinOp: BinOp = {
     "<<" => BinOp::Shl,
 };
 
-Tuple: Vec<Value> = "(" <(<UnboxedValue> ","?)*> ")" => <>;
+Tuple: Vec<Value> = "(" <first:(<UnboxedValue> ",")*> <last:UnboxedValue?> ")" => {
+    let mut all = first;
+    all.extend(last);
+    all
+};
 Bind: Bind = <func:Var?> <args:Spanned<Tuple>> => Bind{<>};
 
 Let: Let = "let" "(" <names:(<Var> ","?)*> ")" "=" <bind:Bind> => Let{<>};
@@ -46,8 +51,6 @@ Stmt: Stmt = {
     Let => Stmt::Let(<>),
     FuncDef => Stmt::FuncDef(<>),
     If => Stmt::If(<>),
-    "unpack" <Bind> => Stmt::Unpack(<>), 
-    "pack" <Bind> => Stmt::Pack(<>), 
 };
 
 BlockInner: Block = {
@@ -87,13 +90,12 @@ ParamTyp: ParamTyp = <name:Var> => ParamTyp::Custom{<>};
 //     UnboxedValue => ParamTypArg::Exactly(<>),
 // };
 
-Forall: Forall = "move" <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
-Switch: Switch = "move" <named:Var> "(" <args:(<UnboxedValue> ","?)*> ")" <cond:("if" <UnboxedValue>)?> => Switch{<>};
+Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
+Switch: Switch = <named:Var> <args:Tuple> <cond:("if" <UnboxedValue>)?> => Switch{<>};
 
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
     <(<Var> "=")?> <Switch> => Constraint::Switch(<>),
-    <(<Var> "=")?> <Bind> => Constraint::Inline(<>),
     "let" <Var> "=" <UnboxedValue> => Constraint::Let(<>),
     <Var> => Constraint::Exactly(<>),
     "assert" <Prop> => Constraint::Assert(<>),

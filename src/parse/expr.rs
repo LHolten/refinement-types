@@ -40,6 +40,7 @@ pub struct Bind {
 
 pub enum Value {
     Var(String, Vec<String>),
+    Struct(String, Vec<Value>),
     Int32(i32),
     BinOp(Box<BinOpValue>),
     Prop(Box<Prop>),
@@ -64,8 +65,6 @@ pub enum Stmt {
     Let(Let),
     FuncDef(FuncDef),
     If(If),
-    Unpack(String, Bind),
-    Pack(Bind),
 }
 
 pub enum Block {

@@ -129,12 +129,12 @@ impl SubContext {
                     // we want to preserve resources between branches
                     let mut this = self.clone();
                     let phi = term.eq(&Term::nat(i as i64, size));
-                    this.assume.push(phi);
+                    this.assume.assumptions.push(phi);
                     this.check_expr_pos(e, p)?;
                 }
 
                 let phi = Term::nat(pats.len() as i64, size).ule(&term);
-                self.assume.push(phi);
+                self.assume.assumptions.push(phi);
                 self.check_expr_pos(last_e, p)?;
             }
             Expr::Loop(n, s) => {
@@ -149,12 +149,13 @@ impl SubContext {
         Self {
             assume: self.assume.clone(),
             forall: vec![],
+            hints: self.hints.clone(),
         }
     }
 
     pub fn check_empty(self) -> Result<(), EmptyErr> {
         for ctx_forall in &self.forall {
-            if self.still_possible(&ctx_forall.have) {
+            if self.assume.still_possible(&ctx_forall.have) {
                 let span = ctx_forall.have.span;
                 return Err(EmptyErr { span });
             }
