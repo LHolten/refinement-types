@@ -70,6 +70,9 @@ impl Memory {
                     owned = func.inst(&arg).val;
                     borrow = &owned;
                 }
+                Expr::Debug(e) => {
+                    borrow = &e.val;
+                }
             }
         }
     }

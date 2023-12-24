@@ -217,7 +217,7 @@ impl SubContext {
             let overlap = Forall {
                 resource: need.resource.clone(),
                 mask: alloc.have.mask.and(&need.mask),
-                span: None,
+                span: need.span,
             };
             if !self.assume.still_possible(&overlap) {
                 continue;
@@ -226,11 +226,7 @@ impl SubContext {
             alloc.have.mask = old_alloc_mask.difference(&need.mask);
             need.mask = need.mask.difference(&old_alloc_mask);
             removals.push(CtxForall {
-                have: Forall {
-                    resource: need.resource.clone(),
-                    mask: old_alloc_mask,
-                    span: need.span,
-                },
+                have: overlap,
                 value: alloc.value.clone(),
             });
         }

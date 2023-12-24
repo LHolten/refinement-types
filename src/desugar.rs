@@ -77,6 +77,10 @@ impl<T: Val> Desugar<T> {
                 }
             },
             Block::Stmt { step, next } => match &step.val {
+                Stmt::Debug => {
+                    let rest = self.convert_expr(next);
+                    refinement::Expr::Debug(Box::new(rest))
+                }
                 Stmt::Let(Let { names, bind }) => {
                     let func_name = bind.func.as_ref().unwrap();
 

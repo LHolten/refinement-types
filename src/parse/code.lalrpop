@@ -49,6 +49,7 @@ If: If = "if" <val:UnboxedValue> "{" <block:Block> "}" => If{<>};
 
 Stmt: Stmt = {
     Let => Stmt::Let(<>),
+    "#debug" => Stmt::Debug,
     FuncDef => Stmt::FuncDef(<>),
     If => Stmt::If(<>),
 };

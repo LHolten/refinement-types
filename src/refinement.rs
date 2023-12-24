@@ -93,6 +93,14 @@ pub struct CtxForall {
     pub value: FuncTerm,
 }
 
+impl Debug for CtxForall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let idx = self.have.make_fresh_args();
+        let mask = self.have.mask.apply_bool(&idx);
+        write!(f, "{mask:?}")
+    }
+}
+
 #[derive(Clone, Default)]
 #[must_use]
 pub struct SubContext {
@@ -276,6 +284,8 @@ pub enum Expr<V: Val> {
 
     /// loop back to an assigment
     Loop(V::Func, Value<V>),
+
+    Debug(Box<Spanned<Expr<V>>>),
 }
 
 // - Make Prod type any length and povide projections

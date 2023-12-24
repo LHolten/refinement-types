@@ -63,6 +63,7 @@ pub enum BinOp {
 
 pub enum Stmt {
     Let(Let),
+    Debug,
     FuncDef(FuncDef),
     If(If),
 }

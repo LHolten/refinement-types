@@ -141,6 +141,13 @@ impl SubContext {
                 let res = self.spine(n, s)?;
                 self.sub_pos_typ(&res, p).using(expr, p)?;
             }
+            Expr::Debug(e) => {
+                eprintln!("start #debug");
+                for ctx in &self.forall {
+                    eprintln!("{:?} {ctx:?}", ctx.have.span);
+                }
+                self.check_expr_pos(e, p)?;
+            }
         }
         Ok(())
     }
