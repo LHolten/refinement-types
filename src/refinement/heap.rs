@@ -1,8 +1,9 @@
 use indenter::indented;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
+use z3::ast::BV;
 
-use crate::refinement::Hint;
+use crate::{refinement::Hint, solver::ctx};
 
 use super::{
     func_term::FuncTerm, term::Term, verify::format_model, CtxForall, Forall, PosTyp, Resource,
@@ -48,18 +49,15 @@ pub struct ForallRes {
 
 impl ForallRes {
     pub fn get_byte(&self, idx: &[Term]) -> Term {
-        let mut val = None;
+        let mut val = BV::from_i64(ctx(), 0, 8);
         for removal in &self.removals {
             if let Resource::Owned = removal.have.resource {
                 let cond = removal.have.mask.apply_bool(idx);
                 let new = removal.value.apply(idx).to_bv();
-                val = match val {
-                    Some(old) => Some(cond.ite(&new, &old)),
-                    None => Some(new),
-                };
+                val = cond.ite(&new, &val);
             }
         }
-        Term::BV(val.unwrap())
+        Term::BV(val)
     }
 }
 

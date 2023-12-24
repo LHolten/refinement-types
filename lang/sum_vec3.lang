@@ -1,75 +1,82 @@
 type vec3(ptr) where {
-    move x = @byte(ptr + 0);
-    move y = @byte(ptr + 1);
-    move z = @byte(ptr + 2);
-    move _ = @byte(ptr + 3);
+    x = @byte(ptr + 0);
+    y = @byte(ptr + 1);
+    z = @byte(ptr + 2);
+    _ = @byte(ptr + 3);
 }
 
-fn add_vec3(from, to) where {
-    move _ = vec3(from);
-    move _ = vec3(to);
-} -> () where {
-    move _ = vec3(from);
-    move _ = vec3(to);
+fn add_vec3(from: vec3, to: vec3) -> () where {
+    vec3(from.ptr);
+    vec3(to.ptr);
 } = {
-    let (x1) = @read_u8(from + 0);
-    let (y1) = @read_u8(from + 1);
-    let (z1) = @read_u8(from + 2);
-    let (x2) = @read_u8(to + 0);
-    let (y2) = @read_u8(to + 1);
-    let (z2) = @read_u8(to + 2);
-    let () = @write_u8(to + 0, x1 + x2);
-    let () = @write_u8(to + 1, y1 + y2);
-    let () = @write_u8(to + 2, z1 + z2);
+    let (x1) = @read8(from.ptr + 0);
+    let (y1) = @read8(from.ptr + 1);
+    let (z1) = @read8(from.ptr + 2);
+    let (x2) = @read8(to.ptr + 0);
+    let (y2) = @read8(to.ptr + 1);
+    let (z2) = @read8(to.ptr + 2);
+    let () = @write8(to.ptr + 0, x1 + x2);
+    let () = @write8(to.ptr + 1, y1 + y2);
+    let () = @write8(to.ptr + 2, z1 + z2);
     return ()
 }
 
-type vec3_array(start, len) where {
+type array3(start, len) where {
     vec3 for (ptr) if 
         (((ptr - start) % 4) == 0) 
         && ((ptr - start) < (len * 4));
     assert len *? 4;
 }
 
-fn sum_vec3_array(start, len, out) where {
-    move _ = vec3_array(start, len);
-    move _ = vec3(out);
-} -> () where {
-    move _ = vec3_array(start, len);
-    move _ = vec3(out);
+type array(start, len) where {
+    @byte for (ptr) if (ptr - start) < len;
+}
+
+fn sum_array3(vs: array3, out: vec3) -> () where {
+    array3(vs.start, vs.len);
+    vec3(out.ptr);
 } = {
-    if_zero (len) {
+    if (vs.len == 0) {
         return ()
     };
 
-    unpack vec3(start);
-    let () = add_vec3(start, out);
-    pack vec3(start);
-    
-    return sum_vec3_array(start + 4, len - 1, out)
+    let () = add_vec3(vec3(vs.start), out);   
+    return sum_array3(array3(vs.start + 4, vs.len - 1), out)
 }
 
 fn generate_array(len) where {
     assert len *? 4;
-} -> (ptr) where {
-    move _ = vec3_array(ptr, len);
-} = {
+} -> (_: array3) = {
     let (start) = @alloc(len * 4);
 
-    fn loop(idx) where {
+    fn inner(idx) where {
         assert idx <= len;
-        move _ = vec3_array(start, idx);
-        @byte for (ptr) if ((ptr - start) < (len * 4))
-            && ((idx * 4) <= (ptr - start));
-    } -> (ptr) where {
-        move _ = vec3_array(ptr, len);
-    } = {
-        if_zero (idx < len) {
-            return (start)
+        array(start + (idx * 4), (len - idx) * 4);
+        array3(start, idx);
+    } -> (_: array3) = {
+        if (len <= idx) {
+            return (array3(start, len))
         };
-        pack vec3(start + (idx * 4));
-        return loop(idx + 1)
+        let () = make_vec3(start + (idx * 4));
+        return inner(idx + 1)
     };
 
-    return loop(0)
+    return inner(0)
 }
+
+fn make_vec3(ptr) where { array(ptr, 4); } -> () where { vec3(ptr); } = { 
+    return ()
+}
+
+fn main(len) where {
+    assert len *? 4;
+} -> (val, _: array3, out: vec3) = {
+    let (vs) = generate_array(len);
+    let (out) = @alloc(4);
+    let () = make_vec3(out);
+    let () = sum_array3(vs, vec3(out));
+    let (x) = @read8(out + 0);
+    let (y) = @read8(out + 1);
+    let (z) = @read8(out + 2);
+    return (x + (y + z), vs, vec3(out))
+}   
