@@ -280,7 +280,7 @@ impl SubContext {
 
         Err(ConsumeErr::MissingResource {
             resource: need.span,
-            help: self.assume.counter_example(need),
+            help: self.assume.counter_example(need, &self.forall),
         })
     }
 }

@@ -8,7 +8,7 @@ use z3::{
 
 use crate::solver::solver;
 
-use super::{func_term::FuncTerm, term::Term, Forall, Resource};
+use super::{func_term::FuncTerm, term::Term, CtxForall, Forall, Resource};
 
 impl Forall {
     pub fn make_fresh_args(&self) -> Vec<Term> {
@@ -137,16 +137,20 @@ impl Assume {
         }
     }
 
-    pub fn counter_example(&mut self, need: Forall) -> String {
+    pub fn counter_example(&mut self, need: Forall, have: &[CtxForall]) -> String {
         let idx = need.make_fresh_args();
         let s = self.assume();
         s.assert(&need.mask.apply_bool(&idx));
-        // for ctx_forall in &self.forall {
-        //     if ctx_forall.have.id() == need.id() {
-        //         s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
-        //     }
-        // }
-        let SatResult::Sat = s.check() else { panic!() };
+        for ctx_forall in have {
+            if ctx_forall.have.resource.val_typ() == need.resource.val_typ() {
+                s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
+            }
+        }
+        match s.check() {
+            SatResult::Unsat => return "Could not generate a valid counter example".to_owned(),
+            SatResult::Unknown => todo!(),
+            SatResult::Sat => {}
+        }
         let model = s.get_model().unwrap();
         let mut out = String::new();
         let args: Vec<_> = idx
