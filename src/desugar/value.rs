@@ -102,6 +102,7 @@ impl BinOpValue {
             BinOp::Modulo => refinement::BinOp::Rem,
             BinOp::Divide => refinement::BinOp::Div,
             BinOp::Shl => refinement::BinOp::Shl,
+            BinOp::Shr => refinement::BinOp::Shr,
         };
         refinement::Free::BinOp {
             l: Rc::new(first(self.l.convert(lookup, ValTyp::I32))),

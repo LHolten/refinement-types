@@ -1,4 +1,4 @@
-use std::ops::{Not, Shl};
+use std::ops::Not;
 
 use crate::desugar;
 
@@ -29,6 +29,7 @@ impl SubContext {
             BinOp::NotEq => {}
             BinOp::MulSafe => {}
             BinOp::Shl => {}
+            BinOp::Shr => {}
         }
     }
 }
@@ -48,6 +49,7 @@ impl BinOp {
             BinOp::NotEq => l.eq(r).is_zero(),
             BinOp::MulSafe => l.umul_no_overlow(r),
             BinOp::Shl => l.shl(r),
+            BinOp::Shr => l.shr(r),
         }
     }
 
@@ -65,7 +67,8 @@ impl BinOp {
             BinOp::LessEq => (l <= r) as u32,
             BinOp::NotEq => (l != r) as u32,
             BinOp::MulSafe => l.overflowing_mul(r).1.not() as u32,
-            BinOp::Shl => l.shl(r),
+            BinOp::Shl => l << r,
+            BinOp::Shr => l >> r,
         };
         res as i32
     }

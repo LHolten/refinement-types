@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Shl};
+use std::fmt::Debug;
 
 use z3::ast::{Ast, Bool, BV};
 
@@ -100,7 +100,11 @@ impl Term {
     }
     pub fn shl(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
-        Self::BV(self.to_bv().shl(r.to_bv()))
+        Self::BV(self.to_bv().bvshl(&r.to_bv()))
+    }
+    pub fn shr(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::BV(self.to_bv().bvlshr(&r.to_bv()))
     }
     pub fn bool_and(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());

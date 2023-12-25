@@ -59,6 +59,7 @@ pub enum BinOp {
     Modulo,
     Divide,
     Shl,
+    Shr,
 }
 
 pub enum Stmt {

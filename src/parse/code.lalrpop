@@ -34,6 +34,7 @@ BinOp: BinOp = {
     "%" => BinOp::Modulo,
     "/" => BinOp::Divide,
     "<<" => BinOp::Shl,
+    ">>" => BinOp::Shr,
 };
 
 Tuple: Vec<Value> = "(" <first:(<UnboxedValue> ",")*> <last:UnboxedValue?> ")" => {
