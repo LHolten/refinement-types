@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 use std::{fmt::Debug, ops::Deref};
@@ -16,7 +17,7 @@ mod verify;
 use miette::{Diagnostic, SourceSpan};
 
 use crate::desugar::Desugar;
-use crate::parse;
+use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
 use self::heap::{ConsumeErr, Heap};
@@ -74,7 +75,7 @@ pub struct Switch {
 }
 
 /// a single resource
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Resource {
     Named(Name),
     Owned,
@@ -109,6 +110,7 @@ pub struct SubContext {
     forall: Vec<CtxForall>,
     // these do not have to exist, but might
     hints: Vec<Hint>,
+    scope: Option<HashMap<String, Nested<Term>>>,
 }
 
 #[derive(Clone)]
@@ -206,6 +208,7 @@ where
 pub struct Value<V> {
     pub inj: Vec<Free<V>>,
     pub span: Option<SourceSpan>,
+    pub scope: Option<HashMap<String, Nested<V>>>,
 }
 
 impl<V> Default for Value<V> {
@@ -213,6 +216,7 @@ impl<V> Default for Value<V> {
         Self {
             inj: Default::default(),
             span: None,
+            scope: None,
         }
     }
 }
@@ -232,6 +236,12 @@ pub enum Thunk<V: Val> {
 pub struct Name {
     pub id: usize,
     pub typ: Fun<PosTyp>,
+}
+
+impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 pub trait Val: Clone + Sized + 'static {

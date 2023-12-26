@@ -58,6 +58,7 @@ impl<T: Val> Desugar<T> {
                     val.convert(&self.vars, typ)
                 })
                 .collect(),
+            scope: Some(self.vars.clone()),
         }
     }
 

@@ -1,4 +1,7 @@
-use std::fmt::Write;
+use std::{
+    collections::HashMap,
+    fmt::{self, Write},
+};
 
 use indenter::indented;
 use z3::{
@@ -6,7 +9,7 @@ use z3::{
     Model, SatResult, Solver,
 };
 
-use crate::solver::solver;
+use crate::{solver::solver, Nested};
 
 use super::{func_term::FuncTerm, term::Term, CtxForall, Forall, Resource};
 
@@ -136,8 +139,12 @@ impl Assume {
             }
         }
     }
-
-    pub fn counter_example(&mut self, need: Forall, have: &[CtxForall]) -> String {
+    pub fn counter_example(
+        &self,
+        need: Forall,
+        have: &[CtxForall],
+        scope: &HashMap<String, Nested<Term>>,
+    ) -> String {
         let idx = need.make_fresh_args();
         let s = self.assume();
         s.assert(&need.mask.apply_bool(&idx));
@@ -152,31 +159,57 @@ impl Assume {
             SatResult::Sat => {}
         }
         let model = s.get_model().unwrap();
-        let mut out = String::new();
         let args: Vec<_> = idx
             .iter()
             .map(|idx| model.eval(&idx.to_bv(), true).unwrap().to_string())
             .collect();
         let args = args.join(", ");
-        format_model(indented(&mut out), model);
+
+        let mut out = String::new();
+        format_model(indented(&mut out), model, scope);
         format!(
             "Here is a valid example for which \n\
             the resource does not exist: \n
-            ({args})
+            resource args are ({args})
             \n{out}"
         )
     }
 }
 
-pub fn format_model<F: Write>(mut f: F, model: Model<'_>) {
-    writeln!(f, "{model}").unwrap();
-    // for x in &model {
-    //     let name = x.name();
-    //     let name = name.split('!').next().unwrap();
-    //     assert_eq!(x.arity(), 0);
-    //     let res = model.eval(&x.apply(&[]), false).unwrap();
-    //     writeln!(f, "{name} = {}", res.as_bv().unwrap().as_u64().unwrap()).unwrap();
-    // }
+pub fn format_model<F: Write>(
+    mut f: F,
+    model: Model<'static>,
+    scope: &HashMap<String, Nested<Term>>,
+) {
+    let mut scope = scope.clone();
+    scope.iter_mut().for_each(|(_key, val)| val.eval(&model));
+
+    for (name, item) in scope {
+        writeln!(f, "{name} = {item:?}").unwrap();
+    }
+}
+
+impl Nested<Term> {
+    pub fn eval(&mut self, model: &Model<'static>) {
+        match self {
+            Nested::More(_id, more) => more.iter_mut().for_each(|(_key, val)| val.eval(model)),
+            Nested::Just(term) => {
+                *term = match term {
+                    Term::BV(bv) => Term::BV(model.eval(bv, true).unwrap()),
+                    Term::Bool(b) => Term::Bool(model.eval(b, true).unwrap()),
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Debug for Nested<Term> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Nested::More(_, items) => f.debug_map().entries(items).finish(),
+            Nested::Just(val) => val.fmt(f),
+        }
+    }
 }
 
 impl Assume {

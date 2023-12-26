@@ -62,7 +62,9 @@ impl SubContext {
         }
     }
 
-    fn calc_args(&self, val: &Value<Term>) -> Vec<Term> {
+    fn calc_args(&mut self, val: &Value<Term>) -> Vec<Term> {
+        self.scope = val.scope.clone();
+
         let mut res = vec![];
         for inj in &val.inj {
             res.push(self.check_free(inj))
@@ -157,6 +159,7 @@ impl SubContext {
             assume: self.assume.clone(),
             forall: vec![],
             hints: self.hints.clone(),
+            scope: None,
         }
     }
 

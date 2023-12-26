@@ -119,7 +119,7 @@ impl Heap for HeapConsume<'_> {
 
         if let Err(model) = self.assume.verify_prop(&phi) {
             let mut out = String::new();
-            format_model(indented(&mut out), model);
+            format_model(indented(&mut out), model, self.scope.as_ref().unwrap());
             return Err(ConsumeErr::InvalidAssert {
                 assert: span,
                 help: format!(
@@ -207,55 +207,52 @@ impl SubContext {
     fn try_remove(&mut self, mut need: Forall) -> Result<ForallRes, ConsumeErr> {
         let mut removals = vec![];
 
-        // first we consume small allocations
-        let iter = self.forall.extract_if(|alloc| {
-            if !self.assume.always_contains(&need, &alloc.have) {
-                return false;
-            }
-            need.mask = need.mask.difference(&alloc.have.mask);
-            true
-        });
+        let mut allowed: Vec<_> = self
+            .forall
+            .iter_mut()
+            .filter(|x| x.have.resource == need.resource)
+            .collect();
 
-        removals.extend(iter);
+        for i in 0..allowed.len() {
+            let mut mask = allowed[i].have.mask.clone();
+            let others = allowed[0..i].iter().chain(&allowed[i + 1..]);
+            others.for_each(|item| {
+                mask = mask.difference(&item.have.mask);
+            });
+            if !self.assume.still_possible(&Forall {
+                resource: need.resource.clone(),
+                mask,
+                span: None,
+            }) {
+                continue;
+            }
+            let overlap = Forall {
+                resource: need.resource.clone(),
+                mask: allowed[i].have.mask.and(&need.mask),
+                span: need.span,
+            };
+            let old_alloc_mask = allowed[i].have.mask.clone();
+            allowed[i].have.mask = old_alloc_mask.difference(&need.mask);
+            need.mask = need.mask.difference(&old_alloc_mask);
+            removals.push(CtxForall {
+                have: overlap,
+                value: allowed[i].value.clone(),
+            });
+        }
+
+        self.forall.retain(|x| self.assume.still_possible(&x.have));
 
         if let Resource::Named(named) = &need.resource {
             let hints = self.hints.clone();
             let hints = hints.into_iter().filter(|h| h.id == named.id);
 
             for hint in hints {
-                let cond = need.mask.apply_bool(&hint.args);
-                // check that index is always needed
-                if !self.assume.is_always_true(cond) {
-                    continue;
-                }
+                let cond = need.mask.apply(&hint.args);
+                need.mask = need.mask.difference(&FuncTerm::exactly(&hint.args));
 
-                let tmp = Forall {
-                    resource: need.resource.clone(),
-                    mask: FuncTerm::exactly(&hint.args),
-                    span: need.span,
-                };
-
-                // find a big alloc for this part
-                let pos = self
-                    .forall
-                    .iter()
-                    .position(|alloc| self.assume.always_contains(&alloc.have, &tmp));
-
-                need.mask = need.mask.difference(&tmp.mask);
-                if let Some(idx) = pos {
-                    self.forall[idx].have.mask = self.forall[idx].have.mask.difference(&tmp.mask);
-
-                    // TODO: extend resource taken?
-                    removals.push(CtxForall {
-                        have: tmp,
-                        value: self.forall[idx].value.clone(),
-                    });
-                    return Ok(ForallRes { removals });
-                } else {
-                    let mut consume = HeapConsume(self, vec![], Term::bool(true));
-                    let PosTyp = (named.typ.fun)(&mut consume, &hint.args)?;
-                    removals.extend(consume.1);
-                }
+                let mut consume = HeapConsume(self, vec![], cond);
+                let PosTyp = (named.typ.fun)(&mut consume, &hint.args)?;
+                removals.extend(consume.1);
             }
         }
 
@@ -263,24 +260,11 @@ impl SubContext {
             return Ok(ForallRes { removals });
         }
 
-        // find a big alloc for the remainder
-        let pos = self
-            .forall
-            .iter()
-            .position(|alloc| self.assume.always_contains(&alloc.have, &need));
-
-        if let Some(idx) = pos {
-            self.forall[idx].have.mask = self.forall[idx].have.mask.difference(&need.mask);
-            removals.push(CtxForall {
-                have: need,
-                value: self.forall[idx].value.clone(),
-            });
-            return Ok(ForallRes { removals });
-        }
-
         Err(ConsumeErr::MissingResource {
             resource: need.span,
-            help: self.assume.counter_example(need, &self.forall),
+            help: self
+                .assume
+                .counter_example(need, &self.forall, self.scope.as_ref().unwrap()),
         })
     }
 }
