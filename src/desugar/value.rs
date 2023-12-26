@@ -138,7 +138,9 @@ impl Prop {
             PropOp::Eq => Op::Eq.free(l, r),
             PropOp::NotEq => Op::NotEq.free(l, r),
             PropOp::And => Op::And.free(l, r),
+            PropOp::Or => Op::Or.free(l, r),
             PropOp::MulSafe => Op::MulSafe.free(l, r),
+            PropOp::AddSafe => Op::AddSafe.free(l, r),
         }
     }
 }

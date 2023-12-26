@@ -110,7 +110,9 @@ PropOp: PropOp = {
     "==" => PropOp::Eq,
     "!=" => PropOp::NotEq,
     "&&" => PropOp::And,
+    "||" => PropOp::Or,
     "*?" => PropOp::MulSafe,
+    "+?" => PropOp::AddSafe,
 };
 
 NamedConstraint: NamedConstraint = "type" <name:Var> <typ:PosTyp> => NamedConstraint{<>};

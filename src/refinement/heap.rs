@@ -248,6 +248,9 @@ impl SubContext {
 
             for hint in hints {
                 let cond = need.mask.apply(&hint.args);
+                if self.assume.is_always_true(cond.to_bool().not()) {
+                    continue;
+                }
                 need.mask = need.mask.difference(&FuncTerm::exactly(&hint.args));
 
                 let mut consume = HeapConsume(self, vec![], cond);

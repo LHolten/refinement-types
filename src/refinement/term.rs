@@ -82,6 +82,10 @@ impl Term {
         assert_eq!(self.get_size(), r.get_size());
         Self::Bool(self.to_bv().bvmul_no_overflow(&r.to_bv(), false))
     }
+    pub fn uadd_no_overlow(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::Bool(self.to_bv().bvadd_no_overflow(&r.to_bv(), false))
+    }
     pub fn urem(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
         Self::BV(self.to_bv().bvurem(&r.to_bv()))
@@ -109,6 +113,10 @@ impl Term {
     pub fn bool_and(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
         Self::Bool(self.to_bool() & r.to_bool())
+    }
+    pub fn bool_or(&self, r: &Self) -> Self {
+        assert_eq!(self.get_size(), r.get_size());
+        Self::Bool(self.to_bool() | r.to_bool())
     }
     pub fn implies(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());

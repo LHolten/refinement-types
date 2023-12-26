@@ -1,5 +1,3 @@
-use std::ops::Not;
-
 use crate::desugar;
 
 use super::{term::Term, BinOp, Free, Fun, NegTyp, SubContext};
@@ -25,9 +23,11 @@ impl SubContext {
             BinOp::Eq => {}
             BinOp::Less => {}
             BinOp::And => {}
+            BinOp::Or => {}
             BinOp::LessEq => {}
             BinOp::NotEq => {}
             BinOp::MulSafe => {}
+            BinOp::AddSafe => {}
             BinOp::Shl => {}
             BinOp::Shr => {}
         }
@@ -45,9 +45,11 @@ impl BinOp {
             BinOp::Eq => l.eq(r),
             BinOp::Less => l.ult(r),
             BinOp::And => l.bool_and(r),
+            BinOp::Or => l.bool_or(r),
             BinOp::LessEq => l.ule(r),
             BinOp::NotEq => l.eq(r).is_zero(),
             BinOp::MulSafe => l.umul_no_overlow(r),
+            BinOp::AddSafe => l.uadd_no_overlow(r),
             BinOp::Shl => l.shl(r),
             BinOp::Shr => l.shr(r),
         }
@@ -64,9 +66,11 @@ impl BinOp {
             BinOp::Eq => (l == r) as u32,
             BinOp::Less => (l < r) as u32,
             BinOp::And => l & r,
+            BinOp::Or => l | r,
             BinOp::LessEq => (l <= r) as u32,
             BinOp::NotEq => (l != r) as u32,
-            BinOp::MulSafe => l.overflowing_mul(r).1.not() as u32,
+            BinOp::MulSafe => !l.overflowing_mul(r).1 as u32,
+            BinOp::AddSafe => !l.overflowing_add(r).1 as u32,
             BinOp::Shl => l << r,
             BinOp::Shr => l >> r,
         };

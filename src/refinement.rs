@@ -50,7 +50,9 @@ pub enum BinOp {
     LessEq,
     NotEq,
     And,
+    Or,
     MulSafe,
+    AddSafe,
     Shl,
     Shr,
 }
