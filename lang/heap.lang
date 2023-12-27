@@ -1,0 +1,79 @@
+type array(from, len) where {
+    @byte for (ptr) if (ptr - from) < len;
+}
+
+fn upheap(root, index, current) where {
+    assert index +? 1;
+    array(root, index + 1); 
+} -> () where {
+    array(root, index + 1);
+} = {
+    if index == 0 {
+        return ()
+    };
+    let (parent_index) = id((index - 1) / 2);
+    let (parent) = @read8(root + parent_index);
+
+    if current < parent {
+        let () = @write8(root + parent_index, current);
+        let () = @write8(root + index, parent);
+        return upheap(root, parent_index, current)
+    };
+    return ()
+}
+
+fn minimum_at_index(left, right) where {
+    l = @byte(left);
+    r = @byte(right);
+} -> (value, index) where {
+    assert (index == left) || (index == right);
+    l; r;
+} = {
+    let (left_value) = @read8(left);
+    let (right_value) = @read8(right);
+    if left_value < right_value {
+        return (left_value, left)
+    };
+    return (right_value, right)
+}
+
+fn downheap(root, size, index, current) where {
+    array(root, size);
+} -> () where {
+    array(root, size);
+} = {
+    if size <= index {
+        return ()
+    };
+    let (left_child_index) = id((2 * index) + 1);
+    let (right_child_index) = id((2 * index) + 2);
+
+    if (left_child_index < size) && (right_child_index < size) {
+        let (minimum_value, minimum_index) = minimum_at_index(root + left_child_index, root + right_child_index);
+        if minimum_value < current {
+            let () = @write8(root + index, minimum_value);
+            let () = @write8(minimum_index, current);
+            return downheap(root, size, minimum_index - root, current)
+        };
+        return ()
+    };
+  
+    if left_child_index < size {
+        let (left_child) = @read8(root + left_child_index);
+        if left_child < current {
+            let () = @write8(root + index, left_child);
+            let () = @write8(root + left_child_index, current);
+            return downheap(root, size, left_child_index, current)
+        };
+        return ()
+    };
+
+    return ()
+}
+
+fn check() -> () = { return () }
+
+fn assert_(cond) where { assert cond != 0; } -> () = { return () } 
+
+fn id(inp) -> (out) where { assert inp == out; } = { return (inp) }
+
