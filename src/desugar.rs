@@ -9,10 +9,6 @@ use self::{
     value::{first, ValTyp},
 };
 use crate::{
-    parse::expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value},
-    refinement::{builtin::builtins, typing::zip_eq},
-};
-use crate::{
     parse::types::Param,
     refinement::{self, Lambda, Val},
 };
@@ -24,6 +20,13 @@ use crate::{
 use crate::{
     parse::{code::NegTypParser, types::PosTyp},
     Nested,
+};
+use crate::{
+    parse::{
+        expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value},
+        lexer::Lexer,
+    },
+    refinement::{builtin::builtins, typing::zip_eq},
 };
 
 mod types;
@@ -299,9 +302,9 @@ pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
 }
 
 pub fn convert_neg(files: &[&str], idx: usize) -> refinement::Fun<refinement::NegTyp> {
-    let code = files[idx];
+    let lexer = Lexer::new(files[idx]);
     let offset = files.iter().take(idx).map(|x| x.len()).sum();
-    let parsed = NegTypParser::new().parse(code).unwrap();
+    let parsed = NegTypParser::new().parse(lexer).unwrap();
 
     let desugar = types::DesugarTypes {
         named: NameList(Default::default()),

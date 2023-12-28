@@ -1,17 +1,12 @@
-use std::str::FromStr;
 use std::rc::Rc;
 use crate::parse::expr::*;
 use crate::parse::types::*;
+use crate::parse::lexer::*;
 
 grammar;
 
-Num: i32 = {
-    r"[0-9]+" => u32::from_str(<>).unwrap() as i32,
-    r"'[0-9]'" => <>.as_bytes()[1] as i32,
-    r"'\\n'" => 10,
-};
-Var: String = r"[@]?[_a-zA-Z][_a-zA-z0-9]*" => <>.to_owned();
-
+Num: i32 = "num" => <>;
+Var: String = "var" => <>;
 
 Value: Value = {
     "(" <UnboxedValue> ")" => <>,
@@ -127,3 +122,49 @@ pub Module: Module = Def* => Module(<>);
 Spanned<T>: Spanned<T> = {
     <l:@L> <val:T> <r:@R> => Spanned {span: (l, r), val},
 };
+
+
+extern {
+  type Location = usize;
+  type Error = LexicalError;
+
+  enum Token {
+    "var" => Token::Var(<String>),
+    "num" => Token::Num(<i32>),
+    "=" => Token::Assign,
+    ":" => Token::Colon,
+    "->" => Token::Arrow,
+    "." => Token::Period,
+    "," => Token::Comma,
+    ";" => Token::Semi,
+    "+" => Token::Add,
+    "-" => Token::Sub,
+    "*" => Token::Mul,
+    "%" => Token::Mod,
+    "/" => Token::Div,
+    "<<" => Token::Shl,
+    ">>" => Token::Shr,
+    "<" => Token::Less,
+    "<=" => Token::LessEq,
+    "==" => Token::Eq,
+    "!=" => Token::NotEq,
+    "&&" => Token::And,
+    "||" => Token::Or,
+    "*?" => Token::MulSafe,
+    "+?" => Token::AddSafe,
+    "{" => Token::BraceL,
+    "}" => Token::BraceR,
+    "(" => Token::ParenL,
+    ")" => Token::ParenR,
+    "fn" => Token::FnKeyword,
+    "loop" => Token::LoopKeyword,
+    "if" => Token::IfKeyword,
+    "for" => Token::ForKeyword,
+    "type" => Token::TypeKeyword,
+    "where" => Token::WhereKeyword,
+    "assert" => Token::AssertKeyword,
+    "let" => Token::LetKeyword,
+    "return" => Token::ReturnKeyword,
+    "#debug" => Token::DebugKeyword,
+  }
+}
