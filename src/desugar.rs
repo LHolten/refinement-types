@@ -286,6 +286,7 @@ pub fn convert_neg(files: &[&'static str], idx: usize) -> refinement::Fun<refine
         source: MultiFile {
             builtin: files.to_owned(),
             code: String::new(),
+            path: String::new(),
         },
     };
     desugar.convert_neg(parsed)

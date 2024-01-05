@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display, process::exit};
+use std::{error::Error, fmt::Display, fs, process::exit};
 
 use miette::{Diagnostic, LabeledSpan, Report};
 
@@ -8,13 +8,15 @@ use crate::refinement::builtin::builtins;
 pub struct MultiFile {
     pub builtin: Vec<&'static str>,
     pub code: String,
+    pub path: String,
 }
 
 impl MultiFile {
-    pub fn new(code: String) -> Self {
+    pub fn new(path: &str) -> Self {
         Self {
             builtin: builtins(),
-            code,
+            code: fs::read_to_string(path).unwrap(),
+            path: path.to_owned(),
         }
     }
 
@@ -44,7 +46,7 @@ impl miette::SourceCode for MultiFile {
     ) -> Result<Box<dyn miette::SpanContents<'a> + 'a>, miette::MietteError> {
         let mut start = 0;
         let mut code = &*self.code;
-        let mut header = "source";
+        let mut header = self.path.as_str();
         for b in &self.builtin {
             if span.offset() < start + b.len() {
                 code = b;

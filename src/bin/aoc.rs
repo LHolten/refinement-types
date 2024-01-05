@@ -1,11 +1,6 @@
 use miette::IntoDiagnostic;
 use mimalloc::MiMalloc;
-use std::{
-    env,
-    fs::{read, File},
-    io::Read,
-    time::Instant,
-};
+use std::{env, fs::read, time::Instant};
 use structural_types::error::MultiFile;
 
 #[global_allocator]
@@ -20,11 +15,7 @@ fn main() -> miette::Result<()> {
     println!("last byte is {}", input.last().unwrap());
     let args = vec![input.len() as i32];
 
-    let mut file = File::open(file).unwrap();
-    let mut code = String::new();
-    file.read_to_string(&mut code).unwrap();
-
-    let source = MultiFile::new(code);
+    let source = MultiFile::new(file);
     structural_types::desugar::check(&source);
     println!("typechecking succeeded!");
 
