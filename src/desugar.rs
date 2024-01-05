@@ -275,9 +275,9 @@ pub fn run(source: MultiFile, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<
 }
 
 pub fn convert_neg(files: &[&'static str], idx: usize) -> refinement::Fun<refinement::NegTyp> {
-    let lexer = Lexer::new(files[idx]);
     let offset = files.iter().take(idx).map(|x| x.len()).sum();
-    let parsed = NegTypParser::new().parse(offset, lexer).unwrap();
+    let lexer = Lexer::new(files[idx], offset);
+    let parsed = NegTypParser::new().parse(lexer).unwrap();
 
     let desugar = types::DesugarTypes {
         named: NameList(Default::default()),

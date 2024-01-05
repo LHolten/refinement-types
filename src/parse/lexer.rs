@@ -95,13 +95,15 @@ pub struct LexicalError {
 }
 
 pub struct Lexer<'input> {
+    offset: usize,
     token_stream: SpannedIter<'input, Token>,
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(input: &'input str) -> Self {
+    pub fn new(input: &'input str, offset: usize) -> Self {
         Self {
             token_stream: Token::lexer(input).spanned(),
+            offset,
         }
     }
 }
@@ -112,9 +114,9 @@ impl<'input> Iterator for Lexer<'input> {
     fn next(&mut self) -> Option<Self::Item> {
         self.token_stream.next().map(|(token, span)| match token {
             Err(()) => Err(LexicalError {
-                span: (span.start, span.end - span.start).into(),
+                span: (self.offset + span.start, span.end - span.start).into(),
             }),
-            Ok(token) => Ok((span.start, token, span.end)),
+            Ok(token) => Ok((self.offset + span.start, token, self.offset + span.end)),
         })
     }
 }

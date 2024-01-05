@@ -17,8 +17,8 @@ lalrpop_mod!(pub code, "/parse/code.rs");
 
 impl MultiFile {
     pub fn get_module(&self) -> Module {
-        let lexer = Lexer::new(&self.code);
-        let parse = ModuleParser::new().parse(self.offset(), lexer);
+        let lexer = Lexer::new(&self.code, self.offset());
+        let parse = ModuleParser::new().parse(lexer);
         self.unwrap(parse.map_err(ParseErr::from))
     }
 }

@@ -3,7 +3,7 @@ use crate::parse::expr::*;
 use crate::parse::types::*;
 use crate::parse::lexer::*;
 
-grammar(offset: usize);
+grammar;
 
 Num: i32 = "num" => <>;
 Var: String = "var" => <>;
@@ -113,7 +113,7 @@ Def: Def = {
 pub Module: Module = Def* => Module(<>);
 
 Spanned<T>: Spanned<T> = {
-    <l:@L> <val:T> <r:@R> => Spanned {span: (l + offset, r - l).into(), val},
+    <l:@L> <val:T> <r:@R> => Spanned {span: (l, r - l).into(), val},
 };
 
 
