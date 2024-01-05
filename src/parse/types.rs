@@ -41,18 +41,18 @@ pub enum Constraint {
     Assert(Prop),
     Let(String, Value),
     // Func(Term, NegTyp),
-    Exactly(String),
+    Exactly(Spanned<String>),
 }
 
 pub struct Forall {
-    pub named: String,
+    pub named: Spanned<String>,
     pub names: Vec<String>,
     pub cond: Rc<Prop>,
 }
 
 pub struct Switch {
     pub cond: Option<Value>,
-    pub named: String,
+    pub named: Spanned<String>,
     pub args: Vec<Value>,
 }
 

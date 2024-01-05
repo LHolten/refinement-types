@@ -41,7 +41,7 @@ Tuple: Vec<Value> = "(" <first:(<UnboxedValue> ",")*> <last:UnboxedValue?> ")" =
     all.extend(last);
     all
 };
-Bind: Bind = <func:Var?> <args:Spanned<Tuple>> => Bind{<>};
+Bind: Bind = <func:Spanned<Var>?> <args:Spanned<Tuple>> => Bind{<>};
 
 Let: Let = "let" "(" <names:(<Var> ","?)*> ")" "=" <bind:Bind> => Let{<>};
 
@@ -80,14 +80,14 @@ PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spann
 };
 PosTyp: Rc<Spanned<PosTyp>> = Spanned<PosTypInner> => Rc::new(<>);
 
-Forall: Forall = "[" <names:(<Var> ","?)*> "]" "=" <named:Var> "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
-Switch: Switch = <named:Var> <args:Tuple> <cond:("if" <UnboxedValue>)?> => Switch{<>};
+Forall: Forall = "[" <names:(<Var> ","?)*> "]" "=" <named:Spanned<Var>> "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
+Switch: Switch = <named:Spanned<Var>> <args:Tuple> <cond:("if" <UnboxedValue>)?> => Switch{<>};
 
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
     <(<Var> "=")?> <Switch> => Constraint::Switch(<>),
     "let" <Var> "=" <UnboxedValue> => Constraint::Let(<>),
-    <Var> => Constraint::Exactly(<>),
+    <Spanned<Var>> => Constraint::Exactly(<>),
     "assert" <Prop> => Constraint::Assert(<>),
 };
 

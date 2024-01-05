@@ -7,7 +7,10 @@ use std::{
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use self::types::{NameList, Named};
+use self::{
+    types::{NameList, Named},
+    value::IntoScope,
+};
 use crate::refinement::{self, Lambda, Val};
 use crate::uninit_rc::UninitRc;
 use crate::{
@@ -63,7 +66,7 @@ impl<T: Val> Desugar<T> {
         let expr = match &block.val {
             Block::End(bind) => match bind.func.as_ref() {
                 Some(func) => {
-                    let (_typ, label) = self.labels.get(func).unwrap();
+                    let (_typ, label) = self.types.source.unwrap(self.labels.try_get(func));
                     let value = self.convert_value(&bind.args);
                     refinement::Expr::Loop(label.clone(), value)
                 }
@@ -80,18 +83,21 @@ impl<T: Val> Desugar<T> {
                 Stmt::Let(Let { names, bind }) => {
                     let func_name = bind.func.as_ref().unwrap();
 
-                    let func = if func_name.starts_with('@') {
-                        let builtin = match func_name.as_str() {
+                    let func = if func_name.val.starts_with('@') {
+                        let builtin = match func_name.val.as_str() {
                             "@read8" => refinement::builtin::Builtin::Read8,
                             "@read32" => refinement::builtin::Builtin::Read32,
                             "@write8" => refinement::builtin::Builtin::Write8,
                             "@write32" => refinement::builtin::Builtin::Write32,
                             "@alloc" => refinement::builtin::Builtin::Alloc,
-                            _ => panic!(),
+                            _ => self.types.source.unwrap(Err(ScopeErr {
+                                span: func_name.span,
+                            })),
                         };
                         refinement::Thunk::Builtin(builtin)
                     } else {
-                        let (_typ, local) = self.labels.get(func_name).unwrap();
+                        let (_typ, local) =
+                            self.types.source.unwrap(self.labels.try_get(func_name));
                         refinement::Thunk::Local(local.clone())
                     };
 

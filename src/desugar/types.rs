@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::value::IntoScope;
+
 #[derive(Clone)]
 pub struct Named {
     pub id: usize,
@@ -181,7 +183,7 @@ impl DesugarTypes {
                     }
                 }
                 Constraint::Exactly(name) => {
-                    let equal = self.exactly.get(name).unwrap();
+                    let equal = self.source.unwrap(self.exactly.try_get(name));
                     equal(heap)?;
                 }
             }
@@ -197,11 +199,11 @@ impl DesugarTypes {
         }
     }
 
-    pub fn get_resource(&self, name: &str) -> Resource {
-        match name {
+    pub fn get_resource(&self, name: &Spanned<String>) -> Resource {
+        match &*name.val {
             "@byte" => Resource::Owned,
             _ => {
-                let named = self.named.0.get(name).unwrap();
+                let named = self.source.unwrap(self.named.0.try_get(name));
                 Resource::Named(self.convert_named(named))
             }
         }

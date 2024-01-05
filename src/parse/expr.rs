@@ -28,7 +28,7 @@ pub struct Let {
 }
 
 pub struct Bind {
-    pub func: Option<String>,
+    pub func: Option<Spanned<String>>,
     pub args: Spanned<Vec<Value>>,
 }
 
