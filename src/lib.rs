@@ -14,7 +14,7 @@ use refinement::Free;
 pub mod desugar;
 pub mod error;
 pub mod parse;
-mod refinement;
+pub mod refinement;
 mod solver;
 pub mod uninit_rc;
 // mod sequent;

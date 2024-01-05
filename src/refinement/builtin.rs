@@ -90,7 +90,7 @@ impl Free<Term> {
 
 static ALLOC: &str = r"
 (pages) -> (start) where {
-    @byte for (ptr) if (ptr - start) < pages;
+    [ptr] = @byte if (ptr - start) < pages;
     assert start <= (start + pages);
 }";
 

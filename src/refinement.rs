@@ -185,12 +185,6 @@ pub struct Spanned<T: ?Sized> {
     pub val: T,
 }
 
-impl<T: ?Sized> Spanned<T> {
-    pub fn as_ref(&self) -> &T {
-        &self.val
-    }
-}
-
 impl<V: Val> Lambda<V> {
     pub fn inst(&self, var: &[V]) -> Spanned<Expr<V>> {
         (self.func)(var)

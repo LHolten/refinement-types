@@ -15,9 +15,9 @@ pub mod lexer;
 pub mod types;
 lalrpop_mod!(pub code, "/parse/code.rs");
 
-pub fn get_module(code: &str) -> Module {
+pub fn get_module(code: &str, offset: usize) -> Module {
     let lexer = Lexer::new(code);
-    match ModuleParser::new().parse(lexer) {
+    match ModuleParser::new().parse(offset, lexer) {
         Err(e) => {
             let report = Report::from(ParseErr::from(e));
             let e = report.with_source_code(code.to_owned());

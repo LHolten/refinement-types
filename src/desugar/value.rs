@@ -1,4 +1,7 @@
-use crate::parse::expr::{BinOp, BinOpValue, Index, Value};
+use miette::{Diagnostic, SourceSpan};
+use thiserror::Error;
+
+use crate::parse::expr::{BinOp, BinOpValue, Index, Spanned, Value};
 use crate::parse::types::{Prop, PropOp};
 use crate::refinement::Free;
 use crate::{refinement, Nested};
@@ -10,15 +13,7 @@ impl Value {
     pub fn convert<T: Clone>(&self, lookup: &HashMap<String, Nested<T>>) -> Free<T> {
         match self {
             Value::Var(name, rest) => {
-                let mut curr = lookup
-                    .get(name)
-                    .ok_or_else(|| {
-                        format!(
-                            "can not find `{name}`, have: {:?}",
-                            lookup.keys().collect::<Vec<_>>()
-                        )
-                    })
-                    .unwrap();
+                let mut curr = lookup.get(&name.val).unwrap();
                 let mut inner;
                 for r in rest {
                     inner = curr.unwrap_more();
@@ -79,4 +74,24 @@ impl Prop {
             PropOp::AddSafe => Op::AddSafe.free(l, r),
         }
     }
+}
+
+pub trait IntoScope {
+    type Item;
+    fn try_get(&self, name: &Spanned<String>) -> Result<&Self::Item, ScopeErr>;
+}
+
+impl<V> IntoScope for HashMap<String, V> {
+    type Item = V;
+
+    fn try_get(&self, name: &Spanned<String>) -> Result<&Self::Item, ScopeErr> {
+        self.get(&name.val).ok_or(ScopeErr { span: name.span })
+    }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Can not find variable")]
+pub struct ScopeErr {
+    #[label = "The variable"]
+    span: SourceSpan,
 }

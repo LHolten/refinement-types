@@ -10,14 +10,8 @@ pub enum Def {
 }
 
 pub struct Spanned<T> {
-    pub span: (usize, usize),
+    pub span: SourceSpan,
     pub val: T,
-}
-
-impl<T> Spanned<T> {
-    pub fn source_span(&self, offset: usize) -> SourceSpan {
-        (offset + self.span.0, self.span.1 - self.span.0).into()
-    }
 }
 
 pub struct Module(pub Vec<Def>);
@@ -44,7 +38,7 @@ pub enum Index {
 }
 
 pub enum Value {
-    Var(String, Vec<Index>),
+    Var(Spanned<String>, Vec<Index>),
     Int32(i32),
     BinOp(Box<BinOpValue>),
     Prop(Box<Prop>),

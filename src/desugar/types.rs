@@ -32,18 +32,16 @@ pub struct DesugarTypes {
     pub(super) named: NameList,
     pub terms: HashMap<String, Nested<Term>>,
     pub exactly: HashMap<String, Exactly>,
-    pub offset: usize,
 }
 
 type Exactly = Rc<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
 
 impl DesugarTypes {
-    pub(super) fn new(list: NameList, offset: usize) -> Self {
+    pub(super) fn new(list: NameList) -> Self {
         Self {
             named: list,
             terms: HashMap::new(),
             exactly: HashMap::new(),
-            offset,
         }
     }
 
@@ -67,7 +65,7 @@ impl DesugarTypes {
         let this = self.clone();
         refinement::Fun {
             tau: this.tau(&pos.val.names),
-            span: Some(pos.source_span(self.offset)),
+            span: Some(pos.span),
             fun: Rc::new(move |heap, terms| {
                 let mut this = this.clone();
 
@@ -85,7 +83,7 @@ impl DesugarTypes {
         let this = self.clone();
         refinement::Fun {
             tau: this.tau(&args.val.names),
-            span: Some(args.source_span(self.offset)),
+            span: Some(args.span),
             fun: Rc::new(move |heap, terms| {
                 let mut this = this.clone();
 
@@ -130,7 +128,7 @@ impl DesugarTypes {
                     let this = self.clone();
                     let forall = refinement::Forall {
                         resource: self.get_resource(&forall.named),
-                        span: Some(part.source_span(self.offset)),
+                        span: Some(part.span),
                         mask: FuncTerm::new_bool(move |terms| {
                             let terms = terms.iter().cloned().map(Nested::Just);
 
@@ -143,7 +141,7 @@ impl DesugarTypes {
                     heap.forall(forall)?;
                 }
                 Constraint::Assert(cond) => {
-                    heap.assert(self.convert_prop(cond), Some(part.source_span(self.offset)))?;
+                    heap.assert(self.convert_prop(cond), Some(part.span))?;
                 }
                 Constraint::Switch(new_name, switch) => {
                     let args = self.convert_vals(&switch.args);
@@ -153,7 +151,7 @@ impl DesugarTypes {
                     let switch = refinement::Switch {
                         resource,
                         args,
-                        span: Some(part.source_span(self.offset)),
+                        span: Some(part.span),
                         cond: cond
                             .map(|v| self.convert_val(v))
                             .unwrap_or(Term::bool(true)),

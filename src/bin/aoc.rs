@@ -6,7 +6,7 @@ use std::{
     io::Read,
     time::Instant,
 };
-use structural_types::error::MultiFile;
+use structural_types::{error::MultiFile, refinement::builtin::builtins};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -24,7 +24,8 @@ fn main() -> miette::Result<()> {
     let mut code = String::new();
     file.read_to_string(&mut code).unwrap();
 
-    let m = structural_types::parse::get_module(&code);
+    let offset = builtins().iter().map(|x| x.len()).sum();
+    let m = structural_types::parse::get_module(&code, offset);
     if let Err(err) = structural_types::desugar::check(&m) {
         let source = MultiFile::new(code);
         return Err(err.with_source_code(source));
