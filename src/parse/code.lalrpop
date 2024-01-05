@@ -21,7 +21,7 @@ UnboxedValue: Value = {
 };
 
 Index: Index = {
-    "." <Var> => Index::Attribute(<>),
+    "." <Spanned<Var>> => Index::Attribute(<>),
     "[" <idx:UnboxedValue> "]" => Index::Value(<>),
 };
 

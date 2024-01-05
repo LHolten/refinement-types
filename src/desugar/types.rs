@@ -1,3 +1,4 @@
+use crate::error::MultiFile;
 use crate::parse::expr::{Spanned, Value};
 use crate::parse::types::{Constraint, NegTyp, PosTyp, Prop};
 use crate::refinement::heap::{ConsumeErr, Heap};
@@ -32,16 +33,18 @@ pub struct DesugarTypes {
     pub(super) named: NameList,
     pub terms: HashMap<String, Nested<Term>>,
     pub exactly: HashMap<String, Exactly>,
+    pub source: MultiFile,
 }
 
 type Exactly = Rc<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
 
 impl DesugarTypes {
-    pub(super) fn new(list: NameList) -> Self {
+    pub(super) fn new(list: NameList, source: MultiFile) -> Self {
         Self {
             named: list,
             terms: HashMap::new(),
             exactly: HashMap::new(),
+            source,
         }
     }
 
@@ -99,11 +102,11 @@ impl DesugarTypes {
     }
 
     pub fn convert_prop(&self, prop: &Prop) -> Term {
-        prop.convert(&self.terms).make_term()
+        self.source.unwrap(prop.convert(&self.terms)).make_term()
     }
 
     pub fn convert_val(&self, val: &Value) -> Term {
-        val.convert(&self.terms).make_term()
+        self.source.unwrap(val.convert(&self.terms)).make_term()
     }
 
     pub fn convert_vals(&self, vals: &[Value]) -> Vec<Term> {

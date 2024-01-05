@@ -1,8 +1,8 @@
-use std::process::exit;
-
 use lalrpop_util::{lalrpop_mod, ParseError};
-use miette::{Diagnostic, Report, SourceSpan};
+use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
+
+use crate::error::MultiFile;
 
 use self::{
     code::ModuleParser,
@@ -15,16 +15,11 @@ pub mod lexer;
 pub mod types;
 lalrpop_mod!(pub code, "/parse/code.rs");
 
-pub fn get_module(code: &str, offset: usize) -> Module {
-    let lexer = Lexer::new(code);
-    match ModuleParser::new().parse(offset, lexer) {
-        Err(e) => {
-            let report = Report::from(ParseErr::from(e));
-            let e = report.with_source_code(code.to_owned());
-            println!("{e:?}");
-            exit(1)
-        }
-        Ok(m) => m,
+impl MultiFile {
+    pub fn get_module(&self) -> Module {
+        let lexer = Lexer::new(&self.code);
+        let parse = ModuleParser::new().parse(self.offset(), lexer);
+        self.unwrap(parse.map_err(ParseErr::from))
     }
 }
 

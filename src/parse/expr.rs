@@ -33,7 +33,7 @@ pub struct Bind {
 }
 
 pub enum Index {
-    Attribute(String),
+    Attribute(Spanned<String>),
     Value(Value),
 }
 

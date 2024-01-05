@@ -1,12 +1,13 @@
-use std::{error::Error, fmt::Display};
+use std::{error::Error, fmt::Display, process::exit};
 
-use miette::{Diagnostic, LabeledSpan};
+use miette::{Diagnostic, LabeledSpan, Report};
 
 use crate::refinement::builtin::builtins;
 
+#[derive(Clone)]
 pub struct MultiFile {
-    builtin: Vec<&'static str>,
-    code: String,
+    pub builtin: Vec<&'static str>,
+    pub code: String,
 }
 
 impl MultiFile {
@@ -14,6 +15,22 @@ impl MultiFile {
         Self {
             builtin: builtins(),
             code,
+        }
+    }
+
+    pub fn offset(&self) -> usize {
+        self.builtin.iter().map(|x| x.len()).sum()
+    }
+
+    pub fn unwrap<T, E: Diagnostic + Send + Sync + 'static>(&self, res: Result<T, E>) -> T {
+        match res {
+            Ok(val) => val,
+            Err(e) => {
+                let report = Report::from(e);
+                let e = report.with_source_code(self.to_owned());
+                println!("{e:?}");
+                exit(1)
+            }
         }
     }
 }

@@ -4,13 +4,19 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use miette::{Diagnostic, SourceSpan};
+use thiserror::Error;
+
 use self::types::{NameList, Named};
-use crate::parse::{
-    expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value},
-    lexer::Lexer,
-};
 use crate::refinement::{self, Lambda, Val};
 use crate::uninit_rc::UninitRc;
+use crate::{
+    error::MultiFile,
+    parse::{
+        expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value},
+        lexer::Lexer,
+    },
+};
 use crate::{
     parse::types::{NamedConstraint, NegTyp},
     refinement::Expr,
@@ -40,9 +46,13 @@ pub struct WeakFuncDef<T: Val> {
 impl<T: Val> Desugar<T> {
     pub fn convert_value(&self, value: &Spanned<Vec<Value>>) -> refinement::Value<T> {
         let value_iter = value.val.iter();
+        let inj = self
+            .types
+            .source
+            .unwrap(value_iter.map(|val| val.convert(&self.vars)).collect());
         refinement::Value {
             span: Some(value.span),
-            inj: value_iter.map(|val| val.convert(&self.vars)).collect(),
+            inj,
             scope: Some(self.vars.clone()),
         }
     }
@@ -106,7 +116,7 @@ impl<T: Val> Desugar<T> {
                     refinement::Expr::Cont(cont, label, Box::new(rest))
                 }
                 Stmt::If(If { val, block: def }) => {
-                    let local = val.convert(&self.vars);
+                    let local = self.types.source.unwrap(val.convert(&self.vars));
                     let rest = self.clone().convert_expr(next);
                     let cont = self.convert_expr(def);
                     refinement::Expr::Match(local, vec![rest, cont])
@@ -169,8 +179,8 @@ struct Desugared<T: Val> {
 }
 
 impl<T: Val> Desugared<T> {
-    fn new(list: NameList, m: &Module) -> Self {
-        let types = types::DesugarTypes::new(list);
+    fn new(list: NameList, source: MultiFile, m: &Module) -> Self {
+        let types = types::DesugarTypes::new(list, source);
 
         let mut labels = HashMap::new();
         let mut funcs_uninit = HashMap::new();
@@ -234,20 +244,22 @@ impl NameList {
     }
 }
 
-pub fn check(m: &Module) -> miette::Result<()> {
+pub fn check(source: &MultiFile) {
+    let m = &source.get_module();
     let list = NameList::new(m);
-    let this = Desugared::new(list, m);
+    let this = Desugared::new(list, source.clone(), m);
 
     for (lambda, neg) in this.funcs.values() {
         let ctx = refinement::SubContext::default();
-        ctx.check_expr(lambda, neg)?;
+        source.unwrap(ctx.check_expr(lambda, neg));
     }
-    Ok(())
 }
 
-pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
+pub fn run(source: MultiFile, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
+    let m = source.get_module();
+
     let list = NameList::new(&m);
-    let this = Desugared::<i32>::new(list, &m);
+    let this = Desugared::<i32>::new(list, source, &m);
 
     let (lambda, _typ) = &this.funcs[name];
 
@@ -256,7 +268,7 @@ pub fn run(m: Module, name: &str, args: Vec<i32>, heap: Vec<u8>) -> Vec<i32> {
     memory.eval(expr.val)
 }
 
-pub fn convert_neg(files: &[&str], idx: usize) -> refinement::Fun<refinement::NegTyp> {
+pub fn convert_neg(files: &[&'static str], idx: usize) -> refinement::Fun<refinement::NegTyp> {
     let lexer = Lexer::new(files[idx]);
     let offset = files.iter().take(idx).map(|x| x.len()).sum();
     let parsed = NegTypParser::new().parse(offset, lexer).unwrap();
@@ -265,6 +277,17 @@ pub fn convert_neg(files: &[&str], idx: usize) -> refinement::Fun<refinement::Ne
         named: NameList(Default::default()),
         terms: Default::default(),
         exactly: Default::default(),
+        source: MultiFile {
+            builtin: files.to_owned(),
+            code: String::new(),
+        },
     };
     desugar.convert_neg(parsed)
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Can not find variable")]
+pub struct ScopeErr {
+    #[label = "The variable"]
+    span: SourceSpan,
 }
