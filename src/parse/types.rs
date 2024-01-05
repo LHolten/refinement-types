@@ -11,12 +11,6 @@ pub struct NamedConstraint {
 }
 
 #[derive(Clone)]
-pub struct Param {
-    pub name: String,
-    pub typ: ParamTyp,
-}
-
-#[derive(Clone)]
 pub enum ParamTyp {
     I32,
     Custom {
@@ -31,7 +25,7 @@ pub enum ParamTyp {
 // }
 
 pub struct PosTyp {
-    pub names: Vec<Param>,
+    pub names: Vec<String>,
     pub parts: Vec<Spanned<Constraint>>,
 }
 

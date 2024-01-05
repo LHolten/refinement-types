@@ -10,8 +10,7 @@ Var: String = "var" => <>;
 
 Value: Value = {
     "(" <UnboxedValue> ")" => <>,
-    <Var> <("." <Var>)*> => Value::Var(<>),
-    Var Tuple => Value::Struct(<>),
+    <Var> <Index*> => Value::Var(<>),
     Num => Value::Int32(<>),
 }
 
@@ -19,6 +18,11 @@ UnboxedValue: Value = {
     Value => <>,
     BinOpValue => Value::BinOp(Box::new(<>)),
     Prop => Value::Prop(Box::new(<>)),
+};
+
+Index: Index = {
+    "." <Var> => Index::Attribute(<>),
+    "[" <idx:UnboxedValue> "]" => Index::Value(<>),
 };
 
 BinOpValue: BinOpValue = <l:Value> <op:BinOp> <r:Value> => BinOpValue{<>};
@@ -70,24 +74,13 @@ FuncDef: FuncDef = {
 
 pub NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
-PosTypInner: PosTyp = "(" <names:(<Param> ","?)*> ")" <parts:("where" "{" <(<Spanned<Constraint>> ";")*> "}")?> => {
+PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spanned<Constraint>> ";")*> "}")?> => {
     let parts = parts.into_iter().flatten().collect();    
     PosTyp{names, parts}
 };
 PosTyp: Rc<Spanned<PosTyp>> = Spanned<PosTypInner> => Rc::new(<>);
 
-Param: Param = {
-    Var => Param{name: <>, typ: ParamTyp::I32},
-    <name:Var> ":" <typ:ParamTyp> => Param{<>},
-};
-ParamTyp: ParamTyp = <name:Var> => ParamTyp::Custom{<>};
-// ParamTyp: ParamTyp = <name:Var> "(" <args:( <ParamTypArg> "," )*> ")" => ParamTyp::Custom{<>};
-// ParamTypArg: ParamTypArg = {
-//     "_" <("as" <Var>)?> => ParamTypArg::Bind(<>),
-//     UnboxedValue => ParamTypArg::Exactly(<>),
-// };
-
-Forall: Forall = <named:Var> "for" "(" <names:(<Var> ","?)*> ")" "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
+Forall: Forall = "[" <names:(<Var> ","?)*> "]" "=" <named:Var> "if" <cond:Prop> => Forall{named, names, cond: Rc::new(cond)};
 Switch: Switch = <named:Var> <args:Tuple> <cond:("if" <UnboxedValue>)?> => Switch{<>};
 
 Constraint: Constraint = {
@@ -156,6 +149,8 @@ extern {
     "}" => Token::BraceR,
     "(" => Token::ParenL,
     ")" => Token::ParenR,
+    "[" => Token::SquareL,
+    "]" => Token::SquareR,
     "fn" => Token::FnKeyword,
     "loop" => Token::LoopKeyword,
     "if" => Token::IfKeyword,

@@ -4,15 +4,9 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use self::{
-    types::{NameList, Named},
-    value::{first, ValTyp},
-};
-use crate::{
-    parse::types::Param,
-    refinement::{self, Lambda, Val},
-};
-use crate::{parse::types::ParamTyp, uninit_rc::UninitRc};
+use self::types::{NameList, Named};
+use crate::refinement::{self, Lambda, Val};
+use crate::uninit_rc::UninitRc;
 use crate::{
     parse::types::{NamedConstraint, NegTyp},
     refinement::Expr,
@@ -26,7 +20,7 @@ use crate::{
         expr::{Block, Def, FuncDef, If, Let, Module, Spanned, Stmt, Value},
         lexer::Lexer,
     },
-    refinement::{builtin::builtins, typing::zip_eq},
+    refinement::builtin::builtins,
 };
 
 mod types;
@@ -47,20 +41,11 @@ pub struct WeakFuncDef<T: Val> {
 }
 
 impl<T: Val> Desugar<T> {
-    pub fn convert_value(
-        &self,
-        value: &Spanned<Vec<Value>>,
-        param: &[Param],
-    ) -> refinement::Value<T> {
+    pub fn convert_value(&self, value: &Spanned<Vec<Value>>) -> refinement::Value<T> {
         let value_iter = value.val.iter();
         refinement::Value {
             span: Some(value.source_span(self.types.offset)),
-            inj: zip_eq(value_iter, param)
-                .flat_map(|(val, param)| {
-                    let typ = self.types.val_typ(param);
-                    val.convert(&self.vars, typ)
-                })
-                .collect(),
+            inj: value_iter.map(|val| val.convert(&self.vars)).collect(),
             scope: Some(self.vars.clone()),
         }
     }
@@ -71,12 +56,12 @@ impl<T: Val> Desugar<T> {
         let expr = match &block.val {
             Block::End(bind) => match bind.func.as_ref() {
                 Some(func) => {
-                    let (typ, label) = self.labels.get(func).unwrap();
-                    let value = self.convert_value(&bind.args, &typ.args.val.names);
+                    let (_typ, label) = self.labels.get(func).unwrap();
+                    let value = self.convert_value(&bind.args);
                     refinement::Expr::Loop(label.clone(), value)
                 }
                 None => {
-                    let value = self.convert_value(&bind.args, &self.ret.val.names);
+                    let value = self.convert_value(&bind.args);
                     refinement::Expr::Return(value)
                 }
             },
@@ -88,8 +73,6 @@ impl<T: Val> Desugar<T> {
                 Stmt::Let(Let { names, bind }) => {
                     let func_name = bind.func.as_ref().unwrap();
 
-                    let arg: Vec<Param>;
-                    let ret: Vec<Param>;
                     let func = if func_name.starts_with('@') {
                         let builtin = match func_name.as_str() {
                             "@read8" => refinement::builtin::Builtin::Read8,
@@ -99,38 +82,14 @@ impl<T: Val> Desugar<T> {
                             "@alloc" => refinement::builtin::Builtin::Alloc,
                             _ => panic!(),
                         };
-                        let typ: (&[ParamTyp], &[ParamTyp]) = match func_name.as_str() {
-                            "@read8" => (&[ParamTyp::I32], &[ParamTyp::I32]),
-                            "@read32" => (&[ParamTyp::I32], &[ParamTyp::I32]),
-                            "@write8" => (&[ParamTyp::I32, ParamTyp::I32], &[]),
-                            "@write32" => (&[ParamTyp::I32, ParamTyp::I32], &[]),
-                            "@alloc" => (&[ParamTyp::I32], &[ParamTyp::I32]),
-                            _ => panic!(),
-                        };
-                        let make_param = |typ: &ParamTyp| Param {
-                            name: "".to_owned(),
-                            typ: typ.clone(),
-                        };
-                        arg = typ.0.iter().map(make_param).collect();
-                        ret = typ.1.iter().map(make_param).collect();
                         refinement::Thunk::Builtin(builtin)
                     } else {
-                        let (typ, local) = self.labels.get(func_name).unwrap();
-                        arg = typ.args.val.names.to_owned();
-                        ret = typ.ret.val.names.to_owned();
+                        let (_typ, local) = self.labels.get(func_name).unwrap();
                         refinement::Thunk::Local(local.clone())
                     };
 
-                    let arg = self.convert_value(&bind.args, &arg);
-
-                    let ret: Vec<_> = zip_eq(names, ret)
-                        .map(|(name, param)| Param {
-                            name: name.clone(),
-                            typ: param.typ,
-                        })
-                        .collect();
-                    let rest = self.convert_lambda(next, None, &ret);
-
+                    let arg = self.convert_value(&bind.args);
+                    let rest = self.convert_lambda(next, None, names);
                     refinement::Expr::App(func, arg, rest)
                 }
                 Stmt::FuncDef(FuncDef {
@@ -150,7 +109,7 @@ impl<T: Val> Desugar<T> {
                     refinement::Expr::Cont(cont, label, Box::new(rest))
                 }
                 Stmt::If(If { val, block: def }) => {
-                    let local = first(val.convert(&self.vars, ValTyp::I32));
+                    let local = val.convert(&self.vars);
                     let rest = self.clone().convert_expr(next);
                     let cont = self.convert_expr(def);
                     refinement::Expr::Match(local, vec![rest, cont])
@@ -162,7 +121,7 @@ impl<T: Val> Desugar<T> {
 
     pub fn convert_lambda_inner(
         self,
-        names: &[Param],
+        names: &[String],
         labels: HashMap<String, WeakFuncDef<T>>,
         block: Rc<Spanned<Block>>,
     ) -> refinement::Lambda<T, impl Fn(&[T]) -> refinement::Spanned<refinement::Expr<T>>> {
@@ -187,7 +146,7 @@ impl<T: Val> Desugar<T> {
         &self,
         block: &Rc<Spanned<Block>>,
         label: Option<(String, NegTyp)>,
-        names: &[Param],
+        names: &[String],
     ) -> Rc<refinement::Lambda<T>> {
         let func = Rc::new_cyclic(|rec| {
             let mut labels = HashMap::new();

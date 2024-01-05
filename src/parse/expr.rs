@@ -38,9 +38,13 @@ pub struct Bind {
     pub args: Spanned<Vec<Value>>,
 }
 
+pub enum Index {
+    Attribute(String),
+    Value(Value),
+}
+
 pub enum Value {
-    Var(String, Vec<String>),
-    Struct(String, Vec<Value>),
+    Var(String, Vec<Index>),
     Int32(i32),
     BinOp(Box<BinOpValue>),
     Prop(Box<Prop>),

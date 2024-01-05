@@ -192,7 +192,7 @@ pub fn format_model<F: Write>(
 impl Nested<Term> {
     pub fn eval(&mut self, model: &Model<'static>) {
         match self {
-            Nested::More(_id, more) => more.iter_mut().for_each(|(_key, val)| val.eval(model)),
+            Nested::Resource(..) => panic!(),
             Nested::Just(term) => {
                 *term = match term {
                     Term::BV(bv) => Term::BV(model.eval(bv, true).unwrap()),
@@ -206,7 +206,7 @@ impl Nested<Term> {
 impl fmt::Debug for Nested<Term> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Nested::More(_, items) => f.debug_map().entries(items).finish(),
+            Nested::Resource(..) => panic!(),
             Nested::Just(val) => val.fmt(f),
         }
     }

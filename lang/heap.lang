@@ -1,5 +1,5 @@
 type array(from, len) where {
-    @byte for (ptr) if (ptr - from) < len;
+    [ptr] = @byte if (ptr - from) < len; 
 }
 
 fn upheap(root, index, current) where {

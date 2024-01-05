@@ -61,6 +61,10 @@ pub enum Token {
     ParenL,
     #[token(")")]
     ParenR,
+    #[token("[")]
+    SquareL,
+    #[token("]")]
+    SquareR,
     #[token("fn")]
     FnKeyword,
     #[token("loop")]
