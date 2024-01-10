@@ -13,6 +13,7 @@ mimalloc = "0.1.39"
 thiserror = "1.0.50"
 miette = { git = "https://github.com/LHolten/miette.git", rev = "997a3ea", features = ["fancy-no-backtrace"] }
 indenter = "0.3.3"
+logos = "0.13.0"
 
 [build-dependencies]
 lalrpop = "0.20"
