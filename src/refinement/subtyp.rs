@@ -23,11 +23,11 @@ impl SubContext {
         }
 
         let mut heap = HeapProduce {
-            inner: self,
             new_scope: HashMap::new(),
             scope_value: Term::fresh_uninterpreted(),
         };
         let typ = (n.fun)(&mut heap, &terms).unwrap();
+        // TODO: check what happens when there is a conflict
         self.forall.extend(heap.new_scope);
 
         Solved { inner: typ, terms }

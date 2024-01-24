@@ -114,10 +114,26 @@ impl Assume {
         }
     }
 
+    // this assumes that the mask is equal, it checks that the values are equal
     pub fn check_eq_part(&self, have: NewPart, need: NewPart) {
-        // TODO: check that the values are equal at the intersection
-        // TODO: check that for each unpacked value, we can construct an equal unpacked value
-        // by choosing from the packed or unpacked parts
+        // if one side is Once, then expand the other side.
+        // repeat untill both sides are Forall, then compare
+        let (have, need) = match (have, need) {
+            (NewPart::Forall(have), NewPart::Forall(need)) => {
+                let idx = have.resource.make_fresh_args();
+                let intersect = have.mask.apply(&idx);
+                let eq = have.value.apply(&idx).eq(&need.value.apply(&idx));
+                assert!(self.is_always_true(intersect.implies(&eq).to_bool()));
+                return;
+            }
+            (NewPart::Once(have), need) => (have, need.instance(&have.args)),
+            (have, NewPart::Once(need)) => (have.instance(&need.args), need),
+            (NewPart::Once(have), NewPart::Once(need)) => (have, need),
+        };
+
+        for key in have.map.keys() {
+            self.check_eq_part(have.map[key], need.map[key]);
+        }
     }
 
     pub fn get_value(&self, term: &Term) -> Option<u32> {
