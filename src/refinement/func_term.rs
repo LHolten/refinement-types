@@ -7,7 +7,7 @@ use z3::{ast::Bool, FuncDecl, Sort};
 
 use crate::solver::ctx;
 
-use super::{term::Term, typing::zip_eq};
+use super::{term::Term, typing::zip_eq, Resource};
 
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
@@ -91,5 +91,11 @@ impl FuncTerm {
         let domain: Vec<_> = domain.iter().collect();
         let f = FuncDecl::new(ctx(), name, &domain, &Sort::bitvector(ctx(), 8));
         Self::Free(Rc::new(f))
+    }
+}
+
+impl Resource {
+    pub fn associated_func(&self) -> FuncTerm {
+        todo!()
     }
 }

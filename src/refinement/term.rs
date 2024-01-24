@@ -23,6 +23,9 @@ impl Term {
     pub fn fresh(prefix: &str, size: u32) -> Self {
         Self::BV(BV::fresh_const(ctx(), prefix, size))
     }
+    pub fn fresh_uninterpreted() -> Self {
+        todo!()
+    }
     pub fn to_bv(&self) -> BV<'static> {
         match self {
             Term::BV(bv) => bv.clone(),
@@ -109,6 +112,9 @@ impl Term {
     pub fn shr(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());
         Self::BV(self.to_bv().bvlshr(&r.to_bv()))
+    }
+    pub fn bool_not(&self) -> Self {
+        Self::Bool(self.to_bool().not())
     }
     pub fn bool_and(&self, r: &Self) -> Self {
         assert_eq!(self.get_size(), r.get_size());

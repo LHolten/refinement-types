@@ -20,7 +20,7 @@ use crate::desugar::Desugar;
 use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
-use self::heap::{ConsumeErr, Heap};
+use self::heap::{ConsumeErr, Heap, NewPart};
 
 use self::builtin::Builtin;
 use self::term::Term;
@@ -73,6 +73,7 @@ pub struct Switch {
     pub resource: Resource,
     pub args: Vec<Term>,
     pub cond: Term,
+    pub name: String,
     pub span: Option<SourceSpan>,
 }
 
@@ -81,6 +82,7 @@ pub struct Switch {
 pub enum Resource {
     Named(Name),
     Owned,
+    Impossible,
 }
 
 #[derive(Clone)]
@@ -88,6 +90,7 @@ pub struct Forall {
     pub resource: Resource,
     // mask specifies where is valid
     pub mask: FuncTerm,
+    pub name: String, // name of the resource
     pub span: Option<SourceSpan>,
 }
 
@@ -99,7 +102,7 @@ pub struct CtxForall {
 
 impl Debug for CtxForall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let idx = self.have.make_fresh_args();
+        let idx = self.have.resource.make_fresh_args();
         let mask = self.have.mask.apply_bool(&idx);
         write!(f, "{mask:?}")
     }
@@ -109,7 +112,7 @@ impl Debug for CtxForall {
 #[must_use]
 pub struct SubContext {
     assume: Assume,
-    forall: Vec<CtxForall>,
+    forall: HashMap<String, NewPart>,
     // these do not have to exist, but might
     hints: Vec<Hint>,
     scope: Option<HashMap<String, Nested<Term>>>,

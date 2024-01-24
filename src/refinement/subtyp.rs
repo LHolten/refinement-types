@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
@@ -6,7 +8,11 @@ use crate::refinement::{
     SubContext,
 };
 
-use super::{heap::ConsumeErr, term::Term, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved};
+use super::{
+    heap::{ConsumeErr, Translate},
+    term::Term,
+    Fun, InnerDiagnostic, NegTyp, PosTyp, Solved,
+};
 
 impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
@@ -16,16 +22,26 @@ impl SubContext {
             terms.push(term);
         }
 
-        let mut heap = HeapProduce(self, vec![]);
+        let mut heap = HeapProduce {
+            inner: self,
+            new_scope: HashMap::new(),
+            scope_value: Term::fresh_uninterpreted(),
+        };
         let typ = (n.fun)(&mut heap, &terms).unwrap();
-        let new_forall = heap.1;
-        self.forall.extend(new_forall);
+        self.forall.extend(heap.new_scope);
 
         Solved { inner: typ, terms }
     }
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
-        let mut heap = HeapConsume(self, vec![], Term::bool(true));
+        let mut heap = HeapConsume {
+            inner: self,
+            translate: self
+                .forall
+                .iter()
+                .map(|(k, v)| (k.clone(), Translate::simple(k.clone())))
+                .collect(),
+        };
 
         if typ.tau.len() != terms.len() {
             return Err(ConsumeErr::NumArgs);

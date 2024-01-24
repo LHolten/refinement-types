@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::Debug,
     iter::zip,
     rc::{Rc, Weak},
@@ -145,8 +146,8 @@ impl SubContext {
             }
             Expr::Debug(e) => {
                 eprintln!("start #debug");
-                for ctx in &self.forall {
-                    eprintln!("{:?} {ctx:?}", ctx.have.span);
+                for (name, ctx) in &self.forall {
+                    // eprintln!("{name:?} {ctx:?}");
                 }
                 self.check_expr_pos(e, p)?;
             }
@@ -157,17 +158,18 @@ impl SubContext {
     pub fn without_alloc(&self) -> Self {
         Self {
             assume: self.assume.clone(),
-            forall: vec![],
+            forall: HashMap::new(),
             hints: self.hints.clone(),
             scope: None,
         }
     }
 
     pub fn check_empty(self) -> Result<(), EmptyErr> {
-        for ctx_forall in &self.forall {
-            if self.assume.still_possible(&ctx_forall.have) {
-                let span = ctx_forall.have.span;
-                return Err(EmptyErr { span });
+        for (name, ctx_forall) in &self.forall {
+            if self.assume.still_possible(ctx_forall) {
+                todo!()
+                // let span = ctx_forall.have.span;
+                // return Err(EmptyErr { span });
             }
         }
         Ok(())

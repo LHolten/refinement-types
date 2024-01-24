@@ -11,12 +11,11 @@ use z3::{
 
 use crate::{solver::solver, Nested};
 
-use super::{func_term::FuncTerm, term::Term, CtxForall, Forall, Resource};
+use super::{func_term::FuncTerm, heap::NewPart, term::Term, CtxForall, Forall, Resource};
 
-impl Forall {
+impl Resource {
     pub fn make_fresh_args(&self) -> Vec<Term> {
-        self.resource
-            .arg_sizes()
+        self.arg_sizes()
             .iter()
             .map(|(size, prefix)| Term::fresh(prefix, *size))
             .collect()
@@ -28,13 +27,7 @@ impl Resource {
         match self {
             Resource::Named(name) => name.typ.tau.clone(),
             Resource::Owned => vec![(32, "@ptr".to_owned())],
-        }
-    }
-
-    pub fn val_typ(&self) -> Option<usize> {
-        match self {
-            Resource::Named(name) => Some(name.id),
-            Resource::Owned => None,
+            Resource::Impossible => vec![],
         }
     }
 }
@@ -56,11 +49,11 @@ impl Assume {
         }
     }
 
-    pub fn still_possible(&self, forall: &Forall) -> bool {
+    pub fn still_possible(&self, forall: &NewPart) -> bool {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
-        let idx = forall.make_fresh_args();
+        let idx = forall.resource.make_fresh_args();
         let cond = forall.mask.apply_bool(&idx);
 
         match s.check_assumptions(&[cond]) {
@@ -74,12 +67,12 @@ impl Assume {
     pub fn never_overlap() {}
 
     pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
-        if large.resource.val_typ() != small.resource.val_typ() {
+        if large.resource != small.resource {
             return false;
         }
 
         // debug_assert_eq!(large_named.typ.tau, small_named.typ.tau);
-        let idx = large.make_fresh_args();
+        let idx = large.resource.make_fresh_args();
 
         let cond = small
             .mask
@@ -109,7 +102,7 @@ impl Assume {
 
     pub fn masked_equal(&self, need: &Forall, l: &FuncTerm, r: &FuncTerm) {
         let s = self.assume();
-        let idx = need.make_fresh_args();
+        let idx = need.resource.make_fresh_args();
         s.assert(&need.mask.apply_bool(&idx));
 
         match s.check_assumptions(&[l.apply(&idx).eq(&r.apply(&idx)).to_bool().not()]) {
@@ -145,11 +138,11 @@ impl Assume {
         have: &[CtxForall],
         scope: &HashMap<String, Nested<Term>>,
     ) -> String {
-        let idx = need.make_fresh_args();
+        let idx = need.resource.make_fresh_args();
         let s = self.assume();
         s.assert(&need.mask.apply_bool(&idx));
         for ctx_forall in have {
-            if ctx_forall.have.resource.val_typ() == need.resource.val_typ() {
+            if ctx_forall.have.resource == need.resource {
                 s.assert(&ctx_forall.have.mask.apply_bool(&idx).not());
             }
         }

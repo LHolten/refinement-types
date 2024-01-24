@@ -134,6 +134,7 @@ impl DesugarTypes {
                     let forall = refinement::Forall {
                         resource: self.get_resource(&forall.named),
                         span: Some(part.span),
+                        name: "_".to_owned(),
                         mask: FuncTerm::new_bool(move |terms| {
                             let terms = terms.iter().cloned().map(Nested::Just);
 
@@ -157,13 +158,14 @@ impl DesugarTypes {
                         resource,
                         args,
                         span: Some(part.span),
+                        name: "_".to_owned(),
                         cond: cond
                             .map(|v| self.convert_val(v))
                             .unwrap_or(Term::bool(true)),
                     };
 
                     let switch_clone = switch.clone();
-                    let res = heap.apply(Box::new(move |heap| heap.once(switch_clone)))?;
+                    heap.once(switch_clone)?;
 
                     if let Some(new_name) = new_name.to_owned() {
                         assert!(cond.is_none());
@@ -173,13 +175,13 @@ impl DesugarTypes {
                                 .insert(new_name.clone(), Nested::Just(res_extended));
                         }
 
-                        let equal = Rc::new(move |h: &mut dyn Heap| {
-                            for got in res.removals.clone() {
-                                h.exactly(got)?;
-                            }
-                            Ok(())
-                        });
-                        self.exactly.insert(new_name, equal);
+                        // let equal = Rc::new(move |h: &mut dyn Heap| {
+                        //     for got in res.removals.clone() {
+                        //         h.exactly(got)?;
+                        //     }
+                        //     Ok(())
+                        // });
+                        // self.exactly.insert(new_name, equal);
                     }
                 }
                 Constraint::Exactly(name) => {
