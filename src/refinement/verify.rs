@@ -53,8 +53,8 @@ impl Assume {
         let s = self.assume();
         debug_assert_eq!(s.check(), SatResult::Sat);
 
-        let idx = forall.resource.make_fresh_args();
-        let cond = forall.mask.apply_bool(&idx);
+        let idx = forall.resource().make_fresh_args();
+        let cond = forall.mask().apply_bool(&idx);
 
         match s.check_assumptions(&[cond]) {
             SatResult::Unsat => false,
@@ -112,6 +112,12 @@ impl Assume {
                 panic!("value might be modified")
             }
         }
+    }
+
+    pub fn check_eq_part(&self, have: NewPart, need: NewPart) {
+        // TODO: check that the values are equal at the intersection
+        // TODO: check that for each unpacked value, we can construct an equal unpacked value
+        // by choosing from the packed or unpacked parts
     }
 
     pub fn get_value(&self, term: &Term) -> Option<u32> {

@@ -1,2 +1,8 @@
 /target
 /Cargo.lock
+/old
+/lang
+/ideas
+/papers
+/.vscode
+/src/old

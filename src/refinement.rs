@@ -20,7 +20,7 @@ use crate::desugar::Desugar;
 use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
-use self::heap::{ConsumeErr, Heap, NewPart};
+use self::heap::{ConsumeErr, Heap, NewPart, Removed};
 
 use self::builtin::Builtin;
 use self::term::Term;
@@ -113,6 +113,7 @@ impl Debug for CtxForall {
 pub struct SubContext {
     assume: Assume,
     forall: HashMap<String, NewPart>,
+    removed: Vec<Removed>,
     // these do not have to exist, but might
     hints: Vec<Hint>,
     scope: Option<HashMap<String, Nested<Term>>>,

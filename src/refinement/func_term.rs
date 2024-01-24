@@ -81,6 +81,12 @@ impl FuncTerm {
         Self::new_bool(move |idx| this.apply_bool(idx) & other.apply_bool(idx))
     }
 
+    pub fn or(&self, other: &Self) -> Self {
+        let this = self.clone();
+        let other = other.clone();
+        Self::new_bool(move |idx| this.apply_bool(idx) | other.apply_bool(idx))
+    }
+
     pub fn free(arg_size: &[(u32, String)]) -> Self {
         static ID: AtomicUsize = AtomicUsize::new(0);
         let name = format!("heap-{}", ID.fetch_add(1, Ordering::Relaxed));

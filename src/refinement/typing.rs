@@ -159,6 +159,7 @@ impl SubContext {
         Self {
             assume: self.assume.clone(),
             forall: HashMap::new(),
+            removed: Vec::new(),
             hints: self.hints.clone(),
             scope: None,
         }
