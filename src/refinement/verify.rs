@@ -115,7 +115,7 @@ impl Assume {
     }
 
     // this assumes that the mask is equal, it checks that the values are equal
-    pub fn check_eq_part(&self, have: NewPart, need: NewPart) {
+    pub fn check_eq_part(&self, have: &NewPart, need: &NewPart) {
         // if one side is Once, then expand the other side.
         // repeat untill both sides are Forall, then compare
         let (have, need) = match (have, need) {
@@ -126,13 +126,12 @@ impl Assume {
                 assert!(self.is_always_true(intersect.implies(&eq).to_bool()));
                 return;
             }
-            (NewPart::Once(have), need) => (have, need.instance(&have.args)),
+            (NewPart::Once(have), need) => (need.instance(&have.args), have),
             (have, NewPart::Once(need)) => (have.instance(&need.args), need),
-            (NewPart::Once(have), NewPart::Once(need)) => (have, need),
         };
 
         for key in have.map.keys() {
-            self.check_eq_part(have.map[key], need.map[key]);
+            self.check_eq_part(&have.map[key], &need.map[key]);
         }
     }
 

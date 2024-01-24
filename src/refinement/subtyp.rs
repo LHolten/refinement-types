@@ -35,12 +35,12 @@ impl SubContext {
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
         let mut heap = HeapConsume {
-            inner: self,
             translate: self
                 .forall
                 .iter()
                 .map(|(k, v)| (k.clone(), Translate::simple(k.clone())))
                 .collect(),
+            inner: self,
             old_scope: HashMap::new(),
         };
 

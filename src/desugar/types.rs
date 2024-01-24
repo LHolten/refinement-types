@@ -38,7 +38,7 @@ pub struct DesugarTypes {
     pub source: MultiFile,
 }
 
-type Exactly = Rc<dyn Fn(&mut dyn Heap) -> Result<(), ConsumeErr>>;
+type Exactly = Rc<dyn Fn(&mut dyn Heap, &str) -> Result<(), ConsumeErr>>;
 
 impl DesugarTypes {
     pub(super) fn new(list: NameList, source: MultiFile) -> Self {
@@ -117,14 +117,15 @@ impl DesugarTypes {
 
     pub fn convert_constraint(
         &mut self,
-        parts: &[Spanned<Constraint>],
+        parts: &[(Spanned<String>, Constraint)],
         heap: &mut dyn Heap,
     ) -> Result<(), ConsumeErr> {
-        for part in parts {
-            match &part.val {
-                Constraint::Let(new_name, val) => {
+        for (name, part) in parts {
+            let name = &name.val;
+            match &part {
+                Constraint::Let(val) => {
                     let value = self.convert_val(val);
-                    self.terms.insert(new_name.clone(), Nested::Just(value));
+                    self.terms.insert(name.to_owned(), Nested::Just(value));
                 }
                 Constraint::Forall(forall) => {
                     let cond = forall.cond.clone();
@@ -133,8 +134,6 @@ impl DesugarTypes {
                     let this = self.clone();
                     let forall = refinement::Forall {
                         resource: self.get_resource(&forall.named),
-                        span: Some(part.span),
-                        name: "_".to_owned(),
                         mask: FuncTerm::new_bool(move |terms| {
                             let terms = terms.iter().cloned().map(Nested::Just);
 
@@ -144,12 +143,12 @@ impl DesugarTypes {
                         }),
                     };
 
-                    heap.forall(forall)?;
+                    heap.forall(name, forall)?;
                 }
                 Constraint::Assert(cond) => {
-                    heap.assert(self.convert_prop(cond), Some(part.span))?;
+                    heap.assert(name, self.convert_prop(cond))?;
                 }
-                Constraint::Switch(new_name, switch) => {
+                Constraint::Switch(switch) => {
                     let args = self.convert_vals(&switch.args);
                     let cond = switch.cond.as_ref();
                     let resource = self.get_resource(&switch.named);
@@ -157,36 +156,27 @@ impl DesugarTypes {
                     let switch = refinement::Switch {
                         resource,
                         args,
-                        span: Some(part.span),
-                        name: "_".to_owned(),
                         cond: cond
                             .map(|v| self.convert_val(v))
                             .unwrap_or(Term::bool(true)),
                     };
 
                     let switch_clone = switch.clone();
-                    heap.once(switch_clone)?;
+                    let res = heap.once(name, switch_clone)?;
 
-                    if let Some(new_name) = new_name.to_owned() {
-                        assert!(cond.is_none());
-                        if let Resource::Owned = switch.resource {
-                            let res_extended = res.get_byte(&switch.args).extend_to(32);
-                            self.terms
-                                .insert(new_name.clone(), Nested::Just(res_extended));
-                        }
-
-                        // let equal = Rc::new(move |h: &mut dyn Heap| {
-                        //     for got in res.removals.clone() {
-                        //         h.exactly(got)?;
-                        //     }
-                        //     Ok(())
-                        // });
-                        // self.exactly.insert(new_name, equal);
+                    if let Resource::Owned = switch.resource {
+                        let res_extended = res.get_byte(&switch.args).extend_to(32);
+                        self.terms.insert(name.clone(), Nested::Just(res_extended));
                     }
+
+                    let equal = Rc::new(move |h: &mut dyn Heap, new_name: &str| {
+                        h.exactly(new_name, res.clone())
+                    });
+                    self.exactly.insert(name.clone(), equal);
                 }
-                Constraint::Exactly(name) => {
-                    let equal = self.source.unwrap(self.exactly.try_get(name));
-                    equal(heap)?;
+                Constraint::Exactly(exact) => {
+                    let equal = self.source.unwrap(self.exactly.try_get(exact));
+                    equal(heap, name)?;
                 }
             }
         }

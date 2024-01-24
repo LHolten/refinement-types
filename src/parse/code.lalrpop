@@ -74,7 +74,7 @@ FuncDef: FuncDef = {
 
 pub NegTyp: NegTyp = <args:PosTyp> "->" <ret:PosTyp> => NegTyp{<>};
 
-PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spanned<Constraint>> ";")*> "}")?> => {
+PosTypInner: PosTyp = "(" <names:(<Var> ","?)*> ")" <parts:("where" "{" <(<Spanned<Var>> ":" <Constraint> ",")*> "}")?> => {
     let parts = parts.into_iter().flatten().collect();    
     PosTyp{names, parts}
 };
@@ -85,8 +85,7 @@ Switch: Switch = <named:Spanned<Var>> <args:Tuple> <cond:("if" <UnboxedValue>)?>
 
 Constraint: Constraint = {
     Forall => Constraint::Forall(<>),
-    <(<Var> "=")?> <Switch> => Constraint::Switch(<>),
-    "let" <Var> "=" <UnboxedValue> => Constraint::Let(<>),
+    <Switch> => Constraint::Switch(<>),
     <Spanned<Var>> => Constraint::Exactly(<>),
     "assert" <Prop> => Constraint::Assert(<>),
 };

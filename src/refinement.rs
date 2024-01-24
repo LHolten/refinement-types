@@ -73,8 +73,6 @@ pub struct Switch {
     pub resource: Resource,
     pub args: Vec<Term>,
     pub cond: Term,
-    pub name: String,
-    pub span: Option<SourceSpan>,
 }
 
 /// a single resource
@@ -88,10 +86,7 @@ pub enum Resource {
 #[derive(Clone)]
 pub struct Forall {
     pub resource: Resource,
-    // mask specifies where is valid
     pub mask: FuncTerm,
-    pub name: String, // name of the resource
-    pub span: Option<SourceSpan>,
 }
 
 #[derive(Clone)]
