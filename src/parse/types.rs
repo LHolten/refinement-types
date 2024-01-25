@@ -26,7 +26,7 @@ pub enum ParamTyp {
 
 pub struct PosTyp {
     pub names: Vec<String>,
-    pub parts: Vec<Spanned<Constraint>>,
+    pub parts: Vec<(Spanned<String>, Constraint)>,
 }
 
 #[derive(Clone)]
@@ -37,9 +37,9 @@ pub struct NegTyp {
 
 pub enum Constraint {
     Forall(Forall),
-    Switch(Option<String>, Switch),
+    Switch(Switch),
     Assert(Prop),
-    Let(String, Value),
+    Let(Value),
     // Func(Term, NegTyp),
     Exactly(Spanned<String>),
 }

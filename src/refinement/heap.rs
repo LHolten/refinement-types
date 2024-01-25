@@ -3,7 +3,7 @@ use std::{cmp::min, collections::HashMap, iter::zip};
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use crate::refinement::typing::zip_eq;
+use crate::refinement::{typing::zip_eq, Removed};
 
 use super::{func_term::FuncTerm, term::Term, Forall, Resource, SubContext, Switch};
 
@@ -104,12 +104,6 @@ impl OncePart {
     }
 }
 
-#[derive(Clone)]
-pub struct Removed {
-    proj: Proj,
-    mask: FuncTerm,
-}
-
 pub(super) struct HeapConsume<'a> {
     pub inner: &'a mut SubContext,
     pub translate: HashMap<String, Translate>,
@@ -133,8 +127,8 @@ impl Translate {
 
 #[derive(Clone)]
 pub struct Proj {
-    first: String,
-    parts: Vec<(Vec<Term>, String)>,
+    pub first: String,
+    pub parts: Vec<(Vec<Term>, String)>,
 }
 
 impl<'a> std::ops::DerefMut for HeapConsume<'a> {
@@ -163,8 +157,7 @@ impl NewPart {
             panic!();
         };
         assert!(forall.resource == Resource::Owned);
-        let val = forall.value.apply(idx).to_bv();
-        Term::BV(val)
+        forall.value.apply(idx)
     }
 }
 
@@ -340,25 +333,36 @@ impl SubContext {
         Ok(part.clone())
     }
 
-    fn remove_resource(&mut self, remove: Removed, res: &Resource) -> Result<(), ConsumeErr> {
-        'rem: for rem in &self.removed {
-            if rem.proj.first != remove.proj.first {
-                continue;
-            }
+    // let removed = &mut self.removed[&proj.first];
 
-            let mut cond = Term::bool(true);
+    //     fn conflict(proj: &[(Vec<Term>, String)], removed: &Removed) -> Term {
+    //         let [(args1, name), proj @ ..] = proj else {
+    //             todo!()
+    //         };
+    //         let mut total = removed.mask.apply(args1);
+    //         for (args2, item, inner) in &removed.list {
+    //             if item != name {
+    //                 continue;
+    //             }
+    //             let mut cond = conflict(proj, inner);
+    //             for (a, b) in zip_eq(args1, &args2[..]) {
+    //                 cond = a.eq(b).bool_and(&cond);
+    //             }
+    //             total = total.bool_or(&cond);
+    //         }
+    //         total
+    //     }
+
+    //     let cond = conflict(&proj.parts, removed);
+    //     assert!(self.assume.is_always_true(cond.to_bool().not()));
+
+    fn remove_resource(&mut self, remove: Removed, res: &Resource) -> Result<(), ConsumeErr> {
+        for rem in &self.removed {
+            let Some(mut cond) = remove.proj.eq(&rem.proj) else {
+                continue;
+            };
             let len = min(remove.proj.parts.len(), rem.proj.parts.len());
-            let (a, a_rem) = remove.proj.parts.split_at(len);
-            let (b, b_rem) = rem.proj.parts.split_at(len);
-            for (a, b) in zip(a, b) {
-                if a.1 != b.1 {
-                    continue 'rem;
-                }
-                for (a, b) in zip_eq(&a.0, &b.0) {
-                    cond = a.eq(b).bool_and(&cond);
-                }
-            }
-            match (a_rem, b_rem) {
+            match (&remove.proj.parts[len..], &rem.proj.parts[len..]) {
                 ([(args, _), ..], []) => {
                     cond = rem.mask.apply(args).bool_and(&cond);
                 }
@@ -378,6 +382,28 @@ impl SubContext {
 
         self.removed.push(remove);
         Ok(())
+    }
+}
+
+impl Proj {
+    pub fn eq(&self, rhs: &Proj) -> Option<Term> {
+        if self.first != rhs.first {
+            return None;
+        }
+
+        let mut cond = Term::bool(true);
+        let len = min(self.parts.len(), rhs.parts.len());
+        let (a, a_rem) = self.parts.split_at(len);
+        let (b, b_rem) = rhs.parts.split_at(len);
+        for (a, b) in zip(a, b) {
+            if a.1 != b.1 {
+                return None;
+            }
+            for (a, b) in zip_eq(&a.0, &b.0) {
+                cond = a.eq(b).bool_and(&cond);
+            }
+        }
+        Some(cond)
     }
 }
 

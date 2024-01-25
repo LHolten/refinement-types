@@ -1,5 +1,6 @@
 use std::{
-    collections::HashMap,
+    cmp::min,
+    collections::{HashMap, VecDeque},
     fmt::Debug,
     iter::zip,
     rc::{Rc, Weak},
@@ -11,7 +12,8 @@ use thiserror::Error;
 use crate::{desugar::Desugar, error::AppendLabels, parse, refinement::Free};
 
 use super::{
-    term::Term, Expr, Fun, Lambda, NegTyp, PosTyp, Spanned, SubContext, Thunk, Val, Value,
+    heap::Proj, term::Term, Expr, Fun, Lambda, NegTyp, PosTyp, Spanned, SubContext, Thunk, Val,
+    Value,
 };
 
 pub fn zip_eq<A: IntoIterator, B: IntoIterator>(
@@ -160,18 +162,55 @@ impl SubContext {
             assume: self.assume.clone(),
             forall: HashMap::new(),
             removed: Vec::new(),
-            hints: self.hints.clone(),
             scope: None,
         }
     }
 
     pub fn check_empty(self) -> Result<(), EmptyErr> {
-        for (name, ctx_forall) in &self.forall {
-            if self.assume.still_possible(ctx_forall) {
-                todo!()
-                // let span = ctx_forall.have.span;
-                // return Err(EmptyErr { span });
+        let mut to_check = Vec::new();
+        to_check.extend(self.forall.iter().map(|(k, v)| {
+            let proj = Proj {
+                first: k.clone(),
+                parts: vec![],
+            };
+            (proj, v.clone())
+        }));
+
+        'outer: while let Some((proj, part)) = to_check.pop() {
+            // check that this is completely covered
+            let mut covered = Term::bool(false);
+            let idx = part.resource().make_fresh_args();
+
+            for rem in &self.removed {
+                let Some(mut cond) = rem.proj.eq(&proj) else {
+                    continue;
+                };
+                let len = min(proj.parts.len(), rem.proj.parts.len());
+                match (&proj.parts[len..], &rem.proj.parts[len..]) {
+                    ([(args, _), ..], []) => {
+                        cond = rem.mask.apply(args).bool_and(&cond);
+                        covered = covered.bool_or(&cond);
+                    }
+                    ([], [(args, _), ..]) => {
+                        // this is removing part of our stuff..
+                        let once = part.instance(args);
+                        to_check.extend(once.map.into_iter().map(|(k, v)| {
+                            let mut proj = proj.clone();
+                            proj.parts.push((once.args.clone(), k));
+                            (proj, v)
+                        }));
+                        continue 'outer;
+                    }
+                    ([], []) => {
+                        cond = rem.mask.apply(&idx).bool_and(&cond);
+                        covered = covered.bool_or(&cond);
+                    }
+                    _ => unreachable!(),
+                }
             }
+
+            let cond = part.mask().apply_bool(&idx).implies(&covered.to_bool());
+            assert!(self.assume.is_always_true(cond));
         }
         Ok(())
     }

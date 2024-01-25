@@ -1,0 +1,10 @@
+
+fn test(ptr) where {
+    box: @byte(ptr),
+} -> () where {
+    box: @byte(ptr),
+} = {
+    return ()
+}
+
+fn check() -> () = { return () }

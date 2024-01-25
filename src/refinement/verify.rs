@@ -137,7 +137,7 @@ impl Assume {
 
     pub fn get_value(&self, term: &Term) -> Option<u32> {
         let s = self.assume();
-        let term = &term.to_bv();
+        let term = term.as_bv();
         match s.check() {
             SatResult::Unsat => todo!(),
             SatResult::Unknown => todo!(),
@@ -175,7 +175,7 @@ impl Assume {
         let model = s.get_model().unwrap();
         let args: Vec<_> = idx
             .iter()
-            .map(|idx| model.eval(&idx.to_bv(), true).unwrap().to_string())
+            .map(|idx| model.eval(idx.as_bv(), true).unwrap().to_string())
             .collect();
         let args = args.join(", ");
 
@@ -210,7 +210,8 @@ impl Nested<Term> {
             Nested::Just(term) => {
                 *term = match term {
                     Term::BV(bv) => Term::BV(model.eval(bv, true).unwrap()),
-                    Term::Bool(b) => Term::Bool(model.eval(b, true).unwrap()),
+                    Term::Bool(b, _) => Term::bool_bv(model.eval(b, true).unwrap()),
+                    Term::Uninterp(u) => Term::Uninterp(model.eval(u, true).unwrap()),
                 }
             }
         }

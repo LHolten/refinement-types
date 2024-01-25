@@ -20,7 +20,7 @@ use crate::desugar::Desugar;
 use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
-use self::heap::{ConsumeErr, Heap, NewPart, Removed};
+use self::heap::{ConsumeErr, Heap, NewPart, Proj};
 
 use self::builtin::Builtin;
 use self::term::Term;
@@ -109,15 +109,13 @@ pub struct SubContext {
     assume: Assume,
     forall: HashMap<String, NewPart>,
     removed: Vec<Removed>,
-    // these do not have to exist, but might
-    hints: Vec<Hint>,
     scope: Option<HashMap<String, Nested<Term>>>,
 }
 
 #[derive(Clone)]
-pub struct Hint {
-    id: usize,
-    args: Vec<Term>,
+pub struct Removed {
+    proj: Proj,
+    mask: FuncTerm,
 }
 
 pub struct PosTyp;

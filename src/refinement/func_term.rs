@@ -22,7 +22,7 @@ impl FuncTerm {
     }
 
     pub fn new_bool<F: Fn(&[Term]) -> Bool<'static> + 'static>(f: F) -> Self {
-        Self::new(move |x| Term::Bool((f)(x)))
+        Self::new(move |x| Term::bool_bv((f)(x)))
     }
 
     pub fn apply_bool(&self, idx: &[Term]) -> Bool<'static> {
@@ -32,11 +32,10 @@ impl FuncTerm {
     pub fn apply(&self, idx: &[Term]) -> Term {
         match self {
             FuncTerm::Free(f) => {
-                let args: Vec<_> = idx.iter().map(|x| x.to_bv()).collect();
-                let args: Vec<_> = args.iter().map(|x| x as _).collect();
+                let args: Vec<_> = idx.iter().map(|x| x.as_ast()).collect();
                 let val = f.apply(&args);
                 if let Some(b) = val.as_bool() {
-                    Term::Bool(b)
+                    Term::bool_bv(b)
                 } else if let Some(bv) = val.as_bv() {
                     Term::BV(bv)
                 } else {
@@ -56,9 +55,9 @@ impl FuncTerm {
     pub fn ite(&self, then: &Self, other: &Self) -> Self {
         let (cond, then, other) = (self.clone(), then.clone(), other.clone());
         Self::new(move |idx| {
-            let (then, other) = (then.apply(idx).to_bv(), other.apply(idx).to_bv());
+            let (then, other) = (then.apply(idx), other.apply(idx));
             assert_eq!(then.get_size(), other.get_size());
-            Term::BV(cond.apply_bool(idx).ite(&then, &other))
+            Term::BV(cond.apply_bool(idx).ite(then.as_bv(), other.as_bv()))
         })
     }
 
@@ -102,6 +101,22 @@ impl FuncTerm {
 
 impl Resource {
     pub fn associated_func(&self) -> FuncTerm {
-        todo!()
+        let world = Sort::uninterpreted(ctx(), "world".into());
+
+        let args: Vec<_> = self
+            .arg_sizes()
+            .into_iter()
+            .map(|(size, _name)| Sort::bitvector(ctx(), size))
+            .collect();
+        let mut domain = vec![&world];
+        domain.extend(&args);
+
+        let (range, name) = match self {
+            Resource::Named(named) => (world.clone(), format!("fn-{}", named.id)),
+            Resource::Owned => (Sort::bitvector(ctx(), 8), "heap".to_owned()),
+            Resource::Impossible => todo!(),
+        };
+
+        FuncTerm::Free(Rc::new(FuncDecl::new(ctx(), name, &domain, &range)))
     }
 }
