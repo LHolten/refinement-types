@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::Debug,
     iter::zip,
     rc::{Rc, Weak},
@@ -176,7 +176,7 @@ impl SubContext {
             (proj, v.clone())
         }));
 
-        'outer: while let Some((proj, part)) = to_check.pop() {
+        while let Some((proj, part)) = to_check.pop() {
             // check that this is completely covered
             let mut covered = Term::bool(false);
             let idx = part.resource().make_fresh_args();
@@ -189,24 +189,26 @@ impl SubContext {
                 match (&proj.parts[len..], &rem.proj.parts[len..]) {
                     ([(args, _), ..], []) => {
                         cond = rem.mask.apply(args).bool_and(&cond);
-                        covered = covered.bool_or(&cond);
                     }
                     ([], [(args, _), ..]) => {
                         // this is removing part of our stuff..
+                        // we will check it again later and consider it covered for now
                         let once = part.instance(args);
                         to_check.extend(once.map.into_iter().map(|(k, v)| {
                             let mut proj = proj.clone();
                             proj.parts.push((once.args.clone(), k));
                             (proj, v)
                         }));
-                        continue 'outer;
+                        for (a, b) in zip_eq(args, &idx) {
+                            cond = a.eq(b).bool_and(&cond)
+                        }
                     }
                     ([], []) => {
                         cond = rem.mask.apply(&idx).bool_and(&cond);
-                        covered = covered.bool_or(&cond);
                     }
                     _ => unreachable!(),
                 }
+                covered = covered.bool_or(&cond);
             }
 
             let cond = part.mask().apply_bool(&idx).implies(&covered.to_bool());
