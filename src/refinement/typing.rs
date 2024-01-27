@@ -193,7 +193,7 @@ impl SubContext {
                     ([], [(args, _), ..]) => {
                         // this is removing part of our stuff..
                         // we will check it again later and consider it covered for now
-                        let once = part.instance(args);
+                        let once = part.unfold(args);
                         to_check.extend(once.map.into_iter().map(|(k, v)| {
                             let mut proj = proj.clone();
                             proj.parts.push((once.args.clone(), k));

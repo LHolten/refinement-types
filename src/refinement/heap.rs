@@ -1,17 +1,25 @@
-use std::{cmp::min, collections::HashMap, iter::zip};
+use std::{cmp::min, collections::HashMap, iter::zip, rc::Rc};
 
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 use crate::refinement::{typing::zip_eq, Removed};
 
-use super::{func_term::FuncTerm, term::Term, Forall, Resource, SubContext, Switch};
+use super::{func_term::FuncTerm, term::Term, Forall, Maybe, Resource, SubContext};
 
 #[derive(Clone)]
 pub struct ForPart {
     pub resource: Resource,
     pub mask: FuncTerm,
     pub value: FuncTerm,
+}
+
+#[derive(Clone)]
+pub struct MaybePart {
+    pub resource: Resource,
+    pub args: Vec<Term>,
+    pub cond: Term,
+    pub value: Term,
 }
 
 #[derive(Clone)]
@@ -25,82 +33,85 @@ pub struct OncePart {
 #[derive(Clone)]
 pub enum NewPart {
     Forall(ForPart),
-    Once(OncePart),
+    Maybe(MaybePart),
+    Partial(OncePart),
 }
 
 impl NewPart {
     pub fn resource(&self) -> &Resource {
         match self {
             NewPart::Forall(forall) => &forall.resource,
-            NewPart::Once(once) => &once.resource,
+            NewPart::Partial(once) => &once.resource,
         }
     }
 
     pub fn mask(&self) -> FuncTerm {
         match self {
             NewPart::Forall(forall) => forall.mask.clone(),
-            NewPart::Once(once) => FuncTerm::exactly(&once.args),
+            NewPart::Partial(once) => FuncTerm::exactly(&once.args),
         }
     }
 
-    pub fn is_instance(&self) -> bool {
-        matches!(self, NewPart::Once(_))
+    pub fn args(&self) -> Option<&[Term]> {
+        match self {
+            NewPart::Forall(_) => None,
+            NewPart::Maybe(maybe) => Some(&maybe.args),
+            NewPart::Partial(once) => Some(&once.args),
+        }
     }
 
-    // get an instance from a forall resource
-    pub fn instance(&self, args: &[Term]) -> OncePart {
-        let (part, cond) = match self {
-            NewPart::Forall(forall) => {
+    // get a partial from a maybe or partial resource
+    pub fn unfold(&mut self) -> &mut OncePart {
+        match self {
+            NewPart::Maybe(maybe) => {
+                let args = &maybe.args;
                 let mut heap = HeapProduce {
-                    scope_value: forall.value.apply(args),
+                    scope_value: maybe.value,
                     new_scope: HashMap::new(),
                 };
-                let Resource::Named(named) = &forall.resource else {
+                let Resource::Named(named) = &maybe.resource else {
                     panic!("can only access attributes of named resources")
                 };
                 (named.typ.fun)(&mut heap, args).unwrap();
 
-                let cond = forall.mask.apply(args);
-                let part = OncePart {
-                    resource: forall.resource.clone(),
+                let mut once = OncePart {
+                    resource: maybe.resource.clone(),
                     args: args.to_owned(),
                     map: heap.new_scope,
                 };
-                (part, cond)
-            }
-            NewPart::Once(once) => {
-                let mut cond = Term::bool(true);
-                for (a, b) in zip_eq(&once.args, args) {
-                    cond = a.eq(b).bool_and(&cond);
-                }
-                (once.clone(), cond)
-            }
-        };
+                once.cond_and(&maybe.cond);
 
-        part.cond_and(&cond)
+                *self = NewPart::Partial(once);
+                let NewPart::Partial(once) = self else {
+                    unreachable!()
+                };
+                once
+            }
+            NewPart::Partial(once) => once,
+            _ => {
+                panic!()
+            }
+        }
     }
 
-    pub fn cond_and(self, cond: &Term) -> Self {
+    pub fn cond_and(&mut self, cond: &Term) {
         match self {
-            NewPart::Forall(forall) => NewPart::Forall(ForPart {
-                mask: forall.mask.and(&FuncTerm::always(cond.clone())),
-                ..forall
-            }),
-            NewPart::Once(once) => NewPart::Once(once.cond_and(cond)),
+            NewPart::Forall(forall) => {
+                forall.mask = forall.mask.and(&FuncTerm::always(cond.clone()));
+            }
+            NewPart::Maybe(maybe) => {
+                maybe.cond = maybe.cond.bool_and(cond);
+            }
+            NewPart::Partial(once) => {
+                once.cond_and(cond);
+            }
         }
     }
 }
 
 impl OncePart {
-    pub fn cond_and(self, cond: &Term) -> Self {
-        OncePart {
-            map: self
-                .map
-                .into_iter()
-                .map(|(k, v)| (k, v.cond_and(cond)))
-                .collect(),
-            ..self
-        }
+    pub fn cond_and(&mut self, cond: &Term) {
+        self.map.values_mut().for_each(|v| v.cond_and(cond));
     }
 }
 
@@ -112,13 +123,17 @@ pub(super) struct HeapConsume<'a> {
 
 #[derive(Clone)]
 pub enum Translate {
-    Just(Proj),
-    Construct(HashMap<String, Translate>),
+    Slice(Proj, Rc<dyn Fn(&[Term]) -> Vec<Term>>),
+    JustOne(Proj),
+    Select(Proj, Vec<Term>),
+    Build(HashMap<String, Translate>, Vec<Term>),
 }
+
+pub type ForProj = Rc<dyn Fn(&mut NewPart) -> &mut ForPart>;
 
 impl Translate {
     pub fn simple(name: String) -> Self {
-        Self::Just(Proj {
+        Self::JustOne(Proj {
             first: name,
             parts: vec![],
         })
@@ -128,7 +143,7 @@ impl Translate {
 #[derive(Clone)]
 pub struct Proj {
     pub first: String,
-    pub parts: Vec<(Vec<Term>, String)>,
+    pub parts: Vec<String>,
 }
 
 impl<'a> std::ops::DerefMut for HeapConsume<'a> {
@@ -164,16 +179,16 @@ impl NewPart {
 pub trait Heap {
     fn exactly(&mut self, name: &str, part: NewPart) -> Result<(), ConsumeErr>;
     fn forall(&mut self, name: &str, forall: Forall) -> Result<NewPart, ConsumeErr>;
-    fn once(&mut self, name: &str, switch: Switch) -> Result<NewPart, ConsumeErr>;
+    fn maybe(&mut self, name: &str, maybe: Maybe) -> Result<NewPart, ConsumeErr>;
 
     fn assert(&mut self, name: &str, phi: Term) -> Result<(), ConsumeErr> {
-        let switch = Switch {
+        let switch = Maybe {
             resource: Resource::Impossible,
             args: vec![],
             cond: phi.bool_not(),
         };
 
-        self.once(name, switch)?;
+        self.maybe(name, switch)?;
         Ok(())
     }
 }
@@ -189,14 +204,18 @@ impl Heap for HeapConsume<'_> {
                 let have = self.forall(name, forall_arg)?;
                 self.assume.check_eq_part(&have, &need);
             }
-            NewPart::Once(once) => {
-                let switch = Switch {
-                    resource: once.resource.clone(),
-                    args: once.args.clone(),
-                    cond: Term::bool(true),
+            NewPart::Maybe(maybe) => {
+                let switch = Maybe {
+                    resource: maybe.resource.clone(),
+                    args: maybe.args.clone(),
+                    cond: maybe.cond,
                 };
-                let have = self.once(name, switch)?;
+                let have = self.maybe(name, switch)?;
                 self.assume.check_eq_part(&have, &need);
+            }
+            NewPart::Partial(_) => {
+                panic!("i don't think this can happen")
+                // might have to loop over the parts
             }
         }
         Ok(())
@@ -205,38 +224,45 @@ impl Heap for HeapConsume<'_> {
     fn forall(&mut self, name: &str, need: Forall) -> Result<NewPart, ConsumeErr> {
         // TODO: optimization: skip everything if cond is impossible
         let trans = &self.translate[name];
-        let Translate::Just(proj) = trans else {
-            panic!("can not construct forall")
+
+        let Translate::JustOne(proj) = trans else {
+            panic!("can not construct forall yet")
         };
 
         let have = self.lookup_resource(proj)?;
         // check that the resource type is correct
         assert!(&need.resource == have.resource());
 
-        // check that we have all the indices
-        let idx = need.resource.make_fresh_args();
-        let cond = need
-            .mask
-            .apply_bool(&idx)
-            .implies(&have.mask().apply_bool(&idx));
-        assert!(self.assume.is_always_true(cond), "missing a resource");
+        let part = if let Some(args) = have.args() {
+            let idx = need.resource.make_fresh_args();
+            let have_idx = FuncTerm::exactly(args).apply_bool(&idx);
+            let need_idx = need.mask.apply_bool(&idx);
+            let verify = need_idx.implies(&have_idx);
+            assert!(self.assume.is_always_true(verify), "missing a resource");
 
-        let remove = Removed {
-            proj: proj.clone(),
-            mask: need.mask.clone(),
-        };
-        self.remove_resource(remove, &need.resource)?;
+            have.remove_maybe(&Maybe {
+                resource: need.resource,
+                args: args.to_owned(),
+                cond: need.mask.apply(args),
+            })
+        } else {
+            let NewPart::Forall(forall) = have else {
+                unreachable!()
+            };
 
-        let part = match have {
-            NewPart::Forall(have) => NewPart::Forall(ForPart {
-                resource: have.resource,
+            // check that we have all the indices
+            let idx = need.resource.make_fresh_args();
+            let have_idx = forall.mask.apply_bool(&idx);
+            let need_idx = need.mask.apply_bool(&idx);
+            let verify = need_idx.implies(&have_idx);
+            assert!(self.assume.is_always_true(verify), "missing a resource");
+
+            forall.mask = forall.mask.difference(&need.mask);
+            NewPart::Forall(ForPart {
+                resource: need.resource,
                 mask: need.mask,
-                value: have.value,
-            }),
-            NewPart::Once(ref once) => {
-                let cond = need.mask.apply(&once.args);
-                have.cond_and(&cond)
-            }
+                value: forall.value,
+            })
         };
 
         let existing = self.old_scope.insert(name.to_owned(), part.clone());
@@ -245,10 +271,10 @@ impl Heap for HeapConsume<'_> {
         Ok(part)
     }
 
-    fn once(&mut self, name: &str, switch: Switch) -> Result<NewPart, ConsumeErr> {
+    fn maybe(&mut self, name: &str, switch: Maybe) -> Result<NewPart, ConsumeErr> {
         let trans = &self.translate[name];
 
-        if let Translate::Construct(map) = trans {
+        if let Translate::Build(map) = trans {
             let Resource::Named(named) = &switch.resource else {
                 panic!("can only construct named resources")
             };
@@ -260,7 +286,7 @@ impl Heap for HeapConsume<'_> {
             };
             (named.typ.fun)(&mut heap, &switch.args)?;
 
-            let part = NewPart::Once(OncePart {
+            let part = NewPart::Partial(OncePart {
                 resource: switch.resource,
                 args: switch.args,
                 map: heap.old_scope,
@@ -309,7 +335,7 @@ impl Heap for HeapProduce {
         Ok(part)
     }
 
-    fn once(&mut self, name: &str, switch: Switch) -> Result<NewPart, ConsumeErr> {
+    fn maybe(&mut self, name: &str, switch: Maybe) -> Result<NewPart, ConsumeErr> {
         // TODO: it would be nice if we did not have to specify indices when using these
         let forall = Forall {
             resource: switch.resource,
@@ -320,17 +346,58 @@ impl Heap for HeapProduce {
     }
 }
 
-impl SubContext {
-    fn lookup_resource(&self, proj: &Proj) -> Result<NewPart, ConsumeErr> {
-        let mut part = &self.forall[&proj.first];
-        let mut once;
+impl NewPart {
+    fn remove_maybe(&mut self, need: &Maybe) -> NewPart {
+        match self {
+            NewPart::Forall(have) => {
+                let need_mask = FuncTerm::exactly(&need.args).and(&FuncTerm::always(need.cond));
+                have.mask = have.mask.difference(&need_mask);
+                NewPart::Maybe(MaybePart {
+                    resource: need.resource,
+                    args: need.args.clone(),
+                    cond: need.cond,
+                    value: have.value.apply(&need.args),
+                })
+            }
+            NewPart::Maybe(have) => {
+                have.cond = have.cond.bool_and(&need.cond.bool_not());
+                NewPart::Maybe(MaybePart {
+                    resource: need.resource,
+                    args: need.args.clone(),
+                    cond: need.cond,
+                    value: have.value,
+                })
+            }
+            NewPart::Partial(have) => {
+                let heap = HeapConsume {
+                    inner: todo!(),
+                    translate: todo!(),
+                    old_scope: todo!(),
+                };
+            }
+        }
+    }
+}
 
-        for (args, name) in &proj.parts {
-            once = part.instance(args);
-            part = &once.map[name];
+impl SubContext {
+    fn remove_resource(&mut self, trans: &Translate) -> Result<&mut NewPart, ConsumeErr> {
+        match trans {
+            Translate::Slice(_) => todo!(),
+            Translate::JustOne(_) => todo!(),
+            Translate::Select(_, _) => todo!(),
+            Translate::Build(_, _) => todo!(),
         }
 
-        Ok(part.clone())
+        let mut part = &mut self.forall[&proj.first];
+
+        for name in &proj.parts {
+            let NewPart::Partial(once) = part else {
+                panic!()
+            };
+            part = &mut once.map[name];
+        }
+
+        Ok(part)
     }
 
     // let removed = &mut self.removed[&proj.first];

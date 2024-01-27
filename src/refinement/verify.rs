@@ -126,8 +126,8 @@ impl Assume {
                 assert!(self.is_always_true(intersect.implies(&eq).to_bool()));
                 return;
             }
-            (NewPart::Once(have), need) => (need.instance(&have.args), have),
-            (have, NewPart::Once(need)) => (have.instance(&need.args), need),
+            (NewPart::Partial(have), need) => (need.unfold(&have.args), have),
+            (have, NewPart::Partial(need)) => (have.unfold(&need.args), need),
         };
 
         for key in have.map.keys() {

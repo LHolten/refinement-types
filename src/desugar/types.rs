@@ -153,7 +153,7 @@ impl DesugarTypes {
                     let cond = switch.cond.as_ref();
                     let resource = self.get_resource(&switch.named);
 
-                    let switch = refinement::Switch {
+                    let switch = refinement::Maybe {
                         resource,
                         args,
                         cond: cond
@@ -162,7 +162,7 @@ impl DesugarTypes {
                     };
 
                     let switch_clone = switch.clone();
-                    let res = heap.once(name, switch_clone)?;
+                    let res = heap.maybe(name, switch_clone)?;
 
                     if let Resource::Owned = switch.resource {
                         let res_extended = res.get_byte(&switch.args).extend_to(32);

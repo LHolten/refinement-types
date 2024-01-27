@@ -67,7 +67,7 @@ pub struct Cond {
 }
 
 #[derive(Clone)]
-pub struct Switch {
+pub struct Maybe {
     pub resource: Resource,
     pub args: Vec<Term>,
     pub cond: Term,
