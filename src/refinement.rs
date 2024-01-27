@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
@@ -212,11 +210,6 @@ impl<V> Default for Value<V> {
             scope: None,
         }
     }
-}
-
-pub struct FuncName<V: Val> {
-    func: Weak<Lambda<V>>,
-    typ: Fun<NegTyp>,
 }
 
 pub enum Thunk<V: Val> {

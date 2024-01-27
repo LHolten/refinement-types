@@ -212,7 +212,9 @@ impl SubContext {
             }
 
             let cond = part.mask().apply_bool(&idx).implies(&covered.to_bool());
-            assert!(self.assume.is_always_true(cond));
+            let true = self.assume.is_always_true(cond) else {
+                return Err(EmptyErr { span: None });
+            };
         }
         Ok(())
     }

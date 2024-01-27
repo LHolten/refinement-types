@@ -393,9 +393,7 @@ impl Proj {
 
         let mut cond = Term::bool(true);
         let len = min(self.parts.len(), rhs.parts.len());
-        let (a, a_rem) = self.parts.split_at(len);
-        let (b, b_rem) = rhs.parts.split_at(len);
-        for (a, b) in zip(a, b) {
+        for (a, b) in zip(&self.parts[..len], &rhs.parts[..len]) {
             if a.1 != b.1 {
                 return None;
             }
