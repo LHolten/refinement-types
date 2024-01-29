@@ -184,8 +184,8 @@ impl DesugarTypes {
         Ok(())
     }
 
-    pub fn convert_named(&self, named: &Named) -> refinement::Name {
-        refinement::Name {
+    pub fn convert_named(&self, named: &Named) -> refinement::Named {
+        refinement::Named {
             id: named.id,
             typ: self.convert_pos(named.typ.clone()),
         }

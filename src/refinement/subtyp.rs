@@ -41,7 +41,6 @@ impl SubContext {
                 .map(|(k, v)| (k.clone(), Translate::simple(k.clone())))
                 .collect(),
             inner: self,
-            old_scope: HashMap::new(),
         };
 
         if typ.tau.len() != terms.len() {

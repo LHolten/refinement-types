@@ -14,6 +14,7 @@ use super::{term::Term, typing::zip_eq, Resource};
 pub enum FuncTerm {
     Free(Rc<FuncDecl<'static>>),
     User(Rc<dyn Fn(&[Term]) -> Term>),
+    Unused,
 }
 
 impl FuncTerm {
@@ -43,6 +44,7 @@ impl FuncTerm {
                 }
             }
             FuncTerm::User(func) => (func)(idx),
+            FuncTerm::Unused => unreachable!(),
         }
     }
 

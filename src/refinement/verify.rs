@@ -11,7 +11,7 @@ use z3::{
 
 use crate::{solver::solver, Nested};
 
-use super::{func_term::FuncTerm, heap::NewPart, term::Term, CtxForall, Forall, Resource};
+use super::{func_term::FuncTerm, heap::New, term::Term, CtxForall, Forall, Resource};
 
 impl Resource {
     pub fn make_fresh_args(&self) -> Vec<Term> {
@@ -49,38 +49,6 @@ impl Assume {
         }
     }
 
-    pub fn still_possible(&self, forall: &NewPart) -> bool {
-        let s = self.assume();
-        debug_assert_eq!(s.check(), SatResult::Sat);
-
-        let idx = forall.resource().make_fresh_args();
-        let cond = forall.mask().apply_bool(&idx);
-
-        match s.check_assumptions(&[cond]) {
-            SatResult::Unsat => false,
-            SatResult::Unknown => todo!(),
-            SatResult::Sat => true,
-        }
-    }
-
-    pub fn exactly_equal() {}
-    pub fn never_overlap() {}
-
-    pub fn always_contains(&self, large: &Forall, small: &Forall) -> bool {
-        if large.resource != small.resource {
-            return false;
-        }
-
-        // debug_assert_eq!(large_named.typ.tau, small_named.typ.tau);
-        let idx = large.resource.make_fresh_args();
-
-        let cond = small
-            .mask
-            .apply_bool(&idx)
-            .implies(&large.mask.apply_bool(&idx));
-        self.is_always_true(cond)
-    }
-
     pub fn is_always_eq(&self, l: &Term, r: &Term) -> bool {
         let cond = l.eq(r).to_bool();
         self.is_always_true(cond)
@@ -111,27 +79,6 @@ impl Assume {
             SatResult::Sat => {
                 panic!("value might be modified")
             }
-        }
-    }
-
-    // this assumes that the mask is equal, it checks that the values are equal
-    pub fn check_eq_part(&self, have: &NewPart, need: &NewPart) {
-        // if one side is Once, then expand the other side.
-        // repeat untill both sides are Forall, then compare
-        let (have, need) = match (have, need) {
-            (NewPart::Forall(have), NewPart::Forall(need)) => {
-                let idx = have.resource.make_fresh_args();
-                let intersect = have.mask.apply(&idx);
-                let eq = have.value.apply(&idx).eq(&need.value.apply(&idx));
-                assert!(self.is_always_true(intersect.implies(&eq).to_bool()));
-                return;
-            }
-            (NewPart::Partial(have), need) => (need.unfold(&have.args), have),
-            (have, NewPart::Partial(need)) => (have.unfold(&need.args), need),
-        };
-
-        for key in have.map.keys() {
-            self.check_eq_part(&have.map[key], &need.map[key]);
         }
     }
 

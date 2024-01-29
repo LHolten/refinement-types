@@ -18,7 +18,7 @@ use crate::desugar::Desugar;
 use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
-use self::heap::{ConsumeErr, Heap, NewPart, Proj};
+use self::heap::{ConsumeErr, Heap, New, Proj, Translate};
 
 use self::builtin::Builtin;
 use self::term::Term;
@@ -58,7 +58,7 @@ pub enum BinOp {
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub struct Cond {
-    pub named: Name,
+    pub named: Named,
     // only if the cond is `true`, does this named resource exist
     pub cond: Term,
     // these are the arguments to the named resource
@@ -76,7 +76,7 @@ pub struct Maybe {
 /// a single resource
 #[derive(Clone, PartialEq)]
 pub enum Resource {
-    Named(Name),
+    Named(Named),
     Owned,
     Impossible,
 }
@@ -105,7 +105,7 @@ impl Debug for CtxForall {
 #[must_use]
 pub struct SubContext {
     assume: Assume,
-    forall: HashMap<String, NewPart>,
+    forall: HashMap<String, New>,
     removed: Vec<Removed>,
     scope: Option<HashMap<String, Nested<Term>>>,
 }
@@ -219,12 +219,12 @@ pub enum Thunk<V: Val> {
 
 /// Named resource name
 #[derive(Clone)]
-pub struct Name {
+pub struct Named {
     pub id: usize,
     pub typ: Fun<PosTyp>,
 }
 
-impl PartialEq for Name {
+impl PartialEq for Named {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
