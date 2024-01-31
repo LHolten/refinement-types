@@ -11,7 +11,7 @@ use z3::{
 
 use crate::{solver::solver, Nested};
 
-use super::{func_term::FuncTerm, heap::New, term::Term, CtxForall, Forall, Resource};
+use super::{func_term::FuncTerm, heap::NewTerm, term::Term, CtxForall, Forall, Resource};
 
 impl Resource {
     pub fn make_fresh_args(&self) -> Vec<Term> {

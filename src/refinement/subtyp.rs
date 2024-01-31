@@ -4,7 +4,7 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 use crate::refinement::{
-    heap::{HeapConsume, HeapProduce},
+    heap::{HeapProduce, HeapRemove},
     SubContext,
 };
 
@@ -34,7 +34,7 @@ impl SubContext {
     }
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
-        let mut heap = HeapConsume {
+        let mut heap = HeapRemove {
             translate: self
                 .forall
                 .iter()

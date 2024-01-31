@@ -18,7 +18,7 @@ use crate::desugar::Desugar;
 use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
-use self::heap::{ConsumeErr, Heap, New, Proj, Translate};
+use self::heap::{ConsumeErr, CtxForall, Heap, NewTerm, Proj, Translate};
 
 use self::builtin::Builtin;
 use self::term::Term;
@@ -87,25 +87,11 @@ pub struct Forall {
     pub mask: FuncTerm,
 }
 
-#[derive(Clone)]
-pub struct CtxForall {
-    pub have: Forall,
-    pub value: FuncTerm,
-}
-
-impl Debug for CtxForall {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let idx = self.have.resource.make_fresh_args();
-        let mask = self.have.mask.apply_bool(&idx);
-        write!(f, "{mask:?}")
-    }
-}
-
 #[derive(Clone, Default)]
 #[must_use]
 pub struct SubContext {
     assume: Assume,
-    forall: HashMap<String, New>,
+    forall: HashMap<String, CtxForall>,
     removed: Vec<Removed>,
     scope: Option<HashMap<String, Nested<Term>>>,
 }

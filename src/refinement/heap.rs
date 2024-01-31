@@ -1,15 +1,19 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, hash::Hash, rc::Rc};
 
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
-use z3::ast::Bool;
-
-use crate::solver::ctx;
 
 use super::{func_term::FuncTerm, term::Term, Forall, Maybe, Resource, SubContext};
 
 #[derive(Clone)]
-pub enum New {
+pub struct CtxForall {
+    resource: Resource,
+    mask: NewTerm,
+    value: NewTerm,
+}
+
+#[derive(Clone)]
+pub enum NewTerm {
     Normal(Normal),
     Partial(Partial),
 }
@@ -17,143 +21,97 @@ pub enum New {
 #[derive(Clone)]
 struct Normal {
     resource: Resource,
-    mask: FuncTerm,
     value: FuncTerm,
 }
 
 #[derive(Clone)]
 struct Partial {
-    // named: Named,
     arg_sizes: Vec<(u32, String)>,
-    map: Rc<dyn Fn(&[Term]) -> HashMap<String, New>>,
-    // _map: HashMap<String, Rc<dyn Fn(&[Term]) -> New<V>>>
+    map: Rc<dyn Fn(&[Term]) -> HashMap<String, NewTerm>>,
 }
 
-#[derive(Clone, Copy)]
-pub enum MaskOp {
-    Distinct,
-    Includes,
-}
+impl NewTerm {
+    pub fn apply(&self, proj: &Idx) -> Term {
+        let mut curr = self.clone();
+        for (args, attr) in &proj.parts {
+            let curr = (curr.unfold().map)(&args).remove(attr).unwrap();
+        }
+        let NewTerm::Normal(curr) = curr else {
+            panic!()
+        };
+        curr.value.apply(&proj.last)
+    }
 
-impl New {
-    pub fn fresh_args(&self) -> Vec<Term> {
+    pub fn ite(&self, then: &Self, other: &Self) -> Self {
+        if let (NewTerm::Normal(cond), NewTerm::Normal(then), NewTerm::Normal(other)) =
+            (self, then, other)
+        {
+            NewTerm::Normal(Normal {
+                resource: cond.resource,
+                value: cond.value.ite(&then.value, &other.value),
+            })
+        } else {
+            let cond = self.unfold().clone();
+            let then = then.unfold().clone();
+            let other = other.unfold().clone();
+
+            let map = Rc::new(move |args| {
+                let mut other = (other.map)(args);
+                let then = (then.map)(args);
+                for (k, v) in (cond.map)(args) {
+                    other.insert(k, v.ite(&then[&k], &other[&k]));
+                }
+                other
+            });
+
+            NewTerm::Partial(Partial {
+                arg_sizes: cond.arg_sizes.clone(),
+                map,
+            })
+        }
+    }
+
+    pub fn fresh_args(&self) -> impl Iterator<Item = Idx> {
         match self {
-            Self::Normal(normal) => normal.resource.make_fresh_args(),
-            Self::Partial(partial) => partial
-                .arg_sizes
-                .iter()
-                .map(|(size, prefix)| Term::fresh(prefix, *size))
-                .collect(),
-        }
-    }
-
-    fn mask_diff(&mut self, mut need: New) {
-        if let (New::Normal(have), New::Normal(need)) = (&mut *self, &need) {
-            have.mask = have.mask.difference(&need.mask);
-        } else {
-            let (have, need) = (self.unfold(), need.unfold());
-            let (old_have, old_need) = (have.clone(), need.clone());
-            have.map = Rc::new(move |args| {
-                let mut have = (old_have.map)(args);
-                let need = (old_need.map)(args);
-                for (k, v) in need {
-                    have.get_mut(&k).unwrap().mask_diff(v);
-                }
-                have
-            });
-        }
-    }
-
-    fn copy_value(mut self, need: &mut New) {
-        if let (New::Normal(have), New::Normal(need)) = (&self, &mut *need) {
-            need.value = have.value.clone();
-        } else {
-            let (have, need) = (self.unfold(), need.unfold());
-            let (old_have, old_need) = (have.clone(), need.clone());
-            need.map = Rc::new(move |args| {
-                let mut have = (old_have.map)(args);
-                let mut need = (old_need.map)(args);
-                for (k, v) in &mut need {
-                    have.remove(k).unwrap().copy_value(v);
-                }
-                need
-            });
-        }
-    }
-
-    fn append(&mut self, mut new: New) {
-        if let (New::Normal(have), New::Normal(new)) = (&mut *self, &new) {
-            have.mask = have.mask.or(&new.mask);
-            have.value = new.mask.ite(&new.value, &have.value)
-        } else {
-            let (have, new) = (self.unfold(), new.unfold().clone());
-            let old_have = have.clone();
-            have.map = Rc::new(move |args| {
-                let (mut have, mut new) = ((old_have.map)(args), (new.map)(args));
-                have.iter_mut().for_each(|(k, v)| {
-                    v.mask_diff(new.remove(k).unwrap());
-                });
-                have
-            });
-        }
-    }
-
-    pub fn mask_cmp(mut self, mut need: New, op: MaskOp) -> Bool<'static> {
-        let idx = self.fresh_args();
-        if let (New::Normal(have), New::Normal(need)) = (&self, &need) {
-            let have_mask = have.mask.apply_bool(&idx);
-            let need_mask = need.mask.apply_bool(&idx);
-
-            match op {
-                MaskOp::Distinct => need_mask.xor(&have_mask),
-                MaskOp::Includes => need_mask.implies(&have_mask),
+            Self::Normal(normal) => {
+                vec![Idx {
+                    parts: vec![],
+                    last: normal.resource.make_fresh_args(),
+                }]
             }
-        } else {
-            let (have, need) = (self.unfold(), need.unfold());
-            let mut have = (have.map)(&idx);
-            let need = (need.map)(&idx);
-
-            need.into_iter()
-                .map(|(k, v)| have.remove(&k).unwrap().mask_cmp(v, op))
-                .fold(Bool::from_bool(ctx(), true), |a, b| a & b)
-        }
-    }
-
-    pub fn is_empty(self) -> Bool<'static> {
-        let idx = self.fresh_args();
-        match self {
-            New::Normal(have) => have.mask.apply_bool(&idx).not(),
-            New::Partial(have) => {
-                let have = (have.map)(&idx);
-                have.into_values()
-                    .map(|v| v.is_empty())
-                    .fold(Bool::from_bool(ctx(), true), |a, b| a & b)
+            Self::Partial(partial) => {
+                let args: Vec<Term> = partial
+                    .arg_sizes
+                    .iter()
+                    .map(|(size, prefix)| Term::fresh(prefix, *size))
+                    .collect();
+                (partial.map)(&args)
+                    .into_iter()
+                    .flat_map(|(k, v)| {
+                        let args = args.clone();
+                        v.fresh_args().map(move |mut rest| {
+                            rest.parts.insert(0, (args.clone(), k.clone()));
+                            rest
+                        })
+                    })
+                    .collect()
             }
         }
+        .into_iter()
     }
 
-    pub fn value_equal(mut self, mut need: New) -> Bool<'static> {
-        let idx = need.fresh_args();
-        if let (New::Normal(have), New::Normal(need)) = (&self, &need) {
-            let need_mask = need.mask.apply_bool(&idx);
-            let have_value = have.value.apply(&idx);
-            let need_value = need.value.apply(&idx);
-            need_mask.implies(&need_value.eq(&have_value).to_bool())
-        } else {
-            let (have, need) = (self.unfold(), need.unfold());
-            let mut have = (have.map)(&idx);
-            let need = (need.map)(&idx);
-
-            need.into_iter()
-                .map(|(k, v)| have.remove(&k).unwrap().value_equal(v))
-                .fold(Bool::from_bool(ctx(), true), |a, b| a & b)
-        }
-    }
+    // pub fn make_suitable(&self, projs: impl Iterator<Item = Proj>) -> impl Iterator<Item = Proj> {
+    //     projs.flat_map(|proj| {
+    //         self.remove_proj(&proj)
+    //             .fresh_args()
+    //             .map(|new| proj.concat(new))
+    //     })
+    // }
 
     pub fn bool_and(&mut self, cond: Term) {
         match self {
-            New::Normal(normal) => normal.mask = normal.mask.and(&FuncTerm::always(cond)),
-            New::Partial(partial) => {
+            NewTerm::Normal(normal) => normal.mask = normal.mask.and(&FuncTerm::always(cond)),
+            NewTerm::Partial(partial) => {
                 let old = partial.clone();
                 *partial = Partial {
                     arg_sizes: old.arg_sizes,
@@ -167,10 +125,10 @@ impl New {
         }
     }
 
-    pub fn with_proj(mut self, proj: &Proj) -> Self {
+    pub fn with_proj(mut self, proj: &Idx) -> Self {
         for (attr, expected) in proj.parts.clone().into_iter().rev() {
             let old = self.clone();
-            self = New::Partial(Partial {
+            self = NewTerm::Partial(Partial {
                 arg_sizes: expected
                     .iter()
                     .map(|x| (x.get_size(), "".to_owned()))
@@ -185,8 +143,8 @@ impl New {
         self
     }
 
-    pub fn remove_proj(mut self, proj: &Proj) -> Self {
-        for (attr, expected) in &proj.parts {
+    pub fn remove_proj(mut self, proj: &Idx) -> Self {
+        for (attr, expected) in &proj.0 {
             let inner = self.unfold();
             self = (inner.map)(&expected).remove(attr).unwrap();
         }
@@ -206,16 +164,13 @@ impl New {
                 let once = Partial {
                     arg_sizes: named.typ.tau.clone(),
                     map: Rc::new(move |args| {
-                        let mut heap = HeapProduce {
-                            scope_value: maybe.value.apply(args),
-                            new_scope: HashMap::new(),
+                        let mut heap = HeapUnfold {
+                            value: maybe.value.apply(args),
+                            cond: maybe.mask.apply(args),
+                            out: HashMap::new(),
                         };
                         (named.typ.fun)(&mut heap, args).unwrap();
 
-                        let cond = maybe.mask.apply(args);
-                        heap.new_scope
-                            .values_mut()
-                            .for_each(|v| v.bool_and(cond.clone()));
                         heap.new_scope
                     }),
                 };
@@ -231,7 +186,7 @@ impl New {
     }
 }
 
-pub(super) struct HeapConsume<'a> {
+pub(super) struct HeapRemove<'a> {
     pub inner: &'a mut SubContext,
     pub translate: HashMap<String, Translate>,
 }
@@ -257,13 +212,19 @@ pub struct Proj {
     pub parts: Vec<(String, Vec<Term>)>,
 }
 
-impl<'a> std::ops::DerefMut for HeapConsume<'a> {
+#[derive(Clone)]
+pub struct Idx {
+    parts: Vec<(Vec<Term>, String)>,
+    last: Vec<Term>,
+}
+
+impl<'a> std::ops::DerefMut for HeapRemove<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner
     }
 }
 
-impl<'a> std::ops::Deref for HeapConsume<'a> {
+impl<'a> std::ops::Deref for HeapRemove<'a> {
     type Target = SubContext;
 
     fn deref(&self) -> &Self::Target {
@@ -274,12 +235,12 @@ impl<'a> std::ops::Deref for HeapConsume<'a> {
 pub(super) struct HeapProduce {
     // the value of the resource we are expanding inside
     pub scope_value: Term,
-    pub new_scope: HashMap<String, New>,
+    pub new_scope: HashMap<String, CtxForall>,
 }
 
-impl New {
+impl NewTerm {
     pub fn get_byte(&self, idx: &[Term]) -> Term {
-        let New::Normal(forall) = self else {
+        let NewTerm::Normal(forall) = self else {
             panic!();
         };
         assert!(forall.resource == Resource::Owned);
@@ -288,10 +249,10 @@ impl New {
 }
 
 pub trait Heap {
-    fn exactly(&mut self, name: &str, part: New) -> Result<(), ConsumeErr>;
-    fn forall(&mut self, name: &str, forall: Forall) -> Result<New, ConsumeErr>;
+    fn exactly(&mut self, name: &str, part: CtxForall) -> Result<(), ConsumeErr>;
+    fn forall(&mut self, name: &str, forall: Forall) -> Result<NewTerm, ConsumeErr>;
 
-    fn maybe(&mut self, name: &str, switch: Maybe) -> Result<New, ConsumeErr> {
+    fn maybe(&mut self, name: &str, switch: Maybe) -> Result<NewTerm, ConsumeErr> {
         let forall = Forall {
             resource: switch.resource,
             mask: FuncTerm::exactly(&switch.args).and(&FuncTerm::always(switch.cond)),
@@ -310,37 +271,42 @@ pub trait Heap {
     }
 }
 
-impl Heap for HeapConsume<'_> {
-    fn exactly(&mut self, name: &str, mut need: New) -> Result<(), ConsumeErr> {
-        let original = need.clone();
+impl Heap for HeapRemove<'_> {
+    fn exactly(&mut self, name: &str, mut need: CtxForall) -> Result<(), ConsumeErr> {
         let trans = self.translate[name].clone();
-        self.remove(&trans, &mut need);
-        let eq = original.value_equal(need);
-        assert!(self.assume.is_always_true(eq));
+        let have_value = self.remove(&trans, &need.mask);
+
+        for proj in need.mask.fresh_args() {
+            let need_mask = need.mask.apply(&proj);
+            let value_have = have_value.apply(&proj);
+            let value_need = need.value.apply(&proj);
+            let verify = need_mask.implies(&value_have.eq(&value_need));
+            assert!(self.assume.is_always_true(verify.to_bool()));
+        }
+
         Ok(())
     }
 
-    fn forall(&mut self, name: &str, need: Forall) -> Result<New, ConsumeErr> {
+    fn forall(&mut self, name: &str, need: Forall) -> Result<NewTerm, ConsumeErr> {
         // TODO: optimization: skip everything if cond is impossible
-        let mut need = New::Normal(Normal {
+        let need = NewTerm::Normal(Normal {
             resource: need.resource,
-            mask: need.mask,
-            value: FuncTerm::Unused,
+            value: need.mask,
         });
         let trans = self.translate[name].clone();
-        self.remove(&trans, &mut need);
-        Ok(need)
+        let result = self.remove(&trans, &need);
+        Ok(result)
     }
 }
 
 impl Heap for HeapProduce {
-    fn exactly(&mut self, name: &str, part: New) -> Result<(), ConsumeErr> {
+    fn exactly(&mut self, name: &str, part: CtxForall) -> Result<(), ConsumeErr> {
         let existing = self.new_scope.insert(name.to_owned(), part);
         assert!(existing.is_none());
         Ok(())
     }
 
-    fn forall(&mut self, name: &str, have: Forall) -> Result<New, ConsumeErr> {
+    fn forall(&mut self, name: &str, have: Forall) -> Result<NewTerm, ConsumeErr> {
         let func = have.resource.associated_func();
         // we want to make sure that expanding the same resource twice gives the same result
         // this is why the values inside the forall are keyed by the parent value
@@ -351,56 +317,65 @@ impl Heap for HeapProduce {
             new_args.extend_from_slice(args);
             func.apply(&new_args)
         });
-        let part = New::Normal(Normal {
+        let part = CtxForall {
             resource: have.resource,
-            mask: have.mask,
-            value,
-        });
+            mask: NewTerm::Normal(Normal {
+                resource: have.resource,
+                value: have.mask,
+            }),
+            value: NewTerm::Normal(Normal {
+                resource: have.resource,
+                value,
+            }),
+        };
 
         let existing = self.new_scope.insert(name.to_owned(), part.clone());
         assert!(existing.is_none());
-        Ok(part)
+        Ok(part.value)
     }
 }
 
 impl SubContext {
     // self is updated to remove the mask
-    // need is updated to set the value (mask may be overriden)
-    fn remove(&mut self, trans: &Translate, need: &mut New) {
+    // post: self mask includes the mask indices
+    fn remove(&mut self, trans: &Translate, need_mask: &NewTerm) -> NewTerm {
         match trans {
             Translate::Slice(proj) => {
-                let need_proj = need.clone().with_proj(proj);
-                let have = &mut self.forall.get_mut(&proj.first).unwrap();
-                let verify = have.clone().mask_cmp(need_proj.clone(), MaskOp::Includes);
-                assert!(self.assume.is_always_true(verify));
+                let need_proj = need_mask.clone().with_proj(proj);
+                let have = self.forall.get_mut(&proj.first).unwrap();
 
-                have.mask_diff(need_proj);
-                have.clone().remove_proj(proj).copy_value(need);
+                for args in need_mask.fresh_args() {
+                    let need_idx = need_mask.apply(&args);
+                    let have_idx = have.mask.apply(&args);
+                    let verify = need_idx.implies(&have_idx).to_bool();
+                    assert!(self.assume.is_always_true(verify));
+                }
+
+                have.mask = need_mask.ite(&NewTerm::always(Term::bool(false)), &have.mask);
+                have.value
             }
             Translate::Build(args, build) => {
                 let args = args.clone();
-                let need = need.unfold();
+                let need = need_mask.unfold();
                 // TODO: check that we indeed only need for args
                 let mut need_one = (need.map)(&args);
 
+                let mut out = HashMap::new();
                 for (k, v) in &mut need_one {
-                    self.remove(&build[k], v);
+                    let val = self.remove(&build[k], v);
+                    out.insert(k.clone(), val);
                 }
-                *need = Partial {
+
+                NewTerm::Partial(Partial {
                     arg_sizes: need.arg_sizes.clone(),
-                    map: Rc::new(move |idx| {
-                        let cond = FuncTerm::exactly(&args).apply(idx);
-                        let mut new = need_one.clone();
-                        new.values_mut().for_each(|v| v.bool_and(cond.clone()));
-                        new
-                    }),
-                }
+                    map: Rc::new(move |idx| out.clone()),
+                })
             }
         }
     }
 
     // self is updated to include both the mask and value of `new`
-    fn append(&mut self, trans: &Translate, mut new: New) {
+    fn append(&mut self, trans: &Translate, mut new: CtxForall) {
         match trans {
             Translate::Slice(proj) => {
                 let new_proj = new.with_proj(proj);
@@ -418,6 +393,44 @@ impl SubContext {
                 }
             }
         }
+    }
+}
+
+struct HeapUnfold {
+    cond: Term,
+    value: Term,
+    out: HashMap<String, CtxForall>,
+}
+
+impl Heap for HeapUnfold {
+    fn exactly(&mut self, name: &str, mut part: CtxForall) -> Result<(), ConsumeErr> {
+        part.mask.bool_and(self.cond);
+        self.out.insert(name.to_owned(), part);
+        Ok(())
+    }
+
+    fn forall(&mut self, name: &str, have: Forall) -> Result<NewTerm, ConsumeErr> {
+        let func = have.resource.associated_func();
+        let scope_value = self.value.clone();
+        let value = FuncTerm::new(move |args| {
+            let mut new_args = vec![scope_value.clone()];
+            new_args.extend_from_slice(args);
+            func.apply(&new_args)
+        });
+        let mut part = CtxForall {
+            resource: have.resource,
+            mask: NewTerm::Normal(Normal {
+                resource: have.resource,
+                value: have.mask,
+            }),
+            value: NewTerm::Normal(Normal {
+                resource: have.resource,
+                value,
+            }),
+        };
+        part.mask.bool_and(self.cond);
+        self.out.insert(name.to_owned(), part);
+        Ok(part.value)
     }
 }
 
