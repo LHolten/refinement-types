@@ -1,18 +1,9 @@
-use std::collections::HashMap;
-
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use crate::refinement::{
-    heap::{HeapProduce, HeapRemove},
-    SubContext,
-};
+use crate::refinement::SubContext;
 
-use super::{
-    heap::{ConsumeErr, Translate},
-    term::Term,
-    Fun, InnerDiagnostic, NegTyp, PosTyp, Solved,
-};
+use super::{heap::ConsumeErr, term::Term, Fun, InnerDiagnostic, NegTyp, PosTyp, Solved};
 
 impl SubContext {
     pub fn extract<T>(&mut self, n: &Fun<T>) -> Solved<T> {
@@ -22,31 +13,21 @@ impl SubContext {
             terms.push(term);
         }
 
-        let mut heap = HeapProduce {
-            new_scope: HashMap::new(),
-            scope_value: Term::fresh_uninterpreted(),
-        };
-        let typ = (n.fun)(&mut heap, &terms).unwrap();
-        // TODO: check what happens when there is a conflict
-        self.forall.extend(heap.new_scope);
+        let typ = self.append(|heap| {
+            // TODO: check what happens when there is a conflict
+            (n.fun)(heap, &terms).unwrap()
+        });
 
         Solved { inner: typ, terms }
     }
 
     pub fn with_terms<T>(&mut self, typ: &Fun<T>, terms: &[Term]) -> Result<T, ConsumeErr> {
-        let mut heap = HeapRemove {
-            translate: self
-                .forall
-                .iter()
-                .map(|(k, v)| (k.clone(), Translate::simple(k.clone())))
-                .collect(),
-            inner: self,
-        };
+        let res = self.remove(|heap| {
+            // TODO: check what happens when there is a conflict
+            (typ.fun)(heap, terms).unwrap()
+        });
 
-        if typ.tau.len() != terms.len() {
-            return Err(ConsumeErr::NumArgs);
-        }
-        (typ.fun)(&mut heap, terms)
+        Ok(res)
     }
 
     pub fn sub_pos_typ(mut self, q: &Fun<PosTyp>, p: &Fun<PosTyp>) -> Result<(), SubTypErr> {

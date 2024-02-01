@@ -2,6 +2,7 @@ use crate::error::MultiFile;
 use crate::parse::expr::{Spanned, Value};
 use crate::parse::types::{Constraint, NegTyp, PosTyp, Prop};
 use crate::refinement::heap::{ConsumeErr, Heap};
+use crate::refinement::Forall;
 use crate::refinement::{func_term::FuncTerm, term::Term, typing::zip_eq, Resource};
 use crate::{refinement, Nested};
 
@@ -161,8 +162,11 @@ impl DesugarTypes {
                             .unwrap_or(Term::bool(true)),
                     };
 
-                    let switch_clone = switch.clone();
-                    let res = heap.maybe(name, switch_clone)?;
+                    let forall = Forall {
+                        resource: switch.resource.clone(),
+                        mask: FuncTerm::exactly(&switch.args).and(&FuncTerm::always(switch.cond)),
+                    };
+                    let res = heap.maybe(name, switch)?;
 
                     if let Resource::Owned = switch.resource {
                         let res_extended = res.get_byte(&switch.args).extend_to(32);
@@ -170,7 +174,7 @@ impl DesugarTypes {
                     }
 
                     let equal = Rc::new(move |h: &mut dyn Heap, new_name: &str| {
-                        h.exactly(new_name, res.clone())
+                        h.exactly(new_name, forall, res.clone())
                     });
                     self.exactly.insert(name.clone(), equal);
                 }

@@ -18,7 +18,7 @@ use crate::desugar::Desugar;
 use crate::{parse, Nested};
 
 use self::func_term::FuncTerm;
-use self::heap::{ConsumeErr, CtxForall, Heap, NewTerm, Proj, Translate};
+use self::heap::{ConsumeErr, Heap, NewTerm, Proj};
 
 use self::builtin::Builtin;
 use self::term::Term;
@@ -91,8 +91,7 @@ pub struct Forall {
 #[must_use]
 pub struct SubContext {
     assume: Assume,
-    forall: HashMap<String, CtxForall>,
-    removed: Vec<Removed>,
+    forall: HashMap<String, NewTerm>,
     scope: Option<HashMap<String, Nested<Term>>>,
 }
 
