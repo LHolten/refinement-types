@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use super::{func_term::FuncTerm, term::Term, Forall, Maybe, Resource, SubContext};
+use super::{func_term::FuncTerm, term::Term, Forall, Maybe, Named, Resource, SubContext};
 
 #[derive(Clone)]
 pub enum NewTerm {
@@ -13,7 +13,6 @@ pub enum NewTerm {
 
 #[derive(Clone)]
 pub struct Normal {
-    // pub resource: Resource,
     pub value: FuncTerm,
     pub mask: FuncTerm,
 }
@@ -41,71 +40,10 @@ pub enum SingleValue {
 
 #[derive(Clone)]
 pub struct Partial {
-    // arg_sizes: Vec<(u32, String)>,
     map: Rc<dyn Fn(&[Term]) -> HashMap<String, NewTerm>>,
 }
 
-// impl FuncTerm {
-//     pub fn ite_new(&self, value: ValueOnly, mut other: NewTerm) -> NewTerm {
-//         if let (ValueOnly::Normal(value), NewTerm::Normal(normal)) = (value, other) {
-//             NewTerm::Normal(Normal {
-//                 resource: normal.resource,
-//                 value: self.ite(&value, &normal.value),
-//                 mask: self.or(&normal.mask),
-//             })
-//         } else {
-//             let value = value.unfold();
-//             let other = other.unfold();
-
-//             NewTerm::Partial(Partial {
-//                 arg_sizes: other.arg_sizes,
-//                 map: Rc::new(|idx| {
-//                     let cond = FuncTerm::always(self.apply(idx));
-//                     let mut other = (other.map)(idx);
-//                     for (k, v) in value(idx) {
-//                         other[&k] = cond.ite_new(v, other[&k]);
-//                     }
-//                     other
-//                 }),
-//             })
-//         }
-//     }
-// }
-
 impl NewTerm {
-    // get a partial from a maybe or partial resource
-    // pub fn unfold(&mut self) -> &mut Partial {
-    //     match self {
-    //         Self::Normal(maybe) => {
-    //             let maybe = maybe.clone();
-
-    //             let Resource::Named(named) = maybe.resource else {
-    //                 panic!("can only access attributes of named resources")
-    //             };
-
-    //             let once = Partial {
-    //                 arg_sizes: named.typ.tau.clone(),
-    //                 map: Rc::new(move |args| {
-    //                     let mut heap = HeapUnfold {
-    //                         value: maybe.value.apply(args),
-    //                         cond: maybe.mask.apply(args),
-    //                         out: HashMap::new(),
-    //                     };
-    //                     (named.typ.fun)(&mut heap, args).unwrap();
-    //                     heap.out
-    //                 }),
-    //             };
-
-    //             *self = Self::Partial(once);
-    //             let Self::Partial(once) = self else {
-    //                 unreachable!()
-    //             };
-    //             once
-    //         }
-    //         Self::Partial(partial) => partial,
-    //     }
-    // }
-
     pub fn value(&self) -> ValueOnly {
         match self {
             NewTerm::Normal(normal) => ValueOnly::Normal(normal.value),
@@ -122,18 +60,13 @@ impl NewTerm {
 impl ValueOnly {
     pub fn bool_and(&self, func: FuncTerm) -> NewTerm {
         match self {
-            ValueOnly::Normal(normal) => {
-                NewTerm::Normal(Normal {
-                    // resource: todo!(),
-                    value: normal.clone(),
-                    mask: func,
-                })
-                // normal.mask = normal.mask.and(&func)
-            }
+            ValueOnly::Normal(normal) => NewTerm::Normal(Normal {
+                value: normal.clone(),
+                mask: func,
+            }),
             ValueOnly::Partial(partial) => {
                 let old = partial.clone();
                 NewTerm::Partial(Partial {
-                    // arg_sizes: old.arg_sizes,
                     map: Rc::new(move |args| {
                         let mut new = old(args);
                         let func = FuncTerm::always(func.apply(args));
@@ -146,20 +79,20 @@ impl ValueOnly {
         }
     }
 
-    // pub fn unfold(&self, named: Named) -> Rc<dyn Fn(&[Term]) -> HashMap<String, ValueOnly>> {
-    //     match self {
-    //         ValueOnly::Partial(partial) => partial.clone(),
-    //         ValueOnly::Normal(func) => Rc::new(|idx| {
-    //             let mut heap = HeapUnfold {
-    //                 cond: Term::bool(true),
-    //                 value: func.apply(idx),
-    //                 out: HashMap::new(),
-    //             };
-    //             (named.typ.fun)(&mut heap, idx).unwrap();
-    //             heap.out.into_iter().map(|(k, v)| (k, v.value())).collect()
-    //         }),
-    //     }
-    // }
+    pub fn unfold(&self, named: Named) -> Rc<dyn Fn(&[Term]) -> HashMap<String, ValueOnly>> {
+        match self {
+            ValueOnly::Partial(partial) => partial.clone(),
+            ValueOnly::Normal(func) => Rc::new(|idx| {
+                let mut heap = HeapUnfold {
+                    cond: Term::bool(true),
+                    value: func.apply(idx),
+                    out: HashMap::new(),
+                };
+                (named.typ.fun)(&mut heap, idx).unwrap();
+                heap.out.into_iter().map(|(k, v)| (k, v.value())).collect()
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -182,18 +115,11 @@ pub(super) struct HeapRemove {
     pub old_scope: HashMap<String, NewTerm>,
 }
 
-// pub(super) struct HeapProduce {
-//     // the value of the resource we are expanding inside
-//     pub scope_value: Term,
-//     pub new_scope: HashMap<String, NewTerm>,
-// }
-
 impl NewTerm {
     pub fn get_byte(&self, idx: &[Term]) -> Term {
         let NewTerm::Normal(forall) = self else {
             panic!();
         };
-        // assert!(forall.resource == Resource::Owned);
         forall.value.apply(idx)
     }
 }
@@ -294,30 +220,12 @@ impl Heap for HeapCheck {
         };
         self.verify = self.verify.bool_and(&pre.implies(&post));
         // TODO: when HeapOp::Append, i need to generate these values?
-        Ok(self.old_scope[name].value())
+        match self.op {
+            HeapOp::Remove => Ok(self.old_scope[name].value()),
+            HeapOp::Append => todo!(),
+        }
     }
 }
-
-// impl Heap for HeapProduce {
-//     fn exactly(&mut self, name: &str, forall: Forall, value: ValueOnly) -> Result<(), ConsumeErr> {
-//         self.new_scope[name] = forall.mask.ite_new(value, self.new_scope[name]);
-//         Ok(())
-//     }
-
-//     fn forall(&mut self, name: &str, have: Forall) -> Result<ValueOnly, ConsumeErr> {
-//         let func = have.resource.associated_func();
-//         let scope_value = self.scope_value.clone();
-//         let value = FuncTerm::new(move |args| {
-//             let mut new_args = vec![scope_value.clone()];
-//             new_args.extend_from_slice(args);
-//             func.apply(&new_args)
-//         });
-
-//         let value = ValueOnly::Normal(value);
-//         self.exactly(name, have, value)?;
-//         Ok(value)
-//     }
-// }
 
 struct HeapIte {
     cond: Term,
@@ -332,7 +240,6 @@ impl Heap for HeapIte {
         self.out[name] = if let (ValueOnly::Normal(value), NewTerm::Normal(normal)) = (value, other)
         {
             NewTerm::Normal(Normal {
-                // resource: forall.resource,
                 value: mask.ite(&value, &normal.value),
                 mask: mask.or(&normal.mask),
             })
@@ -342,7 +249,6 @@ impl Heap for HeapIte {
             };
             let other = match other {
                 NewTerm::Normal(normal) => Partial {
-                    // arg_sizes: forall.resource.arg_sizes(),
                     map: Rc::new(|idx| {
                         let mut heap = HeapUnfold {
                             cond: normal.mask.apply(idx),
@@ -357,7 +263,6 @@ impl Heap for HeapIte {
             };
 
             NewTerm::Partial(Partial {
-                // arg_sizes: other.arg_sizes,
                 map: Rc::new(|idx| {
                     let mut heap = HeapIte {
                         cond: mask.apply(idx),
@@ -374,16 +279,9 @@ impl Heap for HeapIte {
     }
 
     fn forall(&mut self, name: &str, have: Forall) -> Result<ValueOnly, ConsumeErr> {
+        let resource = &have.resource;
         let value = match self.value {
-            SingleValue::Just(scope_value) => {
-                let func = have.resource.associated_func();
-                let value = FuncTerm::new(move |args| {
-                    let mut new_args = vec![scope_value.clone()];
-                    new_args.extend_from_slice(args);
-                    func.apply(&new_args)
-                });
-                ValueOnly::Normal(value)
-            }
+            SingleValue::Just(scope_value) => ValueOnly::Normal(resource.expand(scope_value)),
             SingleValue::Map(map) => map[name],
         };
 
@@ -392,9 +290,18 @@ impl Heap for HeapIte {
     }
 }
 
+impl Resource {
+    pub fn expand(&self, scope_value: Term) -> FuncTerm {
+        let func = self.associated_func();
+        FuncTerm::new(move |args| {
+            let mut new_args = vec![scope_value.clone()];
+            new_args.extend_from_slice(args);
+            func.apply(&new_args)
+        })
+    }
+}
+
 impl SubContext {
-    // self is updated to remove the mask
-    // post: self mask includes the mask indices
     pub fn remove<T>(&mut self, mut new: impl FnOnce(&mut dyn Heap) -> T) -> T {
         let mut heap = HeapCheck {
             op: HeapOp::Remove,
@@ -412,15 +319,7 @@ impl SubContext {
         res
     }
 
-    // self is updated to include both the mask and value of `new`
     pub fn append<T>(&mut self, mut new: impl Fn(&mut dyn Heap) -> T) -> T {
-        // let mut heap = HeapUnfold {
-        //     cond: Term::bool(true),
-        //     value: Term::fresh_uninterpreted(),
-        //     out: HashMap::new(),
-        // };
-        // let res = new(&mut heap);
-
         let mut heap = HeapCheck {
             op: HeapOp::Append,
             old_scope: self.forall,
