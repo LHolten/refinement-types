@@ -122,7 +122,7 @@
 //! mutating through a borrow allows moving values as long as they stay in the same tree + region
 
 use core::fmt;
-use std::{collections::HashSet, mem::take, rc::Rc, sync::atomic::AtomicUsize};
+use std::{collections::HashSet, rc::Rc, sync::atomic::AtomicUsize};
 
 use crate::refinement::{func_term::FuncTerm, term::Term};
 
@@ -199,9 +199,7 @@ pub struct Owned {
 // its job is to provide heap values and record which values are used
 // it should also use the proofs in the `rec` field to prove recursive calls
 struct CheckScope {
-    in_scope: HashSet<RegionId>,
     frozen: HashSet<RegionId>,
-
     params: Params,
 }
 
@@ -215,38 +213,22 @@ impl CheckScope {
         assert_eq!(typ.name, proof.name);
 
         for b in proof.borrow.difference(&typ.borrow) {
-            assert!(self.in_scope.contains(b));
             self.frozen.insert(*b);
         }
     }
 
-    // pub fn rec_owned(&mut self, prop: TypWithBorrow) -> (RegionId, HashSet<RegionId>) {
-    //     let reg = self.rec_owned.remove(0);
+    pub fn owned(&mut self, typ: TypId) -> HashSet<RegionId> {
+        let own = self.params.rec.remove(0);
+        assert_eq!(own.name, typ);
 
-    //     assert!(!self.frozen.contains(&reg));
-    //     let proof = self.in_scope.remove(&reg).unwrap();
-
-    //     self.rec.insert(0, proof);
-    //     let out = self.rec(prop);
-
-    //     (reg, out)
-    // }
-
-    pub fn owned(&mut self, typ: TypId) -> RegionId {
-        let own = self.params.owned.remove(0);
-        assert_eq!(own.typ, typ);
-
-        assert!(!self.frozen.contains(&own.reg));
-        assert!(self.in_scope.remove(&own.reg));
-
-        own.reg
+        assert!(self.params.owned.is_superset(&own.borrow));
+        own.borrow
     }
 }
 
 struct UnrollScope {
     // these will be borrowed by all references
     frozen: HashSet<RegionId>,
-
     params: Params,
 }
 
@@ -254,12 +236,12 @@ struct UnrollScope {
 struct Params {
     value: Vec<Term>,
     rec: Vec<TypWithBorrow>,
-    owned: Vec<Owned>,
+    owned: HashSet<RegionId>,
 }
 
 impl Params {
     fn owned_regions(&self) -> HashSet<RegionId> {
-        self.owned.iter().map(|own| own.reg).collect()
+        self.owned.clone()
     }
 }
 
@@ -275,171 +257,92 @@ impl UnrollScope {
         self.params.rec.push(typ);
     }
 
-    pub fn owned(&mut self, mut typ: TypId) -> RegionId {
+    pub fn owned(&mut self, mut typ: TypId) -> HashSet<RegionId> {
         let reg = RegionId::new();
-        self.params.owned.push(Owned { typ, reg });
-        reg
+        self.params.owned.insert(reg);
+        self.params.rec.push(TypWithBorrow {
+            name: typ,
+            borrow: HashSet::from_iter([reg]),
+        });
+        HashSet::from_iter([reg])
     }
-}
-
-struct Fact {
-    whole: RegionId,
-    parts: HashSet<RegionId>,
 }
 
 struct Scope {
     outer_scope: RegionId,
     in_scope: HashSet<RegionId>,
-    facts: Vec<Fact>,
 }
 
 impl Scope {
-    pub fn new(typ: TypId) -> (Self, Params) {
-        let outer_scope = RegionId::new();
+    pub fn remove_regions(&mut self, regions: HashSet<RegionId>) {
+        assert!(self.in_scope.is_superset(&regions));
+        self.in_scope = self.in_scope.difference(&regions).copied().collect();
+    }
 
+    // will return what is frozen
+    pub fn check(&mut self, typ: TypId, params: Params) -> HashSet<RegionId> {
+        self.remove_regions(params.owned);
+        let mut check = CheckScope {
+            frozen: HashSet::new(),
+            params,
+        };
+        (typ.0.func_check)(&mut check);
+        assert!(self.in_scope.is_superset(&check.frozen));
+        check.frozen
+    }
+
+    pub fn unroll(&mut self, typ: TypId, frozen: HashSet<RegionId>) -> Params {
         let mut unroll = UnrollScope {
-            frozen: [outer_scope].into_iter().collect(),
+            frozen,
             params: Params::default(),
         };
         (typ.0.func_unroll)(&mut unroll);
-        let mut new_params = unroll.params;
+        self.in_scope.extend(unroll.params.owned);
+        unroll.params
+    }
 
-        let scope = Scope {
+    pub fn new(typ: TypId) -> (Self, Params) {
+        let outer_scope = RegionId::new();
+        let mut scope = Scope {
             outer_scope,
-            in_scope: new_params.owned_regions(),
-            facts: vec![],
+            in_scope: HashSet::new(),
         };
-        (scope, new_params)
+        let params = scope.unroll(typ, HashSet::from_iter([outer_scope]));
+        (scope, params)
     }
 
     pub fn finish(mut self, typ: TypId, params: Params) {
-        let mut check = CheckScope {
-            in_scope: take(&mut self.in_scope),
-            frozen: HashSet::new(),
-            params,
-        };
-        (typ.0.func_check)(&mut check);
-        assert!(check.in_scope.remove(&self.outer_scope));
-        assert!(check.in_scope.is_empty());
+        let frozen = self.check(typ, params);
+        assert!(self.in_scope.remove(&self.outer_scope));
+
+        // TODO: This will prevent some leaks
+        assert!(self.in_scope.is_empty());
     }
 
-    pub fn apply_func(
-        &mut self,
-        func: Box<dyn Fn(&mut CheckScope) -> Box<dyn Fn(&mut UnrollScope)>>,
-        params: Params,
-    ) -> Params {
-        let mut check = CheckScope {
-            in_scope: take(&mut self.in_scope),
-            frozen: HashSet::new(),
-            params,
-        };
-        let ret = (func)(&mut check);
-        self.in_scope = check.in_scope;
-
-        let mut unroll = UnrollScope {
-            frozen: check.frozen,
-            params: Params::default(),
-        };
-        (ret)(&mut unroll);
-        let mut new_params = unroll.params;
-
-        self.in_scope.extend(new_params.owned_regions());
-
+    pub fn apply_func(&mut self, inp: TypId, out: TypId, params: Params) -> Params {
+        let frozen = self.check(inp, params);
+        let new_params = self.unroll(out, frozen);
         new_params
     }
 
-    pub fn construct(&mut self, typ: TypId, params: Params) -> Owned {
-        let mut check = CheckScope {
-            in_scope: take(&mut self.in_scope),
-            frozen: HashSet::new(),
-            params,
-        };
-        (typ.0.func_check)(&mut check);
-        self.in_scope = check.in_scope;
-        assert!(check.frozen.is_empty());
+    pub fn destruct(&mut self, val: TypWithBorrow) -> (Params, Mutating) {
+        self.remove_regions(val.borrow);
 
-        let reg = RegionId::new();
-        self.in_scope.insert(reg);
-        self.facts.push(Fact {
-            whole: reg,
-            parts: params.owned_regions(),
-        });
-
-        Owned { typ, reg }
-    }
-
-    pub fn destruct(&mut self, owned: Owned) -> Params {
-        assert!(self.in_scope.remove(&owned.reg));
-
-        let mut unroll = UnrollScope {
-            frozen: HashSet::default(),
-            params: Params::default(),
-        };
-        (owned.typ.0.func_unroll)(&mut unroll);
-        let mut new_params = unroll.params;
-
-        self.in_scope.extend(new_params.owned_regions());
-        self.facts.push(Fact {
-            whole: owned.reg,
-            parts: new_params.owned_regions(),
-        });
-
-        new_params
-    }
-
-    /// reading does not mutate the scope, but it does check validity
-    pub fn read(&self, val: TypWithBorrow) -> Params {
-        assert!(val.borrow.is_subset(&self.in_scope));
-
-        let mut scope = UnrollScope {
-            frozen: HashSet::new(),
-            params: Params::default(),
-        };
-        (val.name.0.func_unroll)(&mut scope);
-        let mut params = scope.params;
-
-        for new in take(&mut params.owned) {
-            for rec in &mut params.rec {
-                // need to rewrite params to point to `val.borrows` instead
-                if rec.borrow.remove(&new.reg) {
-                    rec.borrow.extend(val.borrow.clone())
-                }
-            }
-            params.rec.push(new.borrow());
-        }
-
-        params
-    }
-
-    pub fn deref(&mut self, val: TypWithBorrow) -> (Params, Mutating) {
-        assert!(val.borrow.is_subset(&self.in_scope));
-        self.in_scope = self.in_scope.difference(&val.borrow).cloned().collect();
-
-        let mut scope = UnrollScope {
-            frozen: HashSet::new(),
-            params: Params::default(),
-        };
-        (val.name.0.func_unroll)(&mut scope);
-
+        let params = self.unroll(val.name, HashSet::new());
         let m = Mutating {
             original: val,
-            unfolded: scope.params.owned_regions(),
+            unfolded: params.owned,
         };
 
-        (scope.params, m)
+        (params, m)
     }
 
-    pub fn recover(&mut self, params: Params, m: Mutating) {
-        assert!(m.unfolded.is_subset(&params.owned_regions()));
+    pub fn construct(&mut self, params: Params, m: Mutating) {
+        // TODO: this will make sure that dereference is stable
+        assert!(m.unfolded.is_subset(&params.owned));
 
-        let mut check = CheckScope {
-            in_scope: take(&mut self.in_scope),
-            frozen: HashSet::new(),
-            params,
-        };
-        (m.original.name.0.func_check)(&mut check);
-        self.in_scope = check.in_scope;
-        assert!(check.frozen.is_empty());
+        let frozen = self.check(m.original.name, params);
+        assert!(frozen.is_empty());
 
         self.in_scope.extend(m.original.borrow);
     }
