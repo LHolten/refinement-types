@@ -328,18 +328,19 @@ impl Scope {
     pub fn destruct(&mut self, val: TypWithBorrow) -> (Params, Mutating) {
         self.remove_regions(val.borrow);
 
+        // TODO: maybe freeze m.token?
         let params = self.unroll(val.name, HashSet::new());
         let m = Mutating {
             original: val,
-            unfolded: params.owned,
+            token: RegionId::new(),
         };
+        self.in_scope.insert(m.token);
 
         (params, m)
     }
 
     pub fn construct(&mut self, params: Params, m: Mutating) {
-        // TODO: this will make sure that dereference is stable
-        assert!(m.unfolded.is_subset(&params.owned));
+        self.remove_regions(HashSet::from_iter([m.token]));
 
         let frozen = self.check(m.original.name, params);
         assert!(frozen.is_empty());
@@ -350,5 +351,5 @@ impl Scope {
 
 struct Mutating {
     original: TypWithBorrow,
-    unfolded: HashSet<RegionId>,
+    token: RegionId,
 }
